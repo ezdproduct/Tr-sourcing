@@ -63,4 +63,24 @@ describe('<SourcingDashboard />', () => {
     // In Staff mode, Create RFQ button should be hidden (not rendered)
     expect(screen.queryByText('Create RFQ')).not.toBeInTheDocument()
   })
+
+  it('displays the Import Bids button for admin/staff, but hides it for boss', async () => {
+    render(<SourcingDashboard />)
+    
+    // Switch to Bids tab
+    const bidsTabButton = screen.getByText('Received Bids')
+    fireEvent.click(bidsTabButton)
+    
+    // Admin (default role) should see Import Bids (.csv)
+    expect(screen.getByText('Import Bids (.csv)')).toBeInTheDocument()
+    
+    // Switch to Boss
+    const roleSelect = screen.getByTitle('Change role (testing)')
+    fireEvent.change(roleSelect, { target: { value: 'boss' } })
+    
+    // Boss should NOT see Import Bids (.csv)
+    await waitFor(() => {
+      expect(screen.queryByText('Import Bids (.csv)')).not.toBeInTheDocument()
+    })
+  })
 })

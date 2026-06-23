@@ -44,7 +44,10 @@ import {
   FileCheck2,
   ChevronDown,
   AlertTriangle,
-  Shield
+  Shield,
+  Paperclip,
+  Upload,
+  Download
 } from 'lucide-react'
 
 // TS interfaces mapping to our Supabase database schema
@@ -101,6 +104,7 @@ interface Bid {
   // New employee sourcing fields
   supplier_source_url?: string
   supplier_product_image?: string
+  bid_file_url?: string
   // Note fields
   note?: string
   note_history?: { note: string; updated_at: string; updated_by: string }[]
@@ -181,9 +185,232 @@ export function SourcingDashboard() {
   const [editBid, setEditBid] = useState({
     id: '', rfq_id: '', supplier_id: '', unit_price: '', vat_percentage: '10.00', lead_time_days: '', supplier_notes: '',
     moq_offered: '', delivery_tolerance_pct: '', warranty_months: '', return_policy: '',
-    supplier_source_url: '', supplier_product_image: '', status: 'draft' as Bid['status'],
+    supplier_source_url: '', supplier_product_image: '', bid_file_url: '', status: 'draft' as Bid['status'],
     note: '', note_history: [] as { note: string; updated_at: string; updated_by: string }[]
   })
+
+  // CSV Import states
+  const [showImportBidModal, setShowImportBidModal] = useState(false)
+  const [importBids, setImportBids] = useState<any[]>([])
+  const [csvFileName, setCsvFileName] = useState('')
+  const [csvError, setCsvError] = useState<string | null>(null)
+
+  // Download CSV Template
+  const downloadCSVTemplate = () => {
+    const headers = ['Mã RFQ (RFQ Code)', 'Tên nhà cung cấp (Supplier Name)', 'Đơn giá USD (Unit Price)', 'VAT (%)', 'Thời gian giao ngày (Lead Time)', 'Ghi chú nhà cung cấp (Supplier Notes)', 'Ghi chú nội bộ (Internal Note)']
+    const sampleRow = ['RFQ-RAW-2026-001', 'Viet My Wood Company', '350.00', '10', '15', 'We offer export-quality red oak', 'Note for internal review']
+    const csvContent = "\uFEFF" + [headers.join(','), sampleRow.join(',')].join('\n')
+    
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' })
+    const url = URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.setAttribute('href', url)
+    link.setAttribute('download', 'sourcing_bids_import_template.csv')
+    document.body.appendChild(link)
+    link.click()
+    document.body.removeChild(link)
+  }
+
+  // Handle CSV File Selection and Client-side Parsing
+  const handleCSVFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+
+    setCsvFileName(file.name)
+    setCsvError(null)
+
+    const reader = new FileReader()
+    reader.onload = (event) => {
+      try {
+        const text = event.target?.result as string
+        
+        // Custom parser to handle commas and double quotes correctly
+        const lines: string[] = []
+        let currentLine = ''
+        let inQuotes = false
+
+        for (let i = 0; i < text.length; i++) {
+          const char = text[i]
+          if (char === '"') {
+            inQuotes = !inQuotes
+          } else if (char === '\n' && !inQuotes) {
+            lines.push(currentLine.trim())
+            currentLine = ''
+          } else if (char === '\r' && !inQuotes) {
+            // skip carriage return
+          } else {
+            currentLine += char
+          }
+        }
+        if (currentLine) {
+          lines.push(currentLine.trim())
+        }
+
+        if (lines.length <= 1) {
+          setCsvError('Tệp CSV trống hoặc thiếu dòng tiêu đề.')
+          setImportBids([])
+          return
+        }
+
+        const parseCSVRow = (rowText: string) => {
+          const result: string[] = []
+          let currentCell = ''
+          let cellInQuotes = false
+
+          for (let i = 0; i < rowText.length; i++) {
+            const char = rowText[i]
+            if (char === '"') {
+              cellInQuotes = !cellInQuotes
+            } else if (char === ',' && !cellInQuotes) {
+              result.push(currentCell.trim())
+              currentCell = ''
+            } else {
+              currentCell += char
+            }
+          }
+          result.push(currentCell.trim())
+          return result
+        }
+
+        const parsedBidsList: any[] = []
+        for (let i = 1; i < lines.length; i++) {
+          const rowText = lines[i]
+          if (!rowText.trim()) continue
+
+          const cols = parseCSVRow(rowText)
+          if (cols.length < 3) continue // Skip incomplete rows
+
+          const rfqCodeInput = cols[0] || ''
+          const supplierNameInput = cols[1] || ''
+          const unitPriceInput = cols[2] || ''
+          const vatPctInput = cols[3] || '10'
+          const leadTimeInput = cols[4] || ''
+          const supplierNotesInput = cols[5] || ''
+          const internalNoteInput = cols[6] || ''
+
+          // Resolve RFQ and Supplier (Case-insensitive matching)
+          const matchedRfq = rfqs.find(r => r.rfq_code.toLowerCase().trim() === rfqCodeInput.toLowerCase().trim())
+          const matchedSupplier = suppliers.find(s => s.company_name.toLowerCase().trim() === supplierNameInput.toLowerCase().trim())
+
+          // Validations
+          let validationError = ''
+          let status: 'valid' | 'invalid' = 'valid'
+
+          if (!matchedRfq) {
+            status = 'invalid'
+            validationError = `Mã RFQ "${rfqCodeInput}" không tồn tại`
+          } else if (!matchedSupplier) {
+            status = 'invalid'
+            validationError = `Nhà cung cấp "${supplierNameInput}" không tồn tại`
+          } else if (isNaN(Number(unitPriceInput)) || Number(unitPriceInput) <= 0) {
+            status = 'invalid'
+            validationError = `Đơn giá "${unitPriceInput}" không hợp lệ`
+          } else if (isNaN(Number(vatPctInput)) || Number(vatPctInput) < 0) {
+            status = 'invalid'
+            validationError = `VAT rate "${vatPctInput}" không hợp lệ`
+          } else if (isNaN(Number(leadTimeInput)) || Number(leadTimeInput) <= 0) {
+            status = 'invalid'
+            validationError = `Thời gian giao "${leadTimeInput}" không hợp lệ`
+          }
+
+          parsedBidsList.push({
+            tempId: String(Date.now()) + Math.random().toString(36).substring(2, 7),
+            rfqCode: rfqCodeInput,
+            rfqTitle: matchedRfq ? matchedRfq.title : 'N/A',
+            supplierName: supplierNameInput,
+            unitPrice: unitPriceInput,
+            vatPercentage: vatPctInput,
+            leadTimeDays: leadTimeInput,
+            supplierNotes: supplierNotesInput,
+            internalNote: internalNoteInput,
+            status,
+            validationError,
+            resolvedRfqId: matchedRfq?.id,
+            resolvedSupplierId: matchedSupplier?.id,
+          })
+        }
+
+        setImportBids(parsedBidsList)
+      } catch (err: any) {
+        console.error('Lỗi khi đọc file CSV:', err)
+        setCsvError('Định dạng tệp CSV không hợp lệ hoặc bị lỗi.')
+      }
+    }
+    reader.readAsText(file)
+  }
+
+  // Confirm Import (Insert Bids)
+  const handleConfirmImport = async () => {
+    const validBids = importBids.filter(b => b.status === 'valid')
+    if (validBids.length === 0) return
+
+    setIsLoading(true)
+    const supabase = createClient()
+    try {
+      const inserts = validBids.map(b => ({
+        rfq_id: b.resolvedRfqId,
+        supplier_id: b.resolvedSupplierId,
+        unit_price: Number(b.unitPrice),
+        vat_percentage: Number(b.vatPercentage) || 10.00,
+        lead_time_days: Number(b.leadTimeDays),
+        supplier_notes: b.supplierNotes || null,
+        status: 'draft',
+        evaluation_score: 80,
+        note: b.internalNote || null,
+        note_history: b.internalNote ? [
+          {
+            note: b.internalNote,
+            updated_at: new Date().toISOString(),
+            updated_by: user?.email || 'staff'
+          }
+        ] : []
+      }))
+
+      const { error } = await supabase
+        .from('bids')
+        .insert(inserts)
+
+      if (error) throw error
+      await fetchData()
+      setImportBids([])
+      setCsvFileName('')
+      setShowImportBidModal(false)
+      alert(`Đã nhập thành công ${inserts.length} báo giá!`)
+    } catch (err) {
+      console.error('Error batch inserting Bids:', err)
+      // Local state fallback for mock/offline testing
+      const newBids = validBids.map((b, idx) => ({
+        id: `imported-${Date.now()}-${idx}`,
+        rfq_id: b.resolvedRfqId,
+        rfq_code: b.rfqCode,
+        rfq_title: b.rfqTitle,
+        supplier_id: b.resolvedSupplierId,
+        supplier_name: b.supplierName,
+        unit_price: Number(b.unitPrice),
+        vat_percentage: Number(b.vatPercentage) || 10.00,
+        lead_time_days: Number(b.leadTimeDays),
+        supplier_notes: b.supplierNotes || null,
+        status: 'draft' as Bid['status'],
+        evaluation_score: 80,
+        note: b.internalNote || null,
+        note_history: b.internalNote ? [
+          {
+            note: b.internalNote,
+            updated_at: new Date().toISOString(),
+            updated_by: user?.email || 'staff'
+          }
+        ] : [],
+        created_at: new Date().toISOString()
+      }))
+      setBids(prev => [...newBids, ...prev])
+      setImportBids([])
+      setCsvFileName('')
+      setShowImportBidModal(false)
+      alert(`[Offline Mode] Đã thêm ${newBids.length} báo giá vào danh sách tạm thời.`)
+    } finally {
+      setIsLoading(false)
+    }
+  }
 
   // Update Bid
   const handleUpdateBid = async (e: React.FormEvent) => {
@@ -225,6 +452,7 @@ export function SourcingDashboard() {
         payload.supplier_notes = editBid.supplier_notes || null
         payload.supplier_source_url = editBid.supplier_source_url || null
         payload.supplier_product_image = editBid.supplier_product_image || null
+        payload.bid_file_url = editBid.bid_file_url || null
         payload.note = newNote || null
         payload.note_history = updatedHistory
 
@@ -292,6 +520,7 @@ export function SourcingDashboard() {
           rfq_title: matchedRfq ? matchedRfq.title : b.rfq_title,
           supplier_source_url: editBid.supplier_source_url || null,
           supplier_product_image: editBid.supplier_product_image || null,
+          bid_file_url: editBid.bid_file_url || null,
           note: newNote,
           note_history: updatedHistory
         } : {})
@@ -346,7 +575,7 @@ export function SourcingDashboard() {
   const [newBid, setNewBid] = useState({
     rfq_id: '', supplier_id: '', unit_price: '', vat_percentage: '10.00', lead_time_days: '', supplier_notes: '',
     moq_offered: '', delivery_tolerance_pct: '', warranty_months: '', return_policy: '',
-    supplier_source_url: '', supplier_product_image: '',
+    supplier_source_url: '', supplier_product_image: '', bid_file_url: '',
     note: ''
   })
 
@@ -528,6 +757,42 @@ export function SourcingDashboard() {
     }
   }
 
+  // Upload Bid File helper
+  const handleBidFileUpload = async (e: React.ChangeEvent<HTMLInputElement>, isEditMode: boolean = false) => {
+    const files = e.target.files
+    if (!files || files.length === 0) return
+
+    setIsUploading(true)
+    try {
+      const file = files[0]
+      const formData = new FormData()
+      formData.append('file', file)
+
+      const res = await fetch('/api/upload', {
+        method: 'POST',
+        body: formData,
+      })
+      const data = await res.json()
+      if (data.url) {
+        if (isEditMode) {
+          setEditBid(prev => ({
+            ...prev,
+            bid_file_url: data.url
+          }))
+        } else {
+          setNewBid(prev => ({
+            ...prev,
+            bid_file_url: data.url
+          }))
+        }
+      }
+    } catch (err) {
+      console.error('Bid file upload failed:', err)
+    } finally {
+      setIsUploading(false)
+    }
+  }
+
   // Create Supplier
   const handleAddSupplier = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -704,6 +969,7 @@ export function SourcingDashboard() {
         evaluation_score: 80, // Default technical evaluation score
         supplier_source_url: newBid.supplier_source_url || null,
         supplier_product_image: newBid.supplier_product_image || null,
+        bid_file_url: newBid.bid_file_url || null,
         note: newBid.note || null,
         note_history: newBid.note ? [
           {
@@ -732,7 +998,7 @@ export function SourcingDashboard() {
       setNewBid({
         rfq_id: '', supplier_id: '', unit_price: '', vat_percentage: '10.00', lead_time_days: '', supplier_notes: '',
         moq_offered: '', delivery_tolerance_pct: '', warranty_months: '', return_policy: '',
-        supplier_source_url: '', supplier_product_image: '',
+        supplier_source_url: '', supplier_product_image: '', bid_file_url: '',
         note: ''
       })
       setShowAddBid(false)
@@ -1457,6 +1723,9 @@ export function SourcingDashboard() {
                 </div>
                 {userRole !== 'boss' && (
                   <div className="flex gap-2">
+                    <Button onClick={() => setShowImportBidModal(true)} variant="outline" className="border-slate-200 text-slate-700 hover:bg-slate-50 dark:border-slate-800 dark:text-slate-300 dark:hover:bg-slate-800 text-xs font-semibold h-8 rounded-lg shadow-sm cursor-pointer">
+                      <Upload size={14} className="mr-1" /> Import Bids (.csv)
+                    </Button>
                     <Button onClick={() => setShowAddBid(true)} className="bg-[#5c59e9] hover:bg-[#4b48d1] text-white text-xs font-semibold h-8 rounded-lg shadow-sm cursor-pointer">
                       <Plus size={14} className="mr-1" /> Add New Bid
                     </Button>
@@ -1488,6 +1757,7 @@ export function SourcingDashboard() {
                         </th>
                         <th className="py-3 px-6 font-semibold uppercase select-none">Search Source</th>
                         <th className="py-3 px-6 font-semibold uppercase select-none">Actual Vendor Images</th>
+                        <th className="py-3 px-6 font-semibold uppercase select-none">Attachment</th>
                         <th onClick={() => handleBidSort('note')} className="py-3 px-6 font-semibold uppercase cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-800/50 transition select-none">
                           Internal Note {renderBidSortIcon('note')}
                         </th>
@@ -1516,6 +1786,7 @@ export function SourcingDashboard() {
                               return_policy: b.return_policy || '',
                               supplier_source_url: b.supplier_source_url || '',
                               supplier_product_image: b.supplier_product_image || '',
+                              bid_file_url: b.bid_file_url || '',
                               status: b.status,
                               note: b.note || '',
                               note_history: b.note_history || []
@@ -1550,6 +1821,15 @@ export function SourcingDashboard() {
                               <span className="text-slate-400 italic">None</span>
                             )}
                           </td>
+                          <td className="py-4 px-6 text-slate-500">
+                            {b.bid_file_url ? (
+                              <a href={b.bid_file_url} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-[#5c59e9] hover:underline font-semibold" onClick={e => e.stopPropagation()}>
+                                <FileText size={14} /> View File
+                              </a>
+                            ) : (
+                              <span className="text-slate-400 italic">None</span>
+                            )}
+                          </td>
                           <td className="py-4 px-6 text-slate-500 max-w-[150px] truncate">
                             {b.note ? (
                               <span>{b.note}</span>
@@ -1562,7 +1842,7 @@ export function SourcingDashboard() {
                       ))}
                       {filteredBids.length === 0 && (
                         <tr>
-                          <td colSpan={10} className="py-8 text-center text-slate-400 italic">
+                          <td colSpan={11} className="py-8 text-center text-slate-400 italic">
                             No bids received yet.
                           </td>
                         </tr>
@@ -1783,6 +2063,50 @@ export function SourcingDashboard() {
                       </div>
 
                       <div className="space-y-1">
+                        <Label htmlFor="b_attachment_file" className="text-xs font-semibold">Quotation Attachment (PDF, Excel, Word, Image)</Label>
+                        <div className="flex items-center gap-3">
+                          <input
+                            type="file"
+                            id="b_attachment_file_inline"
+                            accept=".pdf,.doc,.docx,.xls,.xlsx,.png,.jpg,.jpeg"
+                            onChange={e => handleBidFileUpload(e, false)}
+                            className="hidden"
+                            disabled={isUploading}
+                          />
+                          <Button
+                            type="button"
+                            variant="outline"
+                            onClick={() => document.getElementById('b_attachment_file_inline')?.click()}
+                            className="h-9 text-xs rounded-lg cursor-pointer flex items-center gap-1.5 border-dashed"
+                            disabled={isUploading}
+                          >
+                            <Paperclip size={14} /> Select File
+                          </Button>
+                          {newBid.bid_file_url && (
+                            <div className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-50 border rounded-lg dark:bg-slate-800 dark:border-slate-700 max-w-[200px] truncate">
+                              <FileText size={14} className="text-[#5c59e9] shrink-0" />
+                              <a href={newBid.bid_file_url} target="_blank" rel="noreferrer" className="text-xs text-[#5c59e9] hover:underline truncate">
+                                View File
+                              </a>
+                              <button
+                                type="button"
+                                onClick={() => setNewBid(prev => ({ ...prev, bid_file_url: '' }))}
+                                className="text-slate-400 hover:text-red-500 cursor-pointer shrink-0"
+                              >
+                                <X size={12} />
+                              </button>
+                            </div>
+                          )}
+                          {isUploading && !newBid.bid_file_url && (
+                            <div className="h-9 px-3 flex items-center gap-1.5 border rounded bg-slate-50 border-slate-200 dark:bg-slate-800 dark:border-slate-700 animate-pulse">
+                              <RefreshCw size={14} className="animate-spin text-slate-400" />
+                              <span className="text-[10px] text-slate-400">Uploading...</span>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+
+                      <div className="space-y-1">
                         <Label htmlFor="b_internal_note" className="text-xs font-semibold">Internal Note</Label>
                         <textarea
                           id="b_internal_note"
@@ -1992,6 +2316,134 @@ export function SourcingDashboard() {
         </div>
       )}
 
+      {/* Import Bids Modal */}
+      {showImportBidModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-sm animate-in fade-in">
+          <Card className="w-full max-w-4xl border-slate-200 dark:border-slate-800 rounded-2xl shadow-lg bg-white dark:bg-slate-900">
+            <CardHeader className="flex flex-row items-center justify-between pb-3 border-b border-slate-100 dark:border-slate-800">
+              <div>
+                <CardTitle className="text-base font-bold">Nhập báo giá từ file CSV</CardTitle>
+                <CardDescription className="text-xs">Tải lên tệp CSV chứa thông tin báo giá để tạo hàng loạt</CardDescription>
+              </div>
+              <Button size="icon" variant="ghost" onClick={() => {
+                setShowImportBidModal(false)
+                setImportBids([])
+                setCsvFileName('')
+                setCsvError(null)
+              }} className="h-8 w-8 text-slate-400">
+                <X size={18} />
+              </Button>
+            </CardHeader>
+            <CardContent className="pt-4 space-y-4">
+              <div className="flex flex-col sm:flex-row gap-3 items-start sm:items-center justify-between bg-slate-50 dark:bg-slate-800/20 p-4 rounded-xl border border-slate-100 dark:border-slate-800">
+                <div className="space-y-1">
+                  <span className="text-xs font-semibold text-slate-700 dark:text-slate-200 block">Tải file CSV mẫu</span>
+                  <p className="text-[11px] text-slate-400">Sử dụng tệp mẫu có sẵn cấu trúc tiêu chuẩn để nhập dữ liệu chính xác nhất.</p>
+                </div>
+                <Button type="button" onClick={downloadCSVTemplate} variant="outline" size="sm" className="shrink-0 flex items-center gap-1.5 border-[#5c59e9] text-[#5c59e9] hover:bg-[#5c59e9]/5 cursor-pointer">
+                  <Download size={14} /> Tải file mẫu (.csv)
+                </Button>
+              </div>
+
+              <div className="space-y-1">
+                <Label className="text-xs font-semibold">Chọn tệp CSV</Label>
+                <div className="flex items-center gap-3">
+                  <input
+                    type="file"
+                    id="csv_import_file_input"
+                    accept=".csv"
+                    onChange={handleCSVFileSelect}
+                    className="hidden"
+                  />
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={() => document.getElementById('csv_import_file_input')?.click()}
+                    className="h-9 text-xs rounded-lg cursor-pointer flex items-center gap-1.5 border-dashed border-slate-300 dark:border-slate-750"
+                  >
+                    <Upload size={14} /> Chọn tệp CSV
+                  </Button>
+                  {csvFileName && (
+                    <span className="text-xs font-semibold text-slate-600 dark:text-slate-300 font-mono">
+                      {csvFileName}
+                    </span>
+                  )}
+                </div>
+                {csvError && (
+                  <p className="text-[11px] text-red-500 font-medium pt-1 flex items-center gap-1">
+                    <AlertTriangle size={12} /> {csvError}
+                  </p>
+                )}
+              </div>
+
+              {importBids.length > 0 && (
+                <div className="space-y-2">
+                  <Label className="text-xs font-semibold">Xem trước dữ liệu ({importBids.length} dòng)</Label>
+                  <div className="border border-slate-100 dark:border-slate-800 rounded-xl overflow-hidden max-h-[300px] overflow-y-auto">
+                    <table className="w-full text-left border-collapse text-[11px]">
+                      <thead>
+                        <tr className="border-b border-slate-100 dark:border-slate-800 text-slate-400 bg-slate-50/50 dark:bg-slate-800/10 font-medium">
+                          <th className="py-2.5 px-4">Mã RFQ</th>
+                          <th className="py-2.5 px-4">Nhà cung cấp</th>
+                          <th className="py-2.5 px-4">Đơn giá</th>
+                          <th className="py-2.5 px-4">VAT</th>
+                          <th className="py-2.5 px-4">Thời gian giao</th>
+                          <th className="py-2.5 px-4">Trạng thái</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                        {importBids.map((b, idx) => (
+                          <tr key={b.tempId || idx} className="hover:bg-slate-50/50 dark:hover:bg-slate-800/10 transition">
+                            <td className="py-2 px-4 font-mono text-[10px]">{b.rfqCode}</td>
+                            <td className="py-2 px-4 font-medium text-slate-700 dark:text-slate-350">{b.supplierName}</td>
+                            <td className="py-2 px-4 font-semibold text-slate-900 dark:text-white">${b.unitPrice}</td>
+                            <td className="py-2 px-4 text-slate-500">{b.vatPercentage}%</td>
+                            <td className="py-2 px-4 text-slate-500">{b.leadTimeDays} ngày</td>
+                            <td className="py-2 px-4">
+                              {b.status === 'valid' ? (
+                                <Badge className="bg-emerald-50 text-emerald-700 dark:bg-emerald-950/30 dark:text-emerald-450 border border-emerald-250 dark:border-emerald-900/50 text-[9px] px-1.5 py-0.5 rounded font-bold shadow-none uppercase">Hợp lệ</Badge>
+                              ) : (
+                                <span className="text-red-500 font-medium text-[10px] block max-w-[200px] truncate" title={b.validationError}>
+                                  {b.validationError}
+                                </span>
+                              )}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
+
+              <div className="flex justify-end gap-2.5 pt-3 border-t border-slate-100 dark:border-slate-800">
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => {
+                    setShowImportBidModal(false)
+                    setImportBids([])
+                    setCsvFileName('')
+                    setCsvError(null)
+                  }}
+                  className="h-9 text-xs rounded-lg px-4"
+                >
+                  Hủy
+                </Button>
+                <Button
+                  type="button"
+                  onClick={handleConfirmImport}
+                  disabled={importBids.filter(b => b.status === 'valid').length === 0 || isLoading}
+                  className="bg-[#5c59e9] hover:bg-[#4b48d1] text-white text-xs font-semibold h-9 rounded-lg px-4 flex items-center gap-1.5 cursor-pointer"
+                >
+                  {isLoading ? 'Đang xử lý...' : `Xác nhận nhập (${importBids.filter(b => b.status === 'valid').length} dòng hợp lệ)`}
+                </Button>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
+      )}
+
       {/* Add Bid Modal from Scratch */}
       {showAddBid && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-sm animate-in fade-in">
@@ -2101,6 +2553,51 @@ export function SourcingDashboard() {
                     {isUploading && !newBid.supplier_product_image && (
                       <div className="h-9 w-9 flex items-center justify-center border rounded bg-slate-50 border-slate-200 dark:bg-slate-800 dark:border-slate-700 animate-pulse">
                         <RefreshCw size={14} className="animate-spin text-slate-400" />
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                <div className="space-y-1">
+                  <Label htmlFor="add_b_attachment_file" className="text-xs font-semibold">Quotation Attachment (PDF, Excel, Word, Image)</Label>
+                  <div className="flex items-center gap-3">
+                    <input
+                      type="file"
+                      id="add_b_attachment_file_input"
+                      accept=".pdf,.doc,.docx,.xls,.xlsx,.png,.jpg,.jpeg"
+                      onChange={e => handleBidFileUpload(e, false)}
+                      className="hidden"
+                      disabled={isUploading || userRole === 'boss'}
+                    />
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={() => document.getElementById('add_b_attachment_file_input')?.click()}
+                      className="h-9 text-xs rounded-lg cursor-pointer flex items-center gap-1.5 border-dashed"
+                      disabled={isUploading || userRole === 'boss'}
+                    >
+                      <Paperclip size={14} /> Select File
+                    </Button>
+                    {newBid.bid_file_url && (
+                      <div className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-50 border rounded-lg dark:bg-slate-800 dark:border-slate-700 max-w-[200px] truncate">
+                        <FileText size={14} className="text-[#5c59e9] shrink-0" />
+                        <a href={newBid.bid_file_url} target="_blank" rel="noreferrer" className="text-xs text-[#5c59e9] hover:underline truncate">
+                          View File
+                        </a>
+                        <button
+                          type="button"
+                          onClick={() => setNewBid(prev => ({ ...prev, bid_file_url: '' }))}
+                          className="text-slate-400 hover:text-red-500 cursor-pointer shrink-0"
+                          disabled={userRole === 'boss'}
+                        >
+                          <X size={12} />
+                        </button>
+                      </div>
+                    )}
+                    {isUploading && !newBid.bid_file_url && (
+                      <div className="h-9 px-3 flex items-center gap-1.5 border rounded bg-slate-50 border-slate-200 dark:bg-slate-800 dark:border-slate-700 animate-pulse">
+                        <RefreshCw size={14} className="animate-spin text-slate-400" />
+                        <span className="text-[10px] text-slate-400">Uploading...</span>
                       </div>
                     )}
                   </div>
@@ -2273,6 +2770,51 @@ export function SourcingDashboard() {
                 </div>
 
                 <div className="space-y-1">
+                  <Label htmlFor="edit_b_attachment_file" className="text-xs font-semibold">Quotation Attachment (PDF, Excel, Word, Image)</Label>
+                  <div className="flex items-center gap-3">
+                    <input
+                      type="file"
+                      id="edit_b_attachment_file_input"
+                      accept=".pdf,.doc,.docx,.xls,.xlsx,.png,.jpg,.jpeg"
+                      onChange={e => handleBidFileUpload(e, true)}
+                      className="hidden"
+                      disabled={isUploading || userRole === 'boss'}
+                    />
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={() => document.getElementById('edit_b_attachment_file_input')?.click()}
+                      className="h-9 text-xs rounded-lg cursor-pointer flex items-center gap-1.5 border-dashed"
+                      disabled={isUploading || userRole === 'boss'}
+                    >
+                      <Paperclip size={14} /> Select File
+                    </Button>
+                    {editBid.bid_file_url && (
+                      <div className="flex items-center gap-1.5 px-3 py-1.5 bg-slate-50 border rounded-lg dark:bg-slate-800 dark:border-slate-700 max-w-[200px] truncate">
+                        <FileText size={14} className="text-[#5c59e9] shrink-0" />
+                        <a href={editBid.bid_file_url} target="_blank" rel="noreferrer" className="text-xs text-[#5c59e9] hover:underline truncate">
+                          View File
+                        </a>
+                        <button
+                          type="button"
+                          onClick={() => setEditBid(prev => ({ ...prev, bid_file_url: '' }))}
+                          className="text-slate-400 hover:text-red-500 cursor-pointer shrink-0"
+                          disabled={userRole === 'boss'}
+                        >
+                          <X size={12} />
+                        </button>
+                      </div>
+                    )}
+                    {isUploading && !editBid.bid_file_url && (
+                      <div className="h-9 px-3 flex items-center gap-1.5 border rounded bg-slate-50 border-slate-200 dark:bg-slate-800 dark:border-slate-700 animate-pulse">
+                        <RefreshCw size={14} className="animate-spin text-slate-400" />
+                        <span className="text-[10px] text-slate-400">Uploading...</span>
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                <div className="space-y-1">
                   <Label htmlFor="edit_b_internal_note" className="text-xs font-semibold">Internal Note</Label>
                   <textarea
                     id="edit_b_internal_note"
@@ -2407,6 +2949,15 @@ export function SourcingDashboard() {
                   <span className="font-semibold text-slate-400 block text-[10px] uppercase">Actual images from Supplier</span>
                   <a href={viewingBid.supplier_product_image} target="_blank" rel="noreferrer" className="block max-w-[120px]">
                     <img src={viewingBid.supplier_product_image} className="w-full h-auto object-cover rounded-lg border hover:scale-105 transition" alt="Actual supplier" />
+                  </a>
+                </div>
+              )}
+
+              {viewingBid.bid_file_url && (
+                <div className="border-t pt-3 border-slate-100 dark:border-slate-800 space-y-1">
+                  <span className="font-semibold text-slate-400 block text-[10px] uppercase">Quotation Attachment</span>
+                  <a href={viewingBid.bid_file_url} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1.5 px-3 py-2 bg-slate-50 border rounded-lg dark:bg-slate-800 dark:border-slate-700 text-[#5c59e9] hover:underline font-semibold text-xs">
+                    <FileText size={14} /> View / Download Attachment File
                   </a>
                 </div>
               )}
