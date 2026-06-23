@@ -1462,16 +1462,16 @@ export function SourcingDashboard() {
                     </CardHeader>
                     <CardContent className="p-0">
                       <div className="overflow-x-auto">
-                        <table className="w-full text-left border-collapse text-xs">
+                        <table className="w-full table-fixed text-left border-collapse text-xs min-w-[800px]">
                           <thead>
                             <tr className="border-b border-slate-100 dark:border-slate-800 text-slate-400 bg-slate-50/50 dark:bg-slate-800/10">
-                              <th className="py-3 px-6 font-semibold uppercase">RFQ Code</th>
-                              <th className="py-3 px-6 font-semibold uppercase">Campaign Title</th>
-                                                            <th className="py-3 px-6 font-semibold uppercase">Sample Images</th>
-                              <th className="py-3 px-6 font-semibold uppercase">Item Type</th>
-                              <th className="py-3 px-6 font-semibold uppercase text-center">Suppliers</th>
-                              <th className="py-3 px-6 font-semibold uppercase text-center">Bids</th>
-                              <th className="py-3 px-6 font-semibold uppercase">Deadline</th>
+                              <th className="w-[12%] py-3 px-6 font-semibold uppercase">RFQ Code</th>
+                              <th className="w-[38%] py-3 px-6 font-semibold uppercase">Campaign Title</th>
+                              <th className="w-[12%] py-3 px-6 font-semibold uppercase">Sample Images</th>
+                              <th className="w-[14%] py-3 px-6 font-semibold uppercase">Item Type</th>
+                              <th className="w-[8%] py-3 px-6 font-semibold uppercase text-center">Suppliers</th>
+                              <th className="w-[6%] py-3 px-6 font-semibold uppercase text-center">Bids</th>
+                              <th className="w-[10%] py-3 px-6 font-semibold uppercase">Deadline</th>
                             </tr>
                           </thead>
                           <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
@@ -1653,16 +1653,16 @@ export function SourcingDashboard() {
             <Card className="border-0 shadow-sm bg-white dark:bg-slate-900 rounded-2xl overflow-hidden">
               <CardContent className="pt-6">
                 <div className="overflow-x-auto">
-                  <table className="w-full text-left border-collapse text-xs">
+                  <table className="w-full table-fixed text-left border-collapse text-xs min-w-[800px]">
                     <thead>
                       <tr className="border-b border-slate-100 dark:border-slate-800 text-slate-400 bg-slate-50/50 dark:bg-slate-800/10">
-                        <th className="py-3 px-6 font-semibold uppercase">RFQ Code</th>
-                        <th className="py-3 px-6 font-semibold uppercase">RFQ Title</th>
-                        <th className="py-3 px-6 font-semibold uppercase">Sample Images</th>
-                        <th className="py-3 px-6 font-semibold uppercase">Campaign type</th>
-                        <th className="py-3 px-6 font-semibold uppercase text-center">Suppliers</th>
-                        <th className="py-3 px-6 font-semibold uppercase text-center">Bids</th>
-                        <th className="py-3 px-6 font-semibold uppercase">Submission Deadline</th>
+                        <th className="w-[12%] py-3 px-6 font-semibold uppercase">RFQ Code</th>
+                        <th className="w-[38%] py-3 px-6 font-semibold uppercase">RFQ Title</th>
+                        <th className="w-[12%] py-3 px-6 font-semibold uppercase">Sample Images</th>
+                        <th className="w-[14%] py-3 px-6 font-semibold uppercase">Campaign type</th>
+                        <th className="w-[8%] py-3 px-6 font-semibold uppercase text-center">Suppliers</th>
+                        <th className="w-[6%] py-3 px-6 font-semibold uppercase text-center">Bids</th>
+                        <th className="w-[10%] py-3 px-6 font-semibold uppercase">Submission Deadline</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
