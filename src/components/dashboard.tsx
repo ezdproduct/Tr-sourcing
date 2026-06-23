@@ -1203,6 +1203,8 @@ export function SourcingDashboard() {
                               <th className="py-3 px-6 font-semibold uppercase">Campaign Title</th>
                                                             <th className="py-3 px-6 font-semibold uppercase">Sample Images</th>
                               <th className="py-3 px-6 font-semibold uppercase">Item Type</th>
+                              <th className="py-3 px-6 font-semibold uppercase text-center">Suppliers</th>
+                              <th className="py-3 px-6 font-semibold uppercase text-center">Bids</th>
                               <th className="py-3 px-6 font-semibold uppercase">Deadline</th>
                             </tr>
                           </thead>
@@ -1233,13 +1235,24 @@ export function SourcingDashboard() {
                                   </div>
                                 </td>
                                 <td className="py-4 px-6">{getRfqItemTypeBadge(rfq.item_type)}</td>
+                                {(() => {
+                                  const rfqBids = bids.filter(b => b.rfq_id === rfq.id)
+                                  const suppliersCount = new Set(rfqBids.map(b => b.supplier_id)).size
+                                  const bidsCount = rfqBids.length
+                                  return (
+                                    <>
+                                      <td className="py-4 px-6 text-center font-bold text-slate-700 dark:text-slate-350">{suppliersCount}</td>
+                                      <td className="py-4 px-6 text-center font-bold text-[#5c59e9]">{bidsCount}</td>
+                                    </>
+                                  )
+                                })()}
                                 <td className="py-4 px-6 text-slate-500">{new Date(rfq.deadline).toLocaleDateString()}</td>
                               </tr>
                             ))}
 
                             {filteredRfqs.length === 0 && (
                               <tr>
-                                <td colSpan={5} className="py-8 text-center text-slate-400 italic">
+                                <td colSpan={7} className="py-8 text-center text-slate-400 italic">
                                   No RFQ campaigns yet. Create one with the button above!
                                 </td>
                               </tr>
@@ -1381,6 +1394,8 @@ export function SourcingDashboard() {
                         <th className="py-3 px-6 font-semibold uppercase">RFQ Title</th>
                         <th className="py-3 px-6 font-semibold uppercase">Sample Images</th>
                         <th className="py-3 px-6 font-semibold uppercase">Campaign type</th>
+                        <th className="py-3 px-6 font-semibold uppercase text-center">Suppliers</th>
+                        <th className="py-3 px-6 font-semibold uppercase text-center">Bids</th>
                         <th className="py-3 px-6 font-semibold uppercase">Submission Deadline</th>
                       </tr>
                     </thead>
@@ -1411,6 +1426,17 @@ export function SourcingDashboard() {
                             </div>
                           </td>
                           <td className="py-4 px-6">{getRfqItemTypeBadge(r.item_type)}</td>
+                          {(() => {
+                            const rfqBids = bids.filter(b => b.rfq_id === r.id)
+                            const suppliersCount = new Set(rfqBids.map(b => b.supplier_id)).size
+                            const bidsCount = rfqBids.length
+                            return (
+                              <>
+                                <td className="py-4 px-6 text-center font-bold text-slate-700 dark:text-slate-350">{suppliersCount}</td>
+                                <td className="py-4 px-6 text-center font-bold text-[#5c59e9]">{bidsCount}</td>
+                              </>
+                            )
+                          })()}
                           <td className="py-4 px-6 text-slate-500">{new Date(r.deadline).toLocaleDateString()}</td>
                         </tr>
                       ))}
@@ -2425,7 +2451,7 @@ export function SourcingDashboard() {
                     <ClipboardList size={18} />
                   </div>
                   <div>
-                    <CardTitle className="text-sm font-bold text-slate-900 dark:text-white">Chi tiết Chiến dịch RFQ</CardTitle>
+                    <CardTitle className="text-sm font-bold text-slate-900 dark:text-white">RFQ Campaign Details</CardTitle>
                     <CardDescription className="text-[11px] font-mono font-bold text-[#5c59e9] mt-0.5">{viewingRfq.rfq_code}</CardDescription>
                   </div>
                 </div>
@@ -2438,17 +2464,17 @@ export function SourcingDashboard() {
                 {/* 1. Basic Info */}
                 <div className="space-y-3.5">
                   <div>
-                    <span className="text-slate-400 dark:text-slate-500 font-semibold uppercase tracking-wider text-[10px]">Tiêu đề chiến dịch</span>
+                    <span className="text-slate-400 dark:text-slate-500 font-semibold uppercase tracking-wider text-[10px]">Campaign Title</span>
                     <h3 className="text-sm font-bold text-slate-900 dark:text-white mt-0.5 leading-snug">{viewingRfq.title}</h3>
                   </div>
 
                   <div className="grid grid-cols-2 gap-4">
                     <div>
-                      <span className="text-slate-400 dark:text-slate-500 font-semibold uppercase tracking-wider text-[10px] block mb-1">Loại hàng hoá</span>
+                      <span className="text-slate-400 dark:text-slate-500 font-semibold uppercase tracking-wider text-[10px] block mb-1">Commodity Type</span>
                       {getRfqItemTypeBadge(viewingRfq.item_type)}
                     </div>
                     <div>
-                      <span className="text-slate-400 dark:text-slate-500 font-semibold uppercase tracking-wider text-[10px] block mb-1">Hạn nộp báo giá</span>
+                      <span className="text-slate-400 dark:text-slate-500 font-semibold uppercase tracking-wider text-[10px] block mb-1">Quotation Deadline</span>
                       <div className="flex items-center gap-1.5 mt-0.5">
                         <span className="font-semibold text-slate-800 dark:text-slate-200">
                           {new Date(viewingRfq.deadline).toLocaleDateString('vi-VN', {
@@ -2461,15 +2487,15 @@ export function SourcingDashboard() {
                         </span>
                         {isExpired ? (
                           <Badge className="bg-rose-50 text-rose-700 dark:bg-rose-950/40 dark:text-rose-400 border-0 rounded-full font-medium py-0 px-2 text-[10px]">
-                            Hết hạn
+                            Expired
                           </Badge>
                         ) : daysLeft <= 3 ? (
                           <Badge className="bg-amber-50 text-amber-700 dark:bg-amber-950/40 dark:text-amber-400 border-0 rounded-full font-medium py-0 px-2 text-[10px]">
-                            Gấp ({daysLeft} ngày)
+                            Urgent ({daysLeft} days)
                           </Badge>
                         ) : (
                           <Badge className="bg-blue-50 text-blue-700 dark:bg-blue-950/40 dark:text-blue-400 border-0 rounded-full font-medium py-0 px-2 text-[10px]">
-                            Còn {daysLeft} ngày
+                            Remaining {daysLeft} days
                           </Badge>
                         )}
                       </div>
@@ -2478,11 +2504,11 @@ export function SourcingDashboard() {
 
                   <div className="grid grid-cols-2 gap-4">
                     <div>
-                      <span className="text-slate-400 dark:text-slate-500 font-semibold uppercase tracking-wider text-[10px]">Địa điểm giao hàng</span>
+                      <span className="text-slate-400 dark:text-slate-500 font-semibold uppercase tracking-wider text-[10px]">Delivery Location</span>
                       <p className="font-semibold text-slate-800 dark:text-slate-200 mt-0.5">{viewingRfq.delivery_location || 'N/A'}</p>
                     </div>
                     <div>
-                      <span className="text-slate-400 dark:text-slate-500 font-semibold uppercase tracking-wider text-[10px]">Ngày khởi tạo</span>
+                      <span className="text-slate-400 dark:text-slate-500 font-semibold uppercase tracking-wider text-[10px]">Creation Date</span>
                       <p className="font-semibold text-slate-800 dark:text-slate-200 mt-0.5">
                         {new Date(viewingRfq.created_at).toLocaleDateString('vi-VN', {
                           year: 'numeric',
@@ -2494,38 +2520,12 @@ export function SourcingDashboard() {
                   </div>
                 </div>
 
-                {/* 2. Specifications based on item type */}
-                <div className="border-t border-slate-100 dark:border-slate-800 pt-4 space-y-3">
-                  <h4 className="font-bold text-slate-900 dark:text-white uppercase tracking-wider text-[10px]">Thông số kỹ thuật chi tiết</h4>
-                  {viewingRfq.item_type === 'raw_material' ? (
-                    <div className="grid grid-cols-2 gap-4 bg-slate-50/50 dark:bg-slate-800/10 p-3 rounded-xl border border-slate-100/50 dark:border-slate-800/50">
-                      <div className="space-y-1">
-                        <span className="text-slate-400 dark:text-slate-500 font-semibold text-[10px]">Quy cách gỗ / vật tư</span>
-                        <p className="text-slate-800 dark:text-slate-200 font-medium whitespace-pre-wrap">{viewingRfq.raw_material_spec || 'Không có thông tin'}</p>
-                      </div>
-                      <div className="space-y-1">
-                        <span className="text-slate-400 dark:text-slate-500 font-semibold text-[10px]">Thành phần hoá lý</span>
-                        <p className="text-slate-800 dark:text-slate-200 font-medium whitespace-pre-wrap">{viewingRfq.chemical_composition || 'Không có thông tin'}</p>
-                      </div>
-                    </div>
-                  ) : (
-                    <div className="grid grid-cols-2 gap-4 bg-slate-50/50 dark:bg-slate-800/10 p-3 rounded-xl border border-slate-100/50 dark:border-slate-800/50">
-                      <div className="space-y-1">
-                        <span className="text-slate-400 dark:text-slate-500 font-semibold text-[10px]">Quy cách đóng gói</span>
-                        <p className="text-slate-800 dark:text-slate-200 font-medium whitespace-pre-wrap">{viewingRfq.finished_good_packaging || 'Không có thông tin'}</p>
-                      </div>
-                      <div className="space-y-1">
-                        <span className="text-slate-400 dark:text-slate-500 font-semibold text-[10px]">Mã vạch sản phẩm</span>
-                        <p className="text-slate-800 dark:text-slate-200 font-bold font-mono">{viewingRfq.product_barcode || 'Không có thông tin'}</p>
-                      </div>
-                    </div>
-                  )}
-                </div>
+
 
                 {/* 3. Sourcing notes / Boss instruction */}
                 {viewingRfq.sourcing_note && (
                   <div className="border-t border-slate-100 dark:border-slate-800 pt-4 space-y-2">
-                    <span className="text-slate-400 dark:text-slate-500 font-semibold uppercase tracking-wider text-[10px]">Yêu cầu đặc biệt (Từ Sếp)</span>
+                    <span className="text-slate-400 dark:text-slate-500 font-semibold uppercase tracking-wider text-[10px]">Special Requirements (from Boss)</span>
                     <div className="bg-slate-50 dark:bg-slate-800/20 p-3 rounded-xl border border-slate-100 dark:border-slate-800">
                       <p className="text-slate-700 dark:text-slate-350 leading-relaxed whitespace-pre-wrap">{viewingRfq.sourcing_note}</p>
                     </div>
@@ -2535,7 +2535,7 @@ export function SourcingDashboard() {
                 {/* 4. Product images */}
                 {viewingRfq.product_images && viewingRfq.product_images.length > 0 && (
                   <div className="border-t border-slate-100 dark:border-slate-800 pt-4 space-y-2">
-                    <span className="text-slate-400 dark:text-slate-500 font-semibold uppercase tracking-wider text-[10px] block">Hình ảnh mẫu sản phẩm</span>
+                    <span className="text-slate-400 dark:text-slate-500 font-semibold uppercase tracking-wider text-[10px] block">Product Sample Images</span>
                     <div className="grid grid-cols-4 gap-2.5">
                       {viewingRfq.product_images.map((img, idx) => (
                         <a
@@ -2546,7 +2546,7 @@ export function SourcingDashboard() {
                           className="aspect-square rounded-lg border border-slate-200 dark:border-slate-800 overflow-hidden bg-slate-50 dark:bg-slate-800 hover:scale-105 transition hover:shadow-md cursor-pointer block"
                           onClick={(e) => e.stopPropagation()}
                         >
-                          <img src={img} className="w-full h-full object-cover" alt={`Hình mẫu ${idx + 1}`} />
+                          <img src={img} className="w-full h-full object-cover" alt={`Sample Image ${idx + 1}`} />
                         </a>
                       ))}
                     </div>
@@ -2580,7 +2580,7 @@ export function SourcingDashboard() {
                       }}
                       className="border-slate-200 dark:border-slate-800 text-xs font-semibold h-9 px-4 rounded-lg flex items-center gap-1.5 cursor-pointer"
                     >
-                      <Settings size={14} /> Chỉnh sửa chiến dịch
+                      <Settings size={14} /> Edit Campaign
                     </Button>
                   )}
                   <Button
@@ -2588,7 +2588,7 @@ export function SourcingDashboard() {
                     onClick={() => setViewingRfq(null)}
                     className="bg-[#5c59e9] hover:bg-[#4b48d1] text-white text-xs font-semibold h-9 px-5 rounded-lg shadow-sm cursor-pointer"
                   >
-                    Đóng cửa sổ
+                    Close Window
                   </Button>
                 </div>
               </CardContent>
