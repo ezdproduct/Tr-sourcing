@@ -8,11 +8,11 @@ import { Suspense } from 'react'
 
 export default function Home() {
   return (
-    <main className="flex min-h-screen flex-col items-center">
-      <div className="flex w-full flex-1 flex-col items-center gap-8">
+    <main className="flex min-h-screen flex-col items-center w-full">
+      <div className="flex w-full flex-1 flex-col items-center gap-4">
         {/* Navigation Bar */}
         <nav className="border-border/40 bg-background/95 supports-[backdrop-filter]:bg-background/60 sticky top-0 z-50 flex h-16 w-full justify-center border-b backdrop-blur">
-          <div className="flex w-full max-w-7xl items-center justify-between p-3 px-6 text-sm">
+          <div className="flex w-full items-center justify-between p-3 px-8 text-sm">
             <div className="flex items-center gap-5 font-semibold">
               <Link
                 href={'/'}
@@ -42,12 +42,12 @@ export default function Home() {
         </nav>
 
         {/* Dashboard Area */}
-        <div className="flex w-full max-w-7xl flex-1 flex-col p-6 px-6">
+        <div className="flex w-full flex-1 flex-col">
           <SourcingDashboard />
         </div>
 
         {/* Footer */}
-        <footer className="text-muted-foreground mx-auto mt-auto flex w-full max-w-7xl items-center justify-between border-t px-6 py-8 text-xs">
+        <footer className="text-muted-foreground mx-auto mt-auto flex w-full items-center justify-between border-t px-8 py-6 text-xs">
           <p>© 2026 Tr-Sourcing. All rights reserved.</p>
           <div className="flex gap-4">
             <a
