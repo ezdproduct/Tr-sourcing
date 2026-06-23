@@ -69,6 +69,10 @@ interface RFQ {
   finished_good_packaging?: string
   product_barcode?: string
   created_at: string
+  // New Sếp visual sourcing fields
+  product_images?: string[]
+  sourcing_note?: string
+  assigned_to?: string
 }
 
 interface Bid {
@@ -90,6 +94,9 @@ interface Bid {
   supplier_name?: string
   rfq_code?: string
   rfq_title?: string
+  // New employee sourcing fields
+  supplier_source_url?: string
+  supplier_product_image?: string
 }
 
 export function SourcingDashboard() {
@@ -115,12 +122,14 @@ export function SourcingDashboard() {
   // Form States
   const [newRfq, setNewRfq] = useState({
     rfq_code: '', title: '', item_type: 'raw_material' as 'raw_material' | 'finished_good', deadline: '', delivery_location: '',
-    raw_material_spec: '', chemical_composition: '', finished_good_packaging: '', product_barcode: ''
+    raw_material_spec: '', chemical_composition: '', finished_good_packaging: '', product_barcode: '',
+    product_images: [] as string[], sourcing_note: '', assigned_to: ''
   })
 
   const [newBid, setNewBid] = useState({
     rfq_id: '', supplier_id: '', unit_price: '', vat_percentage: '10.00', lead_time_days: '', supplier_notes: '',
-    moq_offered: '', delivery_tolerance_pct: '', warranty_months: '', return_policy: ''
+    moq_offered: '', delivery_tolerance_pct: '', warranty_months: '', return_policy: '',
+    supplier_source_url: '', supplier_product_image: ''
   })
 
   const [newSupplier, setNewSupplier] = useState({
@@ -245,7 +254,10 @@ export function SourcingDashboard() {
         title: newRfq.title,
         item_type: newRfq.item_type,
         deadline: newRfq.deadline,
-        delivery_location: newRfq.delivery_location || 'Kho Tr-Sourcing'
+        delivery_location: newRfq.delivery_location || 'Kho Tr-Sourcing',
+        product_images: newRfq.product_images,
+        sourcing_note: newRfq.sourcing_note,
+        assigned_to: newRfq.assigned_to
       }
 
       if (newRfq.item_type === 'raw_material') {
@@ -265,7 +277,8 @@ export function SourcingDashboard() {
       await fetchData()
       setNewRfq({
         rfq_code: '', title: '', item_type: 'raw_material', deadline: '', delivery_location: '',
-        raw_material_spec: '', chemical_composition: '', finished_good_packaging: '', product_barcode: ''
+        raw_material_spec: '', chemical_composition: '', finished_good_packaging: '', product_barcode: '',
+        product_images: [], sourcing_note: '', assigned_to: ''
       })
       setShowAddRfq(false)
     } catch (err) {
@@ -293,7 +306,9 @@ export function SourcingDashboard() {
         lead_time_days: Number(newBid.lead_time_days),
         supplier_notes: newBid.supplier_notes,
         status: 'draft',
-        evaluation_score: 80 // Default technical evaluation score
+        evaluation_score: 80, // Default technical evaluation score
+        supplier_source_url: newBid.supplier_source_url || null,
+        supplier_product_image: newBid.supplier_product_image || null
       }
 
       if (selectedRfqForBid?.item_type === 'raw_material') {
@@ -313,7 +328,8 @@ export function SourcingDashboard() {
       await fetchData()
       setNewBid({
         rfq_id: '', supplier_id: '', unit_price: '', vat_percentage: '10.00', lead_time_days: '', supplier_notes: '',
-        moq_offered: '', delivery_tolerance_pct: '', warranty_months: '', return_policy: ''
+        moq_offered: '', delivery_tolerance_pct: '', warranty_months: '', return_policy: '',
+        supplier_source_url: '', supplier_product_image: ''
       })
       setShowAddBid(false)
     } catch (err) {
@@ -635,6 +651,8 @@ export function SourcingDashboard() {
                             <tr className="border-b border-slate-100 dark:border-slate-800 text-slate-400 bg-slate-50/50 dark:bg-slate-800/10">
                               <th className="py-3 px-6 font-semibold uppercase">Mã RFQ</th>
                               <th className="py-3 px-6 font-semibold uppercase">Tiêu đề chiến dịch</th>
+                              <th className="py-3 px-6 font-semibold uppercase">Ảnh sếp giao</th>
+                              <th className="py-3 px-6 font-semibold uppercase">Người giao</th>
                               <th className="py-3 px-6 font-semibold uppercase">Loại hàng</th>
                               <th className="py-3 px-6 font-semibold uppercase">Hạn chót</th>
                               <th className="py-3 px-6 font-semibold uppercase">Địa điểm nhận</th>
@@ -645,6 +663,17 @@ export function SourcingDashboard() {
                               <tr key={rfq.id} className="hover:bg-slate-50/50 dark:hover:bg-slate-800/10 transition">
                                 <td className="py-4 px-6 font-mono font-bold text-slate-900 dark:text-white">{rfq.rfq_code}</td>
                                 <td className="py-4 px-6 font-medium text-slate-800 dark:text-slate-200">{rfq.title}</td>
+                                <td className="py-4 px-6">
+                                  <div className="flex gap-1 overflow-x-auto max-w-[120px]">
+                                    {rfq.product_images && rfq.product_images.map((img, idx) => (
+                                      <a key={idx} href={img} target="_blank" rel="noreferrer" className="shrink-0">
+                                        <img src={img} className="h-8 w-8 object-cover rounded border border-slate-200 dark:border-slate-700 hover:scale-105 transition" alt="sếp giao" />
+                                      </a>
+                                    ))}
+                                    {(!rfq.product_images || rfq.product_images.length === 0) && <span className="text-slate-400 italic text-[10px]">Không có</span>}
+                                  </div>
+                                </td>
+                                <td className="py-4 px-6 text-slate-600 dark:text-slate-400 font-semibold">{rfq.assigned_to || 'N/A'}</td>
                                 <td className="py-4 px-6">{getRfqItemTypeBadge(rfq.item_type)}</td>
                                 <td className="py-4 px-6 text-slate-500">{new Date(rfq.deadline).toLocaleDateString()}</td>
                                 <td className="py-4 px-6 text-slate-500">{rfq.delivery_location}</td>
@@ -731,6 +760,16 @@ export function SourcingDashboard() {
                         <div className="space-y-1">
                           <Label htmlFor="b_note_text" className="text-xs font-semibold">Ghi chú từ NCC</Label>
                           <Input id="b_note_text" placeholder="Ghi chú kỹ thuật hoặc thanh toán..." value={newBid.supplier_notes} onChange={e => setNewBid({...newBid, supplier_notes: e.target.value})} className="h-9 text-xs rounded-lg" />
+                        </div>
+
+                        <div className="space-y-1">
+                          <Label htmlFor="b_source_url" className="text-xs font-semibold">Link nguồn sản phẩm tìm được (Alibaba, 1688...)</Label>
+                          <Input id="b_source_url" placeholder="https://vietnamese.alibaba.com/product-detail/..." value={newBid.supplier_source_url || ''} onChange={e => setNewBid({...newBid, supplier_source_url: e.target.value})} className="h-9 text-xs rounded-lg" />
+                        </div>
+
+                        <div className="space-y-1">
+                          <Label htmlFor="b_prod_img" className="text-xs font-semibold">Link ảnh sản phẩm thực tế từ NCC</Label>
+                          <Input id="b_prod_img" placeholder="https://example.com/supplier-image.jpg" value={newBid.supplier_product_image || ''} onChange={e => setNewBid({...newBid, supplier_product_image: e.target.value})} className="h-9 text-xs rounded-lg" />
                         </div>
 
                         {/* ================= DYNAMIC BID FIELDS BASED ON SELECTED RFQ TYPE ================= */}
@@ -828,6 +867,8 @@ export function SourcingDashboard() {
                       <tr className="border-b border-slate-100 dark:border-slate-800 text-slate-400 bg-slate-50/50 dark:bg-slate-800/10">
                         <th className="py-3 px-6 font-semibold uppercase">Mã RFQ</th>
                         <th className="py-3 px-6 font-semibold uppercase">Tiêu đề RFQ</th>
+                        <th className="py-3 px-6 font-semibold uppercase">Ảnh sếp giao</th>
+                        <th className="py-3 px-6 font-semibold uppercase">Giao việc cho</th>
                         <th className="py-3 px-6 font-semibold uppercase">Loại chiến dịch</th>
                         <th className="py-3 px-6 font-semibold uppercase">Hạn nộp</th>
                         <th className="py-3 px-6 font-semibold uppercase">Thông số kỹ thuật/Đóng gói</th>
@@ -839,6 +880,17 @@ export function SourcingDashboard() {
                         <tr key={r.id} className="hover:bg-slate-50/50 dark:hover:bg-slate-800/10 transition">
                           <td className="py-4 px-6 font-mono font-bold text-slate-900 dark:text-white">{r.rfq_code}</td>
                           <td className="py-4 px-6 font-semibold text-[#5c59e9] hover:underline cursor-pointer" onClick={() => { setNewBid(prev => ({ ...prev, rfq_id: r.id })); setActiveTab('dashboard'); }}>{r.title}</td>
+                          <td className="py-4 px-6">
+                            <div className="flex gap-1 overflow-x-auto max-w-[120px]">
+                              {r.product_images && r.product_images.map((img, idx) => (
+                                <a key={idx} href={img} target="_blank" rel="noreferrer" className="shrink-0">
+                                  <img src={img} className="h-8 w-8 object-cover rounded border border-slate-200 dark:border-slate-700 hover:scale-105 transition" alt="sếp giao" />
+                                </a>
+                              ))}
+                              {(!r.product_images || r.product_images.length === 0) && <span className="text-slate-400 italic text-[10px]">Không có</span>}
+                            </div>
+                          </td>
+                          <td className="py-4 px-6 text-slate-600 dark:text-slate-400 font-semibold">{r.assigned_to || 'N/A'}</td>
                           <td className="py-4 px-6">{getRfqItemTypeBadge(r.item_type)}</td>
                           <td className="py-4 px-6 text-slate-500">{new Date(r.deadline).toLocaleDateString()}</td>
                           <td className="py-4 px-6 text-slate-500 max-w-[200px] truncate">
@@ -869,6 +921,8 @@ export function SourcingDashboard() {
                         <th className="py-3 px-6 font-semibold uppercase">Đơn giá</th>
                         <th className="py-3 px-6 font-semibold uppercase">VAT</th>
                         <th className="py-3 px-6 font-semibold uppercase">Thời gian giao</th>
+                        <th className="py-3 px-6 font-semibold uppercase">Nguồn tìm kiếm</th>
+                        <th className="py-3 px-6 font-semibold uppercase">Ảnh thực tế NCC</th>
                         <th className="py-3 px-6 font-semibold uppercase">Điểm đánh giá</th>
                         <th className="py-3 px-6 font-semibold uppercase">Trạng thái</th>
                       </tr>
@@ -881,6 +935,24 @@ export function SourcingDashboard() {
                           <td className="py-4 px-6 font-bold text-slate-900 dark:text-white">USD ${b.unit_price.toFixed(2)}</td>
                           <td className="py-4 px-6 text-slate-500">{b.vat_percentage}%</td>
                           <td className="py-4 px-6 text-slate-500">{b.lead_time_days} Ngày</td>
+                          <td className="py-4 px-6 text-slate-500">
+                            {b.supplier_source_url ? (
+                              <a href={b.supplier_source_url} target="_blank" rel="noreferrer" className="text-[#5c59e9] hover:underline font-semibold">
+                                Alibaba/1688...
+                              </a>
+                            ) : (
+                              <span className="text-slate-400 italic">Không có</span>
+                            )}
+                          </td>
+                          <td className="py-4 px-6 text-slate-500">
+                            {b.supplier_product_image ? (
+                              <a href={b.supplier_product_image} target="_blank" rel="noreferrer">
+                                <img src={b.supplier_product_image} className="h-8 w-8 object-cover rounded border border-slate-200 dark:border-slate-700 hover:scale-105 transition" alt="NCC cung cấp" />
+                              </a>
+                            ) : (
+                              <span className="text-slate-400 italic">Không có</span>
+                            )}
+                          </td>
                           <td className="py-4 px-6 font-bold text-teal-600 dark:text-teal-400">{b.evaluation_score} / 100</td>
                           <td className="py-4 px-6">{getBidStatusBadge(b.status)}</td>
                         </tr>
@@ -966,6 +1038,21 @@ export function SourcingDashboard() {
                 <div className="space-y-1">
                   <Label htmlFor="new_rfq_loc" className="text-xs font-semibold">Địa điểm nhận hàng</Label>
                   <Input id="new_rfq_loc" required placeholder="e.g. Kho Tr-Sourcing, Đồng Nai" value={newRfq.delivery_location} onChange={e => setNewRfq({...newRfq, delivery_location: e.target.value})} className="h-9 text-xs rounded-lg" />
+                </div>
+
+                <div className="space-y-1">
+                  <Label htmlFor="new_rfq_images" className="text-xs font-semibold">Ảnh mẫu của Sếp (Link URL, phân cách bằng dấu phẩy)</Label>
+                  <Input id="new_rfq_images" placeholder="https://example.com/image1.jpg, ..." value={newRfq.product_images.join(', ')} onChange={e => setNewRfq({...newRfq, product_images: e.target.value.split(',').map(s => s.trim()).filter(Boolean)})} className="h-9 text-xs rounded-lg" />
+                </div>
+
+                <div className="space-y-1">
+                  <Label htmlFor="new_rfq_note" className="text-xs font-semibold">Ghi chú/yêu cầu tìm nguồn của Sếp</Label>
+                  <textarea id="new_rfq_note" placeholder="Yêu cầu cụ thể từ sếp về xuất xứ, chất lượng..." value={newRfq.sourcing_note || ''} onChange={e => setNewRfq({...newRfq, sourcing_note: e.target.value})} className="w-full min-h-[60px] border border-slate-200 bg-background rounded-lg p-2 text-xs focus:ring-[#5c59e9] focus:border-[#5c59e9] focus:outline-none" />
+                </div>
+
+                <div className="space-y-1">
+                  <Label htmlFor="new_rfq_assign" className="text-xs font-semibold">Giao việc cho nhân viên (Tên/Email)</Label>
+                  <Input id="new_rfq_assign" placeholder="e.g. Nguyễn Văn B" value={newRfq.assigned_to || ''} onChange={e => setNewRfq({...newRfq, assigned_to: e.target.value})} className="h-9 text-xs rounded-lg" />
                 </div>
 
                 {/* ================= DYNAMIC FORM FIELDS BASED ON RFQ ITEM TYPE ================= */}
