@@ -1,9 +1,7 @@
 import { EnvVarWarning } from '@/components/env-var-warning'
 import { AuthButton } from '@/components/auth-button'
-import { Hero } from '@/components/hero'
 import { ThemeSwitcher } from '@/components/theme-switcher'
-import { ConnectSupabaseSteps } from '@/components/tutorial/connect-supabase-steps'
-import { SignUpUserSteps } from '@/components/tutorial/sign-up-user-steps'
+import { SourcingDashboard } from '@/components/dashboard'
 import { hasEnvVars } from '@/utils/env'
 import Link from 'next/link'
 import { Suspense } from 'react'
@@ -11,42 +9,64 @@ import { Suspense } from 'react'
 export default function Home() {
   return (
     <main className="flex min-h-screen flex-col items-center">
-      <div className="flex w-full flex-1 flex-col items-center gap-20">
-        <nav className="border-b-foreground/10 flex h-16 w-full justify-center border-b">
-          <div className="flex w-full max-w-5xl items-center justify-between p-3 px-5 text-sm">
+      <div className="flex w-full flex-1 flex-col items-center gap-8">
+        {/* Navigation Bar */}
+        <nav className="border-border/40 bg-background/95 supports-[backdrop-filter]:bg-background/60 sticky top-0 z-50 flex h-16 w-full justify-center border-b backdrop-blur">
+          <div className="flex w-full max-w-7xl items-center justify-between p-3 px-6 text-sm">
             <div className="flex items-center gap-5 font-semibold">
-              <Link href={'/'}>Next.js Supabase Starter</Link>
+              <Link
+                href={'/'}
+                className="flex items-center gap-2 text-base tracking-tight hover:opacity-90"
+              >
+                <span className="flex h-6 w-6 items-center justify-center rounded-lg bg-gradient-to-br from-emerald-500 to-teal-500 text-xs font-black text-white">
+                  S
+                </span>
+                <span>Tr-Sourcing</span>
+              </Link>
             </div>
-            {!hasEnvVars ? (
-              <EnvVarWarning />
-            ) : (
-              <Suspense>
-                <AuthButton />
-              </Suspense>
-            )}
+            <div className="flex items-center gap-4">
+              {!hasEnvVars ? (
+                <EnvVarWarning />
+              ) : (
+                <Suspense
+                  fallback={
+                    <div className="bg-muted h-9 w-24 animate-pulse rounded" />
+                  }
+                >
+                  <AuthButton />
+                </Suspense>
+              )}
+              <ThemeSwitcher />
+            </div>
           </div>
         </nav>
-        <div className="flex max-w-5xl flex-1 flex-col gap-20 p-5">
-          <Hero />
-          <main className="flex flex-1 flex-col gap-6 px-4">
-            <h2 className="mb-4 text-xl font-medium">Next steps</h2>
-            {hasEnvVars ? <SignUpUserSteps /> : <ConnectSupabaseSteps />}
-          </main>
+
+        {/* Dashboard Area */}
+        <div className="flex w-full max-w-7xl flex-1 flex-col p-6 px-6">
+          <SourcingDashboard />
         </div>
 
-        <footer className="mx-auto flex w-full items-center justify-center gap-8 border-t py-16 text-center text-xs">
-          <p>
-            Powered by{' '}
+        {/* Footer */}
+        <footer className="text-muted-foreground mx-auto mt-auto flex w-full max-w-7xl items-center justify-between border-t px-6 py-8 text-xs">
+          <p>© 2026 Tr-Sourcing. All rights reserved.</p>
+          <div className="flex gap-4">
             <a
-              href="https://supabase.com/?utm_source=create-next-app&utm_medium=template&utm_term=nextjs"
+              href="https://supabase.com"
               target="_blank"
-              className="font-bold hover:underline"
+              className="hover:underline"
               rel="noreferrer"
             >
               Supabase
             </a>
-          </p>
-          <ThemeSwitcher />
+            <a
+              href="https://nextjs.org"
+              target="_blank"
+              className="hover:underline"
+              rel="noreferrer"
+            >
+              Next.js
+            </a>
+          </div>
         </footer>
       </div>
     </main>
