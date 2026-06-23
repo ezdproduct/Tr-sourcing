@@ -25,7 +25,7 @@ describe('<SourcingDashboard />', () => {
     render(<SourcingDashboard />)
     
     // Check if key layout elements render
-    expect(screen.getByText('Tr-Sourcing Pro')).toBeInTheDocument()
+    expect(screen.getByText('TR-Sourcing Pro')).toBeInTheDocument()
     expect(screen.getByText('Total RFQ Campaigns')).toBeInTheDocument()
     expect(screen.getByText('Total Received Bids')).toBeInTheDocument()
     

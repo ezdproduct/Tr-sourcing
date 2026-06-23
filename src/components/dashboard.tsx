@@ -568,7 +568,7 @@ export function SourcingDashboard() {
 
   // Form States
   const [newRfq, setNewRfq] = useState({
-    rfq_code: '', title: '', item_type: 'raw_material' as 'raw_material' | 'finished_good', deadline: '', delivery_location: 'Kho Tr-Sourcing',
+    rfq_code: '', title: '', item_type: 'raw_material' as 'raw_material' | 'finished_good', deadline: '', delivery_location: 'Kho TR-Sourcing',
     product_images: [] as string[], sourcing_note: ''
   })
 
@@ -593,8 +593,8 @@ export function SourcingDashboard() {
   ]
 
   const mockRfqs: RFQ[] = [
-    { id: 'r-1', rfq_code: 'RFQ-RAW-2026-001', title: 'Supply 100 tons of kiln-dried red oak', item_type: 'raw_material', deadline: '2026-07-07', delivery_location: 'Tr-Sourcing Wood Warehouse, Dong Nai', raw_material_spec: 'US Red Oak, kiln-dried to 12-14% moisture content, no large black knots.', chemical_composition: 'Wood bark impurities < 2%, head splitting rate < 5%', created_at: '2026-06-23' },
-    { id: 'r-2', rfq_code: 'RFQ-FIN-2026-002', title: 'Supply 50,000 branded 5-layer carton boxes', item_type: 'finished_good', deadline: '2026-07-03', delivery_location: 'Tr-Sourcing Factory, Binh Duong', finished_good_packaging: 'Packaged 50 boxes/bundle, wrapped with protective PE stretch film.', product_barcode: '8931234567890', created_at: '2026-06-23' }
+    { id: 'r-1', rfq_code: 'RFQ-RAW-2026-001', title: 'Supply 100 tons of kiln-dried red oak', item_type: 'raw_material', deadline: '2026-07-07', delivery_location: 'TR-Sourcing Wood Warehouse, Dong Nai', raw_material_spec: 'US Red Oak, kiln-dried to 12-14% moisture content, no large black knots.', chemical_composition: 'Wood bark impurities < 2%, head splitting rate < 5%', created_at: '2026-06-23' },
+    { id: 'r-2', rfq_code: 'RFQ-FIN-2026-002', title: 'Supply 50,000 branded 5-layer carton boxes', item_type: 'finished_good', deadline: '2026-07-03', delivery_location: 'TR-Sourcing Factory, Binh Duong', finished_good_packaging: 'Packaged 50 boxes/bundle, wrapped with protective PE stretch film.', product_barcode: '8931234567890', created_at: '2026-06-23' }
   ]
 
   const mockBids: Bid[] = [
@@ -834,7 +834,7 @@ export function SourcingDashboard() {
         title: newRfq.title,
         item_type: newRfq.item_type,
         deadline: newRfq.deadline,
-        delivery_location: newRfq.delivery_location || 'Kho Tr-Sourcing',
+        delivery_location: newRfq.delivery_location || 'Kho TR-Sourcing',
         product_images: newRfq.product_images,
         sourcing_note: newRfq.sourcing_note
       }
@@ -847,7 +847,7 @@ export function SourcingDashboard() {
       if (error) throw error
       await fetchData()
       setNewRfq({
-        rfq_code: '', title: '', item_type: 'raw_material', deadline: '', delivery_location: 'Kho Tr-Sourcing',
+        rfq_code: '', title: '', item_type: 'raw_material', deadline: '', delivery_location: 'Kho TR-Sourcing',
         product_images: [], sourcing_note: ''
       })
       setShowAddRfq(false)
@@ -873,7 +873,7 @@ export function SourcingDashboard() {
         title: editRfq.title,
         item_type: editRfq.item_type,
         deadline: editRfq.deadline,
-        delivery_location: editRfq.delivery_location || 'Kho Tr-Sourcing',
+        delivery_location: editRfq.delivery_location || 'Kho TR-Sourcing',
         product_images: editRfq.product_images,
         sourcing_note: editRfq.sourcing_note
       }
@@ -1190,7 +1190,7 @@ export function SourcingDashboard() {
           <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-[#5c59e9] text-sm font-black text-white shadow-md shadow-[#5c59e9]/30">
             S
           </span>
-          <span className="text-base font-black tracking-tight text-white">Tr-Sourcing Pro</span>
+          <span className="text-base font-black tracking-tight text-white">TR-Sourcing Pro</span>
         </div>
 
         {/* Navigation Menus */}
@@ -1448,7 +1448,7 @@ export function SourcingDashboard() {
                               title: '',
                               item_type: initialType,
                               deadline: '',
-                              delivery_location: 'Kho Tr-Sourcing',
+                              delivery_location: 'Kho TR-Sourcing',
                               product_images: [],
                               sourcing_note: ''
                             })
@@ -1862,7 +1862,7 @@ export function SourcingDashboard() {
                 <div className="flex justify-between border-b pb-3 items-center">
                   <div>
                     <p className="font-semibold">Software License</p>
-                    <p className="text-slate-400 text-[10px]">Tr-Sourcing Enterprise Edition</p>
+                    <p className="text-slate-400 text-[10px]">TR-Sourcing Enterprise Edition</p>
                   </div>
                   <Badge className="bg-teal-50 text-teal-700">v1.2.0 Active</Badge>
                 </div>
@@ -3116,7 +3116,7 @@ export function SourcingDashboard() {
                           title: viewingRfq.title,
                           item_type: viewingRfq.item_type,
                           deadline: viewingRfq.deadline ? new Date(viewingRfq.deadline).toISOString().slice(0, 16) : '',
-                          delivery_location: viewingRfq.delivery_location || 'Kho Tr-Sourcing',
+                          delivery_location: viewingRfq.delivery_location || 'Kho TR-Sourcing',
                           raw_material_spec: viewingRfq.raw_material_spec || '',
                           chemical_composition: viewingRfq.chemical_composition || '',
                           finished_good_packaging: viewingRfq.finished_good_packaging || '',
@@ -3189,7 +3189,7 @@ export function SourcingDashboard() {
 
                 <div className="space-y-1">
                   <Label htmlFor="edit_rfq_loc" className="text-xs font-semibold">Địa điểm bàn giao</Label>
-                  <Input id="edit_rfq_loc" placeholder="Kho Tr-Sourcing" value={editRfq.delivery_location} onChange={e => setEditRfq({...editRfq, delivery_location: e.target.value})} className="h-9 text-xs rounded-lg" />
+                  <Input id="edit_rfq_loc" placeholder="Kho TR-Sourcing" value={editRfq.delivery_location} onChange={e => setEditRfq({...editRfq, delivery_location: e.target.value})} className="h-9 text-xs rounded-lg" />
                 </div>
 
                 {/* Conditional Fields based on item_type */}
