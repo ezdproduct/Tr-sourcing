@@ -1465,13 +1465,13 @@ export function SourcingDashboard() {
                         <table className="w-full table-fixed text-left border-collapse text-xs min-w-[800px]">
                           <thead>
                             <tr className="border-b border-slate-100 dark:border-slate-800 text-slate-400 bg-slate-50/50 dark:bg-slate-800/10">
-                              <th className="w-[12%] py-3 px-6 font-semibold uppercase">RFQ Code</th>
-                              <th className="w-[38%] py-3 px-6 font-semibold uppercase">Campaign Title</th>
-                              <th className="w-[12%] py-3 px-6 font-semibold uppercase">Sample Images</th>
-                              <th className="w-[14%] py-3 px-6 font-semibold uppercase">Item Type</th>
+                              <th className="w-[15%] py-3 px-6 font-semibold uppercase text-left">RFQ Code</th>
+                              <th className="w-[30%] py-3 px-6 font-semibold uppercase text-left">Campaign Title</th>
+                              <th className="w-[12%] py-3 px-6 font-semibold uppercase text-left">Sample Images</th>
+                              <th className="w-[14%] py-3 px-6 font-semibold uppercase text-center">Item Type</th>
                               <th className="w-[8%] py-3 px-6 font-semibold uppercase text-center">Suppliers</th>
-                              <th className="w-[6%] py-3 px-6 font-semibold uppercase text-center">Bids</th>
-                              <th className="w-[10%] py-3 px-6 font-semibold uppercase">Deadline</th>
+                              <th className="w-[8%] py-3 px-6 font-semibold uppercase text-center">Bids</th>
+                              <th className="w-[13%] py-3 px-6 font-semibold uppercase text-center">Deadline</th>
                             </tr>
                           </thead>
                           <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
@@ -1481,9 +1481,9 @@ export function SourcingDashboard() {
                                 className="hover:bg-slate-50/50 dark:hover:bg-slate-800/10 transition cursor-pointer"
                                 onClick={() => setViewingRfq(rfq)}
                               >
-                                <td className="py-4 px-6 font-mono font-bold text-slate-900 dark:text-white">{highlightText(rfq.rfq_code, searchQuery)}</td>
-                                <td className="py-4 px-6 font-medium text-slate-800 dark:text-slate-200">{highlightText(rfq.title, searchQuery)}</td>
-                                <td className="py-4 px-6">
+                                <td className="w-[15%] py-4 px-6 font-mono font-bold text-slate-900 dark:text-white text-left">{highlightText(rfq.rfq_code, searchQuery)}</td>
+                                <td className="w-[30%] py-4 px-6 font-medium text-slate-800 dark:text-slate-200 text-left truncate" title={rfq.title}>{highlightText(rfq.title, searchQuery)}</td>
+                                <td className="w-[12%] py-4 px-6 text-left">
                                   <div className="flex gap-1 overflow-x-auto max-w-[120px]">
                                     {rfq.product_images && rfq.product_images.map((img, idx) => (
                                       <a
@@ -1500,19 +1500,19 @@ export function SourcingDashboard() {
                                     {(!rfq.product_images || rfq.product_images.length === 0) && <span className="text-slate-400 italic text-[10px]">None</span>}
                                   </div>
                                 </td>
-                                <td className="py-4 px-6">{getRfqItemTypeBadge(rfq.item_type)}</td>
+                                <td className="w-[14%] py-4 px-6 text-center">{getRfqItemTypeBadge(rfq.item_type)}</td>
                                 {(() => {
                                   const rfqBids = bids.filter(b => b.rfq_id === rfq.id)
                                   const suppliersCount = new Set(rfqBids.map(b => b.supplier_id)).size
                                   const bidsCount = rfqBids.length
                                   return (
                                     <>
-                                      <td className="py-4 px-6 text-center font-bold text-slate-700 dark:text-slate-350">{suppliersCount}</td>
-                                      <td className="py-4 px-6 text-center font-bold text-[#5c59e9]">{bidsCount}</td>
+                                      <td className="w-[8%] py-4 px-6 text-center font-bold text-slate-700 dark:text-slate-350">{suppliersCount}</td>
+                                      <td className="w-[8%] py-4 px-6 text-center font-bold text-[#5c59e9]">{bidsCount}</td>
                                     </>
                                   )
                                 })()}
-                                <td className="py-4 px-6 text-slate-500">{new Date(rfq.deadline).toLocaleDateString()}</td>
+                                <td className="w-[13%] py-4 px-6 text-center text-slate-500">{new Date(rfq.deadline).toLocaleDateString()}</td>
                               </tr>
                             ))}
 
@@ -1656,13 +1656,13 @@ export function SourcingDashboard() {
                   <table className="w-full table-fixed text-left border-collapse text-xs min-w-[800px]">
                     <thead>
                       <tr className="border-b border-slate-100 dark:border-slate-800 text-slate-400 bg-slate-50/50 dark:bg-slate-800/10">
-                        <th className="w-[12%] py-3 px-6 font-semibold uppercase">RFQ Code</th>
-                        <th className="w-[38%] py-3 px-6 font-semibold uppercase">RFQ Title</th>
-                        <th className="w-[12%] py-3 px-6 font-semibold uppercase">Sample Images</th>
-                        <th className="w-[14%] py-3 px-6 font-semibold uppercase">Campaign type</th>
+                        <th className="w-[15%] py-3 px-6 font-semibold uppercase text-left">RFQ Code</th>
+                        <th className="w-[30%] py-3 px-6 font-semibold uppercase text-left">RFQ Title</th>
+                        <th className="w-[12%] py-3 px-6 font-semibold uppercase text-left">Sample Images</th>
+                        <th className="w-[14%] py-3 px-6 font-semibold uppercase text-center">Campaign type</th>
                         <th className="w-[8%] py-3 px-6 font-semibold uppercase text-center">Suppliers</th>
-                        <th className="w-[6%] py-3 px-6 font-semibold uppercase text-center">Bids</th>
-                        <th className="w-[10%] py-3 px-6 font-semibold uppercase">Submission Deadline</th>
+                        <th className="w-[8%] py-3 px-6 font-semibold uppercase text-center">Bids</th>
+                        <th className="w-[13%] py-3 px-6 font-semibold uppercase text-center">Submission Deadline</th>
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
@@ -1672,9 +1672,9 @@ export function SourcingDashboard() {
                           className="hover:bg-slate-50/50 dark:hover:bg-slate-800/10 transition cursor-pointer"
                           onClick={() => setViewingRfq(r)}
                         >
-                          <td className="py-4 px-6 font-mono font-bold text-slate-900 dark:text-white">{highlightText(r.rfq_code, searchQuery)}</td>
-                          <td className="py-4 px-6 font-semibold text-[#5c59e9] hover:underline cursor-pointer" onClick={(e) => { e.stopPropagation(); setNewBid(prev => ({ ...prev, rfq_id: r.id })); setActiveTab('dashboard'); }}>{highlightText(r.title, searchQuery)}</td>
-                          <td className="py-4 px-6">
+                          <td className="w-[15%] py-4 px-6 font-mono font-bold text-slate-900 dark:text-white text-left">{highlightText(r.rfq_code, searchQuery)}</td>
+                          <td className="w-[30%] py-4 px-6 font-semibold text-[#5c59e9] hover:underline cursor-pointer text-left truncate" title={r.title} onClick={(e) => { e.stopPropagation(); setNewBid(prev => ({ ...prev, rfq_id: r.id })); setActiveTab('dashboard'); }}>{highlightText(r.title, searchQuery)}</td>
+                          <td className="w-[12%] py-4 px-6 text-left">
                             <div className="flex gap-1 overflow-x-auto max-w-[120px]">
                               {r.product_images && r.product_images.map((img, idx) => (
                                 <a
@@ -1691,19 +1691,19 @@ export function SourcingDashboard() {
                               {(!r.product_images || r.product_images.length === 0) && <span className="text-slate-400 italic text-[10px]">None</span>}
                             </div>
                           </td>
-                          <td className="py-4 px-6">{getRfqItemTypeBadge(r.item_type)}</td>
+                          <td className="w-[14%] py-4 px-6 text-center">{getRfqItemTypeBadge(r.item_type)}</td>
                           {(() => {
                             const rfqBids = bids.filter(b => b.rfq_id === r.id)
                             const suppliersCount = new Set(rfqBids.map(b => b.supplier_id)).size
                             const bidsCount = rfqBids.length
                             return (
                               <>
-                                <td className="py-4 px-6 text-center font-bold text-slate-700 dark:text-slate-350">{suppliersCount}</td>
-                                <td className="py-4 px-6 text-center font-bold text-[#5c59e9]">{bidsCount}</td>
+                                <td className="w-[8%] py-4 px-6 text-center font-bold text-slate-700 dark:text-slate-350">{suppliersCount}</td>
+                                <td className="w-[8%] py-4 px-6 text-center font-bold text-[#5c59e9]">{bidsCount}</td>
                               </>
                             )
                           })()}
-                          <td className="py-4 px-6 text-slate-500">{new Date(r.deadline).toLocaleDateString()}</td>
+                          <td className="w-[13%] py-4 px-6 text-center text-slate-500">{new Date(r.deadline).toLocaleDateString()}</td>
                         </tr>
                       ))}
                     </tbody>
