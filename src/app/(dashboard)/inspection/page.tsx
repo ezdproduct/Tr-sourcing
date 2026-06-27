@@ -7,6 +7,7 @@ import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
 import {
   Anchor,
   FileText,
@@ -116,30 +117,13 @@ export default function PortInspectionPage() {
       </div>
 
       {/* Subtab Switcher */}
-      <div className="flex border-b border-slate-200 dark:border-slate-800">
-        <button
-          onClick={() => setSubtab('overview')}
-          className={`px-4 py-2 text-xs font-bold border-b-2 transition-colors cursor-pointer ${
-            subtab === 'overview'
-              ? 'border-[#5c59e9] text-[#5c59e9]'
-              : 'border-transparent text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'
-          }`}
-        >
-          Overview
-        </button>
-        <button
-          onClick={() => setSubtab('workplace')}
-          className={`px-4 py-2 text-xs font-bold border-b-2 transition-colors cursor-pointer ${
-            subtab === 'workplace'
-              ? 'border-[#5c59e9] text-[#5c59e9]'
-              : 'border-transparent text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'
-          }`}
-        >
-          Workplace
-        </button>
-      </div>
+      <Tabs value={subtab} onValueChange={(v) => setSubtab(v as 'overview' | 'workplace')} className="w-full space-y-6">
+        <TabsList className="grid w-[240px] grid-cols-2">
+          <TabsTrigger value="overview">Overview</TabsTrigger>
+          <TabsTrigger value="workplace">Workplace</TabsTrigger>
+        </TabsList>
 
-      {subtab === 'overview' ? (
+        <TabsContent value="overview" className="space-y-6 mt-0 border-none p-0 focus-visible:ring-0 focus-visible:ring-offset-0">
         <div className="space-y-6">
           {/* KPI Grid */}
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
@@ -259,8 +243,9 @@ export default function PortInspectionPage() {
             </Card>
           </div>
         </div>
-      ) : (
-        <>
+      </TabsContent>
+
+      <TabsContent value="workplace" className="space-y-6 mt-0 border-none p-0 focus-visible:ring-0 focus-visible:ring-offset-0">
           {/* New Port Inspection Form */}
       {showForm && (
         <Card className="border-slate-200/60 dark:border-slate-800 animate-in fade-in-50 duration-200">
@@ -410,8 +395,8 @@ export default function PortInspectionPage() {
           </div>
         </CardContent>
       </Card>
-      </>
-      )}
+      </TabsContent>
+      </Tabs>
     </div>
   )
 }
