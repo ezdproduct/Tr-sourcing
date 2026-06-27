@@ -30,7 +30,9 @@ import {
   ChevronRight,
   ShieldCheck,
   AlertTriangle,
-  FileCode2
+  FileCode2,
+  Users2,
+  TrendingUp
 } from 'lucide-react'
 
 export interface ShortlistedSupplier {
@@ -105,6 +107,7 @@ export function AuditClient({
   schemaMissing
 }: AuditClientProps) {
   const router = useRouter()
+  const [subtab, setSubtab] = useState<'overview' | 'workplace'>('overview')
   const [isPending, startTransition] = useTransition()
   const [activeTab, setActiveTab] = useState<'suppliers' | 'logs'>('suppliers')
   const [searchQuery, setSearchQuery] = useState('')
@@ -281,9 +284,168 @@ export function AuditClient({
         </p>
       </div>
 
-      {/* Database Schema Missing Warning Banner */}
-      {schemaMissing && (
-        <Card className="border-rose-200 dark:border-rose-950/60 bg-rose-50/50 dark:bg-rose-950/10 overflow-hidden animate-in fade-in-50 duration-200">
+      {/* Subtab Switcher */}
+      <div className="flex border-b border-slate-200 dark:border-slate-800">
+        <button
+          onClick={() => setSubtab('overview')}
+          className={`px-4 py-2 text-xs font-bold border-b-2 transition-colors cursor-pointer ${
+            subtab === 'overview'
+              ? 'border-[#5c59e9] text-[#5c59e9]'
+              : 'border-transparent text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'
+          }`}
+        >
+          Overview
+        </button>
+        <button
+          onClick={() => setSubtab('workplace')}
+          className={`px-4 py-2 text-xs font-bold border-b-2 transition-colors cursor-pointer ${
+            subtab === 'workplace'
+              ? 'border-[#5c59e9] text-[#5c59e9]'
+              : 'border-transparent text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'
+          }`}
+        >
+          Workplace
+        </button>
+      </div>
+
+      {subtab === 'overview' ? (
+        <div className="space-y-6">
+          {/* KPI Grid */}
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+            <Card className="border-slate-200/60 dark:border-slate-800">
+              <CardHeader className="pb-2 flex flex-row items-center justify-between">
+                <CardTitle className="text-xs font-bold text-slate-500 uppercase tracking-wider">Audited Factories</CardTitle>
+                <FileCheck2 className="h-4 w-4 text-indigo-500" />
+              </CardHeader>
+              <CardContent>
+                <div className="text-2xl font-black text-slate-900 dark:text-white">
+                  {new Set(initialAudits.filter(a => a.audit_status === 'Completed').map(a => a.supplier_id)).size}
+                </div>
+                <p className="text-[10px] text-slate-400 mt-1">Unique factories with completed audits</p>
+              </CardContent>
+            </Card>
+
+            <Card className="border-slate-200/60 dark:border-slate-800">
+              <CardHeader className="pb-2 flex flex-row items-center justify-between">
+                <CardTitle className="text-xs font-bold text-slate-500 uppercase tracking-wider">Avg Quality Score</CardTitle>
+                <Star className="h-4 w-4 text-amber-500" />
+              </CardHeader>
+              <CardContent>
+                <div className="text-2xl font-black text-slate-900 dark:text-white">
+                  {(() => {
+                    const completed = initialAudits.filter(a => a.quality_control_score !== null)
+                    if (completed.length === 0) return '0 / 5'
+                    const avg = completed.reduce((sum, a) => sum + (a.quality_control_score || 0), 0) / completed.length
+                    return `${avg.toFixed(1)} / 5`
+                  })()}
+                </div>
+                <p className="text-[10px] text-slate-400 mt-1">Average quality inspection rating</p>
+              </CardContent>
+            </Card>
+
+            <Card className="border-slate-200/60 dark:border-slate-800">
+              <CardHeader className="pb-2 flex flex-row items-center justify-between">
+                <CardTitle className="text-xs font-bold text-slate-500 uppercase tracking-wider">Avg Capacity Score</CardTitle>
+                <TrendingUp className="h-4 w-4 text-indigo-500" />
+              </CardHeader>
+              <CardContent>
+                <div className="text-2xl font-black text-slate-900 dark:text-white">
+                  {(() => {
+                    const completed = initialAudits.filter(a => a.production_capacity_score !== null)
+                    if (completed.length === 0) return '0 / 5'
+                    const avg = completed.reduce((sum, a) => sum + (a.production_capacity_score || 0), 0) / completed.length
+                    return `${avg.toFixed(1)} / 5`
+                  })()}
+                </div>
+                <p className="text-[10px] text-slate-400 mt-1">Average manufacturing capacity score</p>
+              </CardContent>
+            </Card>
+
+            <Card className="border-slate-200/60 dark:border-slate-800">
+              <CardHeader className="pb-2 flex flex-row items-center justify-between">
+                <CardTitle className="text-xs font-bold text-slate-500 uppercase tracking-wider">Pending Audits</CardTitle>
+                <AlertCircle className="h-4 w-4 text-amber-500" />
+              </CardHeader>
+              <CardContent>
+                <div className="text-2xl font-black text-slate-900 dark:text-white">
+                  {initialAudits.filter(a => a.audit_status === 'Scheduled' || a.audit_status === 'In Progress').length}
+                </div>
+                <p className="text-[10px] text-amber-600 mt-1 font-medium">Scheduled factory site visits</p>
+              </CardContent>
+            </Card>
+          </div>
+
+          {/* Compliance & Recent Audits charts */}
+          <div className="grid gap-6 md:grid-cols-2">
+            <Card className="border-slate-200/60 dark:border-slate-800">
+              <CardHeader>
+                <CardTitle className="text-sm font-bold text-slate-900 dark:text-white">Compliance Standard Audit Checks</CardTitle>
+                <CardDescription className="text-xs">Safety and production compliance breakdown</CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                {[
+                  { label: 'Workplace Safety Standards', pct: '90%' },
+                  { label: 'Fair Labor & Wages Compliance', pct: '85%' },
+                  { label: 'Waste & Environmental Controls', pct: '75%' },
+                  { label: 'Equipment & Maintenance checks', pct: '80%' }
+                ].map((item, idx) => (
+                  <div key={idx} className="space-y-1.5">
+                    <div className="flex items-center justify-between text-xs font-semibold">
+                      <span className="text-slate-700 dark:text-slate-300">{item.label}</span>
+                      <span className="text-[#5c59e9] dark:text-indigo-400">{item.pct}</span>
+                    </div>
+                    <div className="h-1.5 w-full bg-slate-100 rounded-full dark:bg-slate-900">
+                      <div className="h-full bg-indigo-500 rounded-full" style={{ width: item.pct }} />
+                    </div>
+                  </div>
+                ))}
+              </CardContent>
+            </Card>
+
+            <Card className="border-slate-200/60 dark:border-slate-800">
+              <CardHeader>
+                <CardTitle className="text-sm font-bold text-slate-900 dark:text-white">Latest Completed Audits</CardTitle>
+                <CardDescription className="text-xs">Timeline of factory visit inspection scores</CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                {initialAudits.filter(a => a.audit_status === 'Completed').length === 0 ? (
+                  <p className="text-xs text-slate-400">No completed audits logged yet.</p>
+                ) : (
+                  initialAudits
+                    .filter(a => a.audit_status === 'Completed')
+                    .slice(0, 3)
+                    .map((audit, idx) => (
+                      <div key={idx} className="flex items-start gap-4 border-b border-slate-100 pb-3 last:border-0 last:pb-0 dark:border-slate-900">
+                        <button
+                          onClick={() => {
+                            setSubtab('workplace')
+                            setActiveTab('logs')
+                            setSelectedAudit(audit)
+                          }}
+                          className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200 dark:bg-emerald-950/20 dark:text-emerald-400 hover:underline cursor-pointer"
+                        >
+                          {audit.suppliers?.name || 'Factory'}
+                        </button>
+                        <div className="flex-1 space-y-0.5">
+                          <p className="text-xs text-slate-800 dark:text-slate-200 font-medium">
+                            QC: {audit.quality_control_score}/5 | Capacity: {audit.production_capacity_score}/5
+                          </p>
+                          <p className="text-[10px] text-slate-400">
+                            Audited by {audit.auditor_name || 'N/A'} on {audit.audit_date ? new Date(audit.audit_date).toLocaleDateString() : 'N/A'}
+                          </p>
+                        </div>
+                      </div>
+                    ))
+                )}
+              </CardContent>
+            </Card>
+          </div>
+        </div>
+      ) : (
+        <>
+          {/* Database Schema Missing Warning Banner */}
+          {schemaMissing && (
+            <Card className="border-rose-200 dark:border-rose-950/60 bg-rose-50/50 dark:bg-rose-950/10 overflow-hidden animate-in fade-in-50 duration-200">
           <CardHeader className="pb-3 flex flex-row items-start gap-4">
             <div className="p-2 bg-rose-100 dark:bg-rose-950 rounded-xl text-rose-600 dark:text-rose-400">
               <ShieldCheck size={24} />
@@ -662,6 +824,8 @@ export function AuditClient({
           )}
         </CardContent>
       </Card>
+      </>
+      )}
 
       {/* SCHEDULE AUDIT MODAL */}
       {isScheduleModalOpen && selectedSupplier && (

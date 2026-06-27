@@ -112,6 +112,7 @@ export function getOrderTypeFromItems(items?: DatabaseOrderItem[]): string {
 
 export function OrdersClient({ initialOrders }: OrdersClientProps) {
   const { userRole, searchQuery } = useSourcing()
+  const [subtab, setSubtab] = useState<'overview' | 'workplace'>('overview')
   
   const formatOrderType = (type: string) => {
     if (!type) return '-'
@@ -411,117 +412,241 @@ export function OrdersClient({ initialOrders }: OrdersClientProps) {
         )}
       </div>
 
-      {/* Orders List Card */}
-      <Card className="border-slate-200/60 dark:border-slate-800">
-        <CardHeader className="pb-3 border-b border-slate-100 dark:border-slate-800 flex flex-row items-center justify-between">
-          <div>
-            <CardTitle className="text-base font-bold">Active Purchase Orders</CardTitle>
-            <CardDescription className="text-xs">
-              Click anywhere on a row to view complete order details & documents.
-            </CardDescription>
+      {/* Subtab Switcher */}
+      <div className="flex border-b border-slate-200 dark:border-slate-800">
+        <button
+          onClick={() => setSubtab('overview')}
+          className={`px-4 py-2 text-xs font-bold border-b-2 transition-colors cursor-pointer ${
+            subtab === 'overview'
+              ? 'border-[#5c59e9] text-[#5c59e9]'
+              : 'border-transparent text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'
+          }`}
+        >
+          Overview
+        </button>
+        <button
+          onClick={() => setSubtab('workplace')}
+          className={`px-4 py-2 text-xs font-bold border-b-2 transition-colors cursor-pointer ${
+            subtab === 'workplace'
+              ? 'border-[#5c59e9] text-[#5c59e9]'
+              : 'border-transparent text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'
+          }`}
+        >
+          Workplace
+        </button>
+      </div>
+
+      {subtab === 'overview' ? (
+        <div className="space-y-6">
+          {/* KPI Grid */}
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+            <Card className="border-slate-200/60 dark:border-slate-800">
+              <CardHeader className="pb-2 flex flex-row items-center justify-between">
+                <CardTitle className="text-xs font-bold text-slate-500 uppercase tracking-wider">Total Orders</CardTitle>
+                <Package className="h-4 w-4 text-indigo-500" />
+              </CardHeader>
+              <CardContent>
+                <div className="text-2xl font-black text-slate-900 dark:text-white">{initialOrders.length}</div>
+                <p className="text-[10px] text-slate-400 mt-1">Active purchase orders in database</p>
+              </CardContent>
+            </Card>
+
+            <Card className="border-slate-200/60 dark:border-slate-800">
+              <CardHeader className="pb-2 flex flex-row items-center justify-between">
+                <CardTitle className="text-xs font-bold text-slate-500 uppercase tracking-wider">Material Orders</CardTitle>
+                <Package className="h-4 w-4 text-emerald-500" />
+              </CardHeader>
+              <CardContent>
+                <div className="text-2xl font-black text-slate-900 dark:text-white">
+                  {initialOrders.filter(o => getOrderTypeFromItems(o.order_items) === 'MATERIAL').length}
+                </div>
+                <p className="text-[10px] text-slate-400 mt-1">Raw material purchase orders</p>
+              </CardContent>
+            </Card>
+
+            <Card className="border-slate-200/60 dark:border-slate-800">
+              <CardHeader className="pb-2 flex flex-row items-center justify-between">
+                <CardTitle className="text-xs font-bold text-slate-500 uppercase tracking-wider">Product Orders</CardTitle>
+                <Package className="h-4 w-4 text-blue-500" />
+              </CardHeader>
+              <CardContent>
+                <div className="text-2xl font-black text-slate-900 dark:text-white">
+                  {initialOrders.filter(o => getOrderTypeFromItems(o.order_items) === 'PRODUCT').length}
+                </div>
+                <p className="text-[10px] text-slate-400 mt-1">Finished product orders</p>
+              </CardContent>
+            </Card>
           </div>
-          <Button variant="outline" size="sm" className="gap-1.5 h-8 text-xs">
-            <Download size={12} />
-            <span>Export CSV</span>
-          </Button>
-        </CardHeader>
-        <CardContent className="p-0">
-          <div className="overflow-x-auto">
-            <table className="w-full text-left border-collapse">
-              <thead>
-                <tr className="border-b border-slate-100 bg-slate-50/50 text-xs font-bold uppercase tracking-wider text-slate-500 dark:border-slate-800 dark:bg-slate-900/50">
-                  <th className="px-6 py-4 text-left">Order Code</th>
-                  <th className="px-6 py-4 text-center">Order Type</th>
-                  <th className="px-6 py-4 text-center">Stage</th>
-                  <th className="px-6 py-4 text-center">Product Items</th>
-                  <th className="px-6 py-4 text-center">Order Date</th>
-                  <th className="px-6 py-4 text-center">Est. Delivery</th>
-                  <th className="px-6 py-4 text-right pr-8"></th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100 dark:divide-slate-800 text-sm">
-                {filteredOrders.length === 0 ? (
-                  <tr>
-                    <td colSpan={7} className="px-6 py-8 text-center text-slate-400">
-                      No orders found. {searchQuery ? 'Try adjusting your search query.' : 'Click Create Order to add one.'}
-                    </td>
-                  </tr>
+
+          {/* Workflow progress or Distribution chart */}
+          <div className="grid gap-6 md:grid-cols-2">
+            <Card className="border-slate-200/60 dark:border-slate-800">
+              <CardHeader>
+                <CardTitle className="text-sm font-bold text-slate-900 dark:text-white">Order Pipeline Distribution</CardTitle>
+                <CardDescription className="text-xs">Workflow division of running campaigns</CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                {[
+                  { label: 'Draft / Definition', pct: '85%' },
+                  { label: 'Sourcing Phase', pct: '60%' },
+                  { label: 'Audit / QC', pct: '45%' },
+                  { label: 'Shipped / Inbound', pct: '70%' }
+                ].map((item, idx) => (
+                  <div key={idx} className="space-y-1.5">
+                    <div className="flex items-center justify-between text-xs font-semibold">
+                      <span className="text-slate-700 dark:text-slate-300">{item.label}</span>
+                      <span className="text-indigo-600 dark:text-indigo-400">{item.pct}</span>
+                    </div>
+                    <div className="h-1.5 w-full bg-slate-100 rounded-full dark:bg-slate-900">
+                      <div className="h-full bg-indigo-500 rounded-full" style={{ width: item.pct }} />
+                    </div>
+                  </div>
+                ))}
+              </CardContent>
+            </Card>
+
+            <Card className="border-slate-200/60 dark:border-slate-800">
+              <CardHeader>
+                <CardTitle className="text-sm font-bold text-slate-900 dark:text-white">Recent Order Updates</CardTitle>
+                <CardDescription className="text-xs">Latest active updates in this stage</CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                {initialOrders.length === 0 ? (
+                  <p className="text-xs text-slate-400">No active updates available.</p>
                 ) : (
-                  filteredOrders.map((order) => (
-                    <tr
-                      key={order.id}
-                      onClick={() => setSelectedOrder(order)}
-                      className="hover:bg-slate-50/50 dark:hover:bg-slate-900/20 cursor-pointer transition-colors"
-                    >
-                      <td className="px-6 py-4 font-bold text-indigo-600 dark:text-indigo-400 hover:underline text-left">
+                  initialOrders.slice(0, 3).map((order, idx) => (
+                    <div key={idx} className="flex items-start gap-4 border-b border-slate-100 pb-3 last:border-0 last:pb-0 dark:border-slate-900">
+                      <button
+                        onClick={() => setSelectedOrder(order)}
+                        className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-indigo-100 text-indigo-800 dark:bg-indigo-950/40 dark:text-indigo-400 hover:underline cursor-pointer"
+                      >
                         {order.order_code}
-                      </td>
-                      <td className="px-6 py-4 text-center">
-                        <Badge variant="outline" className="text-xs font-semibold capitalize bg-slate-50 dark:bg-slate-900">
-                          {formatOrderType(getOrderTypeFromItems(order.order_items))}
-                        </Badge>
-                      </td>
-                      <td className="px-6 py-4 text-center">
-                        <Badge variant="outline" className={getStageBadgeColor(order.stage)}>
-                          {order.stage}
-                        </Badge>
-                      </td>
-                      <td className="px-6 py-4">
-                        <div className="flex items-center justify-center gap-1.5">
-                          <Layers size={13} className="text-slate-400" />
-                          <span className="font-semibold text-slate-700 dark:text-slate-300">
-                            {order.order_items?.length || 0} items
-                          </span>
-                        </div>
-                      </td>
-                      <td className="px-6 py-4 text-slate-500 text-center">
-                        {order.order_date ? new Date(order.order_date).toLocaleDateString('en-US', {
-                          year: 'numeric',
-                          month: 'short',
-                          day: 'numeric'
-                        }) : '-'}
-                      </td>
-                      <td className="px-6 py-4 text-slate-500 font-medium text-center">
-                        {order.estimated_delivery_date ? new Date(order.estimated_delivery_date).toLocaleDateString('en-US', {
-                          year: 'numeric',
-                          month: 'short',
-                          day: 'numeric'
-                        }) : '-'}
-                      </td>
-                      <td className="px-6 py-4 text-right pr-8" onClick={(e) => e.stopPropagation()}>
-                        <div className="flex justify-end gap-1.5">
-                          {isStaffOrAdmin && (
-                            <>
-                              <Button
-                                size="sm"
-                                variant="outline"
-                                onClick={() => handleStartEdit(order)}
-                                className="h-8 w-8 p-0 text-indigo-600 dark:text-indigo-400 hover:text-indigo-700 hover:bg-indigo-50 border-indigo-100 dark:border-indigo-900/40 cursor-pointer rounded-lg"
-                                title="Update Order"
-                              >
-                                <Edit3 size={14} />
-                              </Button>
-                              <Button
-                                size="sm"
-                                variant="outline"
-                                onClick={() => handleStartDelete(order)}
-                                className="h-8 w-8 p-0 text-rose-600 hover:text-rose-700 hover:bg-rose-50 border-rose-100 dark:border-rose-900/40 cursor-pointer rounded-lg"
-                                title="Delete Order"
-                              >
-                                <Trash2 size={14} />
-                              </Button>
-                            </>
-                          )}
-                        </div>
-                      </td>
-                    </tr>
+                      </button>
+                      <div className="flex-1 space-y-0.5">
+                        <p className="text-xs text-slate-800 dark:text-slate-200 font-medium">
+                          Order was created on {new Date(order.created_at).toLocaleDateString()}
+                        </p>
+                        <p className="text-[10px] text-slate-400">Status: {order.stage}</p>
+                      </div>
+                    </div>
                   ))
                 )}
-              </tbody>
-            </table>
+              </CardContent>
+            </Card>
           </div>
-        </CardContent>
-      </Card>
+        </div>
+      ) : (
+        <Card className="border-slate-200/60 dark:border-slate-800">
+          <CardHeader className="pb-3 border-b border-slate-100 dark:border-slate-800 flex flex-row items-center justify-between">
+            <div>
+              <CardTitle className="text-base font-bold">Active Purchase Orders</CardTitle>
+              <CardDescription className="text-xs">
+                Click anywhere on a row to view complete order details & documents.
+              </CardDescription>
+            </div>
+            <Button variant="outline" size="sm" className="gap-1.5 h-8 text-xs">
+              <Download size={12} />
+              <span>Export CSV</span>
+            </Button>
+          </CardHeader>
+          <CardContent className="p-0">
+            <div className="overflow-x-auto">
+              <table className="w-full text-left border-collapse">
+                <thead>
+                  <tr className="border-b border-slate-100 bg-slate-50/50 text-xs font-bold uppercase tracking-wider text-slate-500 dark:border-slate-800 dark:bg-slate-900/50">
+                    <th className="px-6 py-4 text-left">Order Code</th>
+                    <th className="px-6 py-4 text-center">Order Type</th>
+                    <th className="px-6 py-4 text-center">Stage</th>
+                    <th className="px-6 py-4 text-center">Product Items</th>
+                    <th className="px-6 py-4 text-center">Order Date</th>
+                    <th className="px-6 py-4 text-center">Est. Delivery</th>
+                    <th className="px-6 py-4 text-right pr-8"></th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100 dark:divide-slate-800 text-sm">
+                  {filteredOrders.length === 0 ? (
+                    <tr>
+                      <td colSpan={7} className="px-6 py-8 text-center text-slate-400">
+                        No orders found. {searchQuery ? 'Try adjusting your search query.' : 'Click Create Order to add one.'}
+                      </td>
+                    </tr>
+                  ) : (
+                    filteredOrders.map((order) => (
+                      <tr
+                        key={order.id}
+                        onClick={() => setSelectedOrder(order)}
+                        className="hover:bg-slate-50/50 dark:hover:bg-slate-900/20 cursor-pointer transition-colors"
+                      >
+                        <td className="px-6 py-4 font-bold text-indigo-600 dark:text-indigo-400 hover:underline text-left">
+                          {order.order_code}
+                        </td>
+                        <td className="px-6 py-4 text-center">
+                          <Badge variant="outline" className="text-xs font-semibold capitalize bg-slate-50 dark:bg-slate-900">
+                            {formatOrderType(getOrderTypeFromItems(order.order_items))}
+                          </Badge>
+                        </td>
+                        <td className="px-6 py-4 text-center">
+                          <Badge variant="outline" className={getStageBadgeColor(order.stage)}>
+                            {order.stage}
+                          </Badge>
+                        </td>
+                        <td className="px-6 py-4">
+                          <div className="flex items-center justify-center gap-1.5">
+                            <Layers size={13} className="text-slate-400" />
+                            <span className="font-semibold text-slate-700 dark:text-slate-300">
+                              {order.order_items?.length || 0} items
+                            </span>
+                          </div>
+                        </td>
+                        <td className="px-6 py-4 text-slate-500 text-center">
+                          {order.order_date ? new Date(order.order_date).toLocaleDateString('en-US', {
+                            year: 'numeric',
+                            month: 'short',
+                            day: 'numeric'
+                          }) : '-'}
+                        </td>
+                        <td className="px-6 py-4 text-slate-500 font-medium text-center">
+                          {order.estimated_delivery_date ? new Date(order.estimated_delivery_date).toLocaleDateString('en-US', {
+                            year: 'numeric',
+                            month: 'short',
+                            day: 'numeric'
+                          }) : '-'}
+                        </td>
+                        <td className="px-6 py-4 text-right pr-8" onClick={(e) => e.stopPropagation()}>
+                          <div className="flex justify-end gap-1.5">
+                            {isStaffOrAdmin && (
+                              <>
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  onClick={() => handleStartEdit(order)}
+                                  className="h-8 w-8 p-0 text-indigo-600 dark:text-indigo-400 hover:text-indigo-700 hover:bg-indigo-50 border-indigo-100 dark:border-indigo-900/40 cursor-pointer rounded-lg"
+                                  title="Update Order"
+                                >
+                                  <Edit3 size={14} />
+                                </Button>
+                                <Button
+                                  size="sm"
+                                  variant="outline"
+                                  onClick={() => setDeletingOrder(order)}
+                                  className="h-8 w-8 p-0 text-red-600 dark:text-red-400 hover:text-red-700 hover:bg-red-50 border-red-100 dark:border-red-900/40 cursor-pointer rounded-lg"
+                                  title="Delete Order"
+                                >
+                                  <Trash2 size={14} />
+                                </Button>
+                              </>
+                            )}
+                          </div>
+                        </td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       {/* CREATE Modal Dialog Form */}
       {isOpen && (

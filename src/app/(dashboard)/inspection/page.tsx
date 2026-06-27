@@ -13,7 +13,13 @@ import {
   Upload,
   User,
   PlusCircle,
-  TrendingDown
+  TrendingDown,
+  Users2,
+  Shield,
+  Package,
+  CheckCircle2,
+  TrendingUp,
+  AlertCircle
 } from 'lucide-react'
 
 interface InspectionRecord {
@@ -52,6 +58,7 @@ const initialInspections: InspectionRecord[] = [
 
 export default function PortInspectionPage() {
   const { userRole } = useSourcing()
+  const [subtab, setSubtab] = useState<'overview' | 'workplace'>('overview')
   const [inspections, setInspections] = useState<InspectionRecord[]>(initialInspections)
   const [showForm, setShowForm] = useState(false)
   const [newInsp, setNewInsp] = useState({
@@ -108,7 +115,153 @@ export default function PortInspectionPage() {
         )}
       </div>
 
-      {/* New Port Inspection Form */}
+      {/* Subtab Switcher */}
+      <div className="flex border-b border-slate-200 dark:border-slate-800">
+        <button
+          onClick={() => setSubtab('overview')}
+          className={`px-4 py-2 text-xs font-bold border-b-2 transition-colors cursor-pointer ${
+            subtab === 'overview'
+              ? 'border-[#5c59e9] text-[#5c59e9]'
+              : 'border-transparent text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'
+          }`}
+        >
+          Overview
+        </button>
+        <button
+          onClick={() => setSubtab('workplace')}
+          className={`px-4 py-2 text-xs font-bold border-b-2 transition-colors cursor-pointer ${
+            subtab === 'workplace'
+              ? 'border-[#5c59e9] text-[#5c59e9]'
+              : 'border-transparent text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'
+          }`}
+        >
+          Workplace
+        </button>
+      </div>
+
+      {subtab === 'overview' ? (
+        <div className="space-y-6">
+          {/* KPI Grid */}
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+            <Card className="border-slate-200/60 dark:border-slate-800">
+              <CardHeader className="pb-2 flex flex-row items-center justify-between">
+                <CardTitle className="text-xs font-bold text-slate-500 uppercase tracking-wider">Inspected Shipments</CardTitle>
+                <Anchor className="h-4 w-4 text-indigo-500" />
+              </CardHeader>
+              <CardContent>
+                <div className="text-2xl font-black text-slate-900 dark:text-white">{inspections.length}</div>
+                <p className="text-[10px] text-slate-400 mt-1">Total cargo containers checked at port</p>
+              </CardContent>
+            </Card>
+
+            <Card className="border-slate-200/60 dark:border-slate-800">
+              <CardHeader className="pb-2 flex flex-row items-center justify-between">
+                <CardTitle className="text-xs font-bold text-slate-500 uppercase tracking-wider">AQL Pass Rate</CardTitle>
+                <CheckCircle2 className="h-4 w-4 text-emerald-500" />
+              </CardHeader>
+              <CardContent>
+                <div className="text-2xl font-black text-slate-900 dark:text-white">
+                  {(() => {
+                    const approved = inspections.filter(i => i.verdict === 'Approved').length
+                    if (inspections.length === 0) return '100%'
+                    return `${((approved / inspections.length) * 100).toFixed(0)}%`
+                  })()}
+                </div>
+                <p className="text-[10px] text-slate-400 mt-1">Defects below AQL 2.5% threshold</p>
+              </CardContent>
+            </Card>
+
+            <Card className="border-slate-200/60 dark:border-slate-800">
+              <CardHeader className="pb-2 flex flex-row items-center justify-between">
+                <CardTitle className="text-xs font-bold text-slate-500 uppercase tracking-wider">Avg Defect Rate</CardTitle>
+                <TrendingDown className="h-4 w-4 text-indigo-500" />
+              </CardHeader>
+              <CardContent>
+                <div className="text-2xl font-black text-slate-900 dark:text-white">
+                  {(() => {
+                    if (inspections.length === 0) return '0%'
+                    const sum = inspections.reduce((total, i) => total + i.defectRate, 0)
+                    return `${(sum / inspections.length).toFixed(2)}%`
+                  })()}
+                </div>
+                <p className="text-[10px] text-slate-400 mt-1">Measured cargo quality deviation</p>
+              </CardContent>
+            </Card>
+
+            <Card className="border-slate-200/60 dark:border-slate-800">
+              <CardHeader className="pb-2 flex flex-row items-center justify-between">
+                <CardTitle className="text-xs font-bold text-slate-500 uppercase tracking-wider">Reports Filed</CardTitle>
+                <FileText className="h-4 w-4 text-blue-500" />
+              </CardHeader>
+              <CardContent>
+                <div className="text-2xl font-black text-slate-900 dark:text-white">{inspections.length}</div>
+                <p className="text-[10px] text-slate-400 mt-1">Digitized bill of lading documents</p>
+              </CardContent>
+            </Card>
+          </div>
+
+          {/* Port split & Recent inspections */}
+          <div className="grid gap-6 md:grid-cols-2">
+            <Card className="border-slate-200/60 dark:border-slate-800">
+              <CardHeader>
+                <CardTitle className="text-sm font-bold text-slate-900 dark:text-white">Loading Volumes by Port</CardTitle>
+                <CardDescription className="text-xs">Cargo allocation split across key transit ports</CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                {[
+                  { label: 'Cat Lai Port, HCMC', pct: '80%' },
+                  { label: 'Hai Phong Port, Hai Phong', pct: '60%' },
+                  { label: 'Da Nang Port, Da Nang', pct: '40%' }
+                ].map((item, idx) => (
+                  <div key={idx} className="space-y-1.5">
+                    <div className="flex items-center justify-between text-xs font-semibold">
+                      <span className="text-slate-700 dark:text-slate-300">{item.label}</span>
+                      <span className="text-[#5c59e9] dark:text-indigo-400">{item.pct}</span>
+                    </div>
+                    <div className="h-1.5 w-full bg-slate-100 rounded-full dark:bg-slate-900">
+                      <div className="h-full bg-indigo-500 rounded-full" style={{ width: item.pct }} />
+                    </div>
+                  </div>
+                ))}
+              </CardContent>
+            </Card>
+
+            <Card className="border-slate-200/60 dark:border-slate-800">
+              <CardHeader>
+                <CardTitle className="text-sm font-bold text-slate-900 dark:text-white">Recent Loading Inspection Logs</CardTitle>
+                <CardDescription className="text-xs">Latest port checks filed by logistics agents</CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                {inspections.length === 0 ? (
+                  <p className="text-xs text-slate-400">No inspections logged yet.</p>
+                ) : (
+                  inspections.slice(0, 3).map((item, idx) => (
+                    <div key={idx} className="flex items-start gap-4 border-b border-slate-100 pb-3 last:border-0 last:pb-0 dark:border-slate-900">
+                      <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
+                        item.verdict === 'Approved'
+                          ? 'bg-emerald-50 text-emerald-700 border border-emerald-200 dark:bg-emerald-950/20 dark:text-emerald-400'
+                          : 'bg-rose-50 text-rose-700 border border-rose-200 dark:bg-rose-950/20 dark:text-rose-450'
+                      }`}>
+                        {item.containerNumber}
+                      </span>
+                      <div className="flex-1 space-y-0.5">
+                        <p className="text-xs text-slate-800 dark:text-slate-200 font-medium">
+                          Defect: {item.defectRate.toFixed(2)}% at {item.portName}
+                        </p>
+                        <p className="text-[10px] text-slate-400">
+                          Checked by {item.inspector} on {item.dateChecked}
+                        </p>
+                      </div>
+                    </div>
+                  ))
+                )}
+              </CardContent>
+            </Card>
+          </div>
+        </div>
+      ) : (
+        <>
+          {/* New Port Inspection Form */}
       {showForm && (
         <Card className="border-slate-200/60 dark:border-slate-800 animate-in fade-in-50 duration-200">
           <CardHeader>
@@ -257,6 +410,8 @@ export default function PortInspectionPage() {
           </div>
         </CardContent>
       </Card>
+      </>
+      )}
     </div>
   )
 }
