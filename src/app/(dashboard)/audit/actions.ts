@@ -77,6 +77,17 @@ export async function submitAuditResultAction(input: SubmitAuditResultInput) {
 
     const totalScore = (input.qcScore + input.capacityScore) / 2.0
 
+    // Fetch the supplier_id and order_id for this audit first to find related orders
+    const { data: auditRecord, error: fetchAuditError } = await supabase
+      .from('factory_audits')
+      .select('supplier_id, order_id')
+      .eq('id', input.auditId)
+      .single()
+
+    if (fetchAuditError) {
+      console.error('Error fetching audit for update:', fetchAuditError.message)
+    }
+
     const { error } = await supabase
       .from('factory_audits')
       .update({
@@ -93,7 +104,40 @@ export async function submitAuditResultAction(input: SubmitAuditResultInput) {
       return { success: false, error: error.message }
     }
 
+    // Handover back to Sourcing department by updating order stage to Sourcing
+    if (auditRecord && auditRecord.order_id) {
+      const { error: stageError } = await supabase
+        .from('orders')
+        .update({ stage: 'Sourcing' })
+        .eq('id', auditRecord.order_id)
+      if (stageError) {
+        console.error('Error updating order stage back to Sourcing:', stageError.message)
+      }
+    } else if (auditRecord && auditRecord.supplier_id) {
+      // Fallback for older legacy audits without direct order_id
+      const { data: bids } = await supabase
+        .from('order_suppliers')
+        .select('order_id')
+        .eq('supplier_id', auditRecord.supplier_id)
+        .eq('is_shortlisted', true)
+
+      if (bids && bids.length > 0) {
+        const orderIds = Array.from(new Set(bids.map(b => b.order_id).filter(Boolean)))
+        for (const orderId of orderIds) {
+          const { error: stageError } = await supabase
+            .from('orders')
+            .update({ stage: 'Sourcing' })
+            .eq('id', orderId)
+          if (stageError) {
+            console.error('Error updating order stage back to Sourcing:', stageError.message)
+          }
+        }
+      }
+    }
+
     revalidatePath('/audit')
+    revalidatePath('/sourcing')
+    revalidatePath('/orders')
     return { success: true }
   } catch (error: any) {
     console.error('Uncaught error submitting audit result:', error)

@@ -49,9 +49,6 @@ function SourcingFallback() {
         <h1 className="text-2xl font-bold tracking-tight text-slate-900 dark:text-white">
           Supplier Sourcing &amp; Matrix
         </h1>
-        <p className="text-sm text-slate-500">
-          Phase 2–3: Evaluate factory capabilities, compare prices/lead times, and build your shortlist
-        </p>
       </div>
 
       <Card className="border-slate-200/60 dark:border-slate-800">

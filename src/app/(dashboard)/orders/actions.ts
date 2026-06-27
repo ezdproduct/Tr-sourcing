@@ -10,11 +10,18 @@ export interface OrderItemInput {
   itemType?: string
 }
 
+export interface StageTimelineInput {
+  stageName: string
+  estimatedStartDate: string // YYYY-MM-DD
+  estimatedEndDate: string // YYYY-MM-DD
+}
+
 export interface CreateOrderInput {
   // orderType is intentionally omitted: defaults to 'PENDING' until Sourcing classifies it
   orderDate: string // YYYY-MM-DD
   estimatedDeliveryDate: string // YYYY-MM-DD
   items: OrderItemInput[]
+  stageTimelines?: StageTimelineInput[]
 }
 
 export interface UpdateOrderInput {
@@ -22,7 +29,9 @@ export interface UpdateOrderInput {
   orderType: 'MATERIAL' | 'PRODUCT'
   orderDate: string // YYYY-MM-DD
   estimatedDeliveryDate: string // YYYY-MM-DD
+  stage?: string
   items: OrderItemInput[]
+  stageTimelines?: StageTimelineInput[]
 }
 
 export async function createOrderAction(input: CreateOrderInput) {
@@ -59,12 +68,28 @@ export async function createOrderAction(input: CreateOrderInput) {
       return { success: false, error: errMessage }
     }
 
-    // Set stage to 'Order Intake' after creation
+    // Set stage to 'Order' after creation
     if (rpcResult.order_id) {
       await supabase
         .from('orders')
-        .update({ stage: 'Order Intake' })
+        .update({ stage: 'Order' })
         .eq('id', rpcResult.order_id)
+
+      // Insert stage timelines
+      if (input.stageTimelines && input.stageTimelines.length > 0) {
+        const timelinesToInsert = input.stageTimelines.map((st) => ({
+          order_id: rpcResult.order_id,
+          stage_name: st.stageName,
+          estimated_start_date: st.estimatedStartDate,
+          estimated_end_date: st.estimatedEndDate
+        }))
+        const { error: timelineError } = await supabase
+          .from('order_stage_timelines')
+          .insert(timelinesToInsert)
+        if (timelineError) {
+          console.error('Database timeline insert error:', timelineError.message)
+        }
+      }
     }
 
     // Trigger Next.js App Router cache revalidation
@@ -110,6 +135,40 @@ export async function updateOrderAction(input: UpdateOrderInput) {
       const errMessage = rpcResult?.error || 'Database update transaction failed.'
       console.error('Database update transaction error:', errMessage)
       return { success: false, error: errMessage }
+    }
+
+    // Update parent order stage if provided
+    if (input.stage) {
+      const { error: stageError } = await supabase
+        .from('orders')
+        .update({ stage: input.stage })
+        .eq('id', input.orderId)
+      if (stageError) {
+        console.error('Database update stage error:', stageError.message)
+      }
+    }
+
+    // Update stage timelines
+    if (input.stageTimelines && input.stageTimelines.length > 0) {
+      // Delete existing timelines
+      await supabase
+        .from('order_stage_timelines')
+        .delete()
+        .eq('order_id', input.orderId)
+
+      // Re-insert timelines
+      const timelinesToInsert = input.stageTimelines.map((st) => ({
+        order_id: input.orderId,
+        stage_name: st.stageName,
+        estimated_start_date: st.estimatedStartDate,
+        estimated_end_date: st.estimatedEndDate
+      }))
+      const { error: timelineError } = await supabase
+        .from('order_stage_timelines')
+        .insert(timelinesToInsert)
+      if (timelineError) {
+        console.error('Database timeline update error:', timelineError.message)
+      }
     }
 
     // Trigger Next.js App Router cache revalidation

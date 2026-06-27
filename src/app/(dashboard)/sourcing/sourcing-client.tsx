@@ -3,7 +3,8 @@
 /* eslint-disable react-hooks/set-state-in-effect */
 
 import React, { useState, useTransition, useEffect } from 'react'
-import { useRouter } from 'next/navigation'
+import { useRouter, useSearchParams } from 'next/navigation'
+import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
 import { useSourcing } from '@/providers/sourcing-provider'
 import { 
   addSupplierAction, 
@@ -15,7 +16,8 @@ import {
   deleteSuppliersBatchAction,
   sendShortlistToQcAction,
   fetchSupplierCapabilitiesAction,
-  updateSupplierProfileAction
+  updateSupplierProfileAction,
+  confirmSupplierAndCreatePoAction
 } from './actions'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -51,6 +53,7 @@ import {
   Send,
   SlidersHorizontal,
   Shield,
+  CheckCircle2,
 } from 'lucide-react'
 
 // ─── CSV Parser Helper ────────────────────────────────────────────────────────
@@ -185,12 +188,33 @@ export function SourcingClient({ initialOrders, initialSuppliers }: SourcingClie
   }, [router])
 
   const [subtab, setSubtab] = useState<'overview' | 'workplace'>('overview')
+  const searchParams = useSearchParams()
+
+  useEffect(() => {
+    const tab = searchParams.get('subtab')
+    if (tab === 'overview' || tab === 'workplace') {
+      setSubtab(tab)
+    }
+  }, [searchParams])
+
+  const handleTabChange = (val: 'overview' | 'workplace') => {
+    setSubtab(val)
+    if (typeof window !== 'undefined') {
+      const newUrl = `${window.location.pathname}?subtab=${val}`
+      window.history.pushState({ ...window.history.state, as: newUrl, url: newUrl }, '', newUrl)
+    }
+  }
   const [isAddOpen, setIsAddOpen] = useState(false)
   const [isPending, startTransition] = useTransition()
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
   const [deletingId, setDeletingId] = useState<string | null>(null)
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null)
+  
+  // PO creation states
+  const [poSupplier, setPoSupplier] = useState<DatabaseSupplier | null>(null)
+  const [poContractValue, setPoContractValue] = useState<number>(0)
+  const [isPoConfirming, setIsPoConfirming] = useState(false)
 
   // Upgraded manual normalized form states
   const [manualForm, setManualForm] = useState({
@@ -794,37 +818,13 @@ export function SourcingClient({ initialOrders, initialSuppliers }: SourcingClie
           <h1 className="text-2xl font-bold tracking-tight text-slate-900 dark:text-white">
             Supplier Sourcing &amp; Matrix
           </h1>
-          <p className="text-sm text-slate-500">
-            Phase 2–3: Evaluate factory capabilities, compare prices/lead times, and build your shortlist
-          </p>
         </div>
       </div>
 
       {/* Subtab Switcher */}
-      <div className="flex border-b border-slate-200 dark:border-slate-800">
-        <button
-          onClick={() => setSubtab('overview')}
-          className={`px-4 py-2 text-xs font-bold border-b-2 transition-colors cursor-pointer ${
-            subtab === 'overview'
-              ? 'border-[#5c59e9] text-[#5c59e9]'
-              : 'border-transparent text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'
-          }`}
-        >
-          Overview
-        </button>
-        <button
-          onClick={() => setSubtab('workplace')}
-          className={`px-4 py-2 text-xs font-bold border-b-2 transition-colors cursor-pointer ${
-            subtab === 'workplace'
-              ? 'border-[#5c59e9] text-[#5c59e9]'
-              : 'border-transparent text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'
-          }`}
-        >
-          Workplace
-        </button>
-      </div>
+      <Tabs value={subtab} className="w-full space-y-6">
 
-      {subtab === 'overview' ? (
+        <TabsContent value="overview" className="space-y-6 mt-0 border-none p-0 focus-visible:ring-0 focus-visible:ring-offset-0">
         <div className="space-y-6">
           {/* KPI Grid */}
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
@@ -934,124 +934,9 @@ export function SourcingClient({ initialOrders, initialSuppliers }: SourcingClie
             </Card>
           </div>
         </div>
-      ) : (
-        <>
-          {/* Stats Cards — toggle between per-order and global */}
-      {viewMode === 'order' ? (
-        selectedOrder && (
-          <div className="grid gap-4 md:grid-cols-3">
-            <Card className="border-slate-200/60 dark:border-slate-800 bg-[#fbfbfe] dark:bg-slate-900/30">
-              <CardHeader className="pb-2">
-                <CardTitle className="text-xs font-semibold text-slate-400 uppercase">Active Order</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="text-lg font-bold text-slate-800 dark:text-slate-200">{selectedOrder.order_code}</div>
-                <p className="text-xs text-slate-400 mt-0.5 flex items-center gap-1">
-                  {computedOrderType === 'MIXED' ? (
-                    <Layers size={11} className="text-indigo-600" />
-                  ) : computedOrderType === 'PRODUCT' ? (
-                    <ShoppingBag size={11} />
-                  ) : computedOrderType === 'PENDING' ? (
-                    <Tag size={11} className="text-amber-500" />
-                  ) : (
-                    <Package size={11} />
-                  )}
-                  {computedOrderType === 'MIXED' ? (
-                    <span className="text-indigo-600 font-semibold">Mixed</span>
-                  ) : computedOrderType === 'PRODUCT' ? (
-                    'Product'
-                  ) : computedOrderType === 'PENDING' ? (
-                    <span className="text-amber-500 font-semibold">Pending Classification</span>
-                  ) : (
-                    'Material'
-                  )}
-                </p>
-              </CardContent>
-            </Card>
+      </TabsContent>
 
-            <Card className="border-slate-200/60 dark:border-slate-800 bg-[#fbfbfe] dark:bg-slate-900/30">
-              <CardHeader className="pb-2">
-                <CardTitle className="text-xs font-semibold text-slate-400 uppercase">Shortlisted Candidates</CardTitle>
-              </CardHeader>
-              <CardContent>
-                <div className="text-lg font-bold text-slate-800 dark:text-slate-200">
-                  {shortlistedCount} / {orderSuppliers.length}
-                </div>
-                <p className="text-xs text-slate-400 mt-0.5 flex items-center gap-1">
-                  <Star size={11} className="text-amber-500 fill-amber-500" /> Selected for further audit
-                </p>
-              </CardContent>
-            </Card>
-
-            <Card className="border-slate-200/60 dark:border-slate-800 bg-[#fbfbfe] dark:bg-slate-900/30">
-              <CardHeader className="pb-2">
-                <CardTitle className="text-xs font-semibold text-slate-400 uppercase">Best Terms Available</CardTitle>
-              </CardHeader>
-              <CardContent>
-                {orderSuppliers.length > 0 ? (
-                  <>
-                    <div className="text-lg font-bold text-emerald-600">
-                      ${bestPrice?.toLocaleString('en-US', { minimumFractionDigits: 2 })}
-                    </div>
-                    <p className="text-xs text-slate-400 mt-0.5">
-                      Fastest lead time: <span className="font-semibold text-indigo-600">{bestLeadTime} days</span>
-                    </p>
-                  </>
-                ) : (
-                  <div className="text-sm text-slate-400">No quotes received</div>
-                )}
-              </CardContent>
-            </Card>
-          </div>
-        )
-      ) : (
-        <div className="grid gap-4 md:grid-cols-3">
-          <Card className="border-slate-200/60 dark:border-slate-800 bg-[#fbfbfe] dark:bg-slate-900/30">
-            <CardHeader className="pb-2">
-              <CardTitle className="text-xs font-semibold text-slate-400 uppercase">Total Candidates Engaged</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="text-lg font-bold text-slate-800 dark:text-slate-200">{totalEngaged} factories</div>
-              <p className="text-xs text-slate-400 mt-0.5 flex items-center gap-1">
-                <Globe size={11} /> Global supply footprint
-              </p>
-            </CardContent>
-          </Card>
-
-          <Card className="border-slate-200/60 dark:border-slate-800 bg-[#fbfbfe] dark:bg-slate-900/30">
-            <CardHeader className="pb-2">
-              <CardTitle className="text-xs font-semibold text-slate-400 uppercase">Avg Lead Time</CardTitle>
-            </CardHeader>
-            <CardContent>
-              {avgLeadTime !== null ? (
-                <>
-                  <div className="text-lg font-bold text-slate-800 dark:text-slate-200">{avgLeadTime} days</div>
-                  <p className="text-xs text-slate-400 mt-0.5 flex items-center gap-1">
-                    <Clock size={11} /> System-wide average
-                  </p>
-                </>
-              ) : (
-                <div className="text-sm text-slate-400">No data yet</div>
-              )}
-            </CardContent>
-          </Card>
-
-          <Card className="border-slate-200/60 dark:border-slate-800 bg-[#fbfbfe] dark:bg-slate-900/30">
-            <CardHeader className="pb-2">
-              <CardTitle className="text-xs font-semibold text-slate-400 uppercase">Total Shortlisted</CardTitle>
-            </CardHeader>
-            <CardContent>
-              <div className="text-lg font-bold text-indigo-600 dark:text-indigo-400">
-                {totalShortlisted}
-              </div>
-              <p className="text-xs text-slate-400 mt-0.5 flex items-center gap-1">
-                <Star size={11} /> Approved for Phase 3 audits
-              </p>
-            </CardContent>
-          </Card>
-        </div>
-      )}
-
+      <TabsContent value="workplace" className="space-y-6 mt-0 border-none p-0 focus-visible:ring-0 focus-visible:ring-offset-0">
       {/* Main Content: Order List + Matrix / All Suppliers */}
       <div className="grid gap-6 lg:grid-cols-[280px_1fr]">
 
@@ -1970,18 +1855,35 @@ export function SourcingClient({ initialOrders, initialSuppliers }: SourcingClie
                                             </td>
                                           )}
                                           <td className="px-6 py-4 text-right">
-                                            <button
-                                              id={`delete-supplier-${supplier.id}`}
-                                              onClick={() => setConfirmDeleteId(supplier.id)}
-                                              disabled={deletingId === supplier.id}
-                                              className="inline-flex items-center justify-center h-7 w-7 rounded-lg border border-slate-200 text-slate-400 hover:border-red-300 hover:text-red-500 hover:bg-red-50 dark:border-slate-800 dark:hover:bg-red-950/20 dark:hover:text-red-400 transition-colors cursor-pointer disabled:opacity-50"
-                                              title="Remove supplier"
-                                            >
-                                              {deletingId === supplier.id
-                                                ? <Loader2 size={13} className="animate-spin" />
-                                                : <Trash2 size={13} />
-                                              }
-                                            </button>
+                                            <div className="flex justify-end items-center gap-2">
+                                              {selectedOrder?.stage === 'Sourcing' && (
+                                                <Button
+                                                  size="sm"
+                                                  onClick={() => {
+                                                    setPoSupplier(supplier)
+                                                    const qty = selectedOrder?.order_items?.find(item => item.id === supplier.order_item_id)?.quantity || 1
+                                                    setPoContractValue(Number(supplier.quoted_price) * qty)
+                                                    setIsPoConfirming(false)
+                                                    setErrorMessage(null)
+                                                  }}
+                                                  className="h-7 text-[10px] font-bold px-2.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white cursor-pointer"
+                                                >
+                                                  Create PO
+                                                </Button>
+                                              )}
+                                              <button
+                                                id={`delete-supplier-${supplier.id}`}
+                                                onClick={() => setConfirmDeleteId(supplier.id)}
+                                                disabled={deletingId === supplier.id}
+                                                className="inline-flex items-center justify-center h-7 w-7 rounded-lg border border-slate-200 text-slate-400 hover:border-red-300 hover:text-red-500 hover:bg-red-50 dark:border-slate-800 dark:hover:bg-red-950/20 dark:hover:text-red-400 transition-colors cursor-pointer disabled:opacity-50"
+                                                title="Remove supplier"
+                                              >
+                                                {deletingId === supplier.id
+                                                  ? <Loader2 size={13} className="animate-spin" />
+                                                  : <Trash2 size={13} />
+                                                }
+                                              </button>
+                                            </div>
                                           </td>
                                         </tr>
                                       )
@@ -2001,8 +1903,8 @@ export function SourcingClient({ initialOrders, initialSuppliers }: SourcingClie
           </div>
         )}
       </div>
-      </>
-      )}
+      </TabsContent>
+      </Tabs>
 
       {/* Add Supplier Modal */}
       {isAddOpen && (
@@ -2363,6 +2265,116 @@ export function SourcingClient({ initialOrders, initialSuppliers }: SourcingClie
               >
                 Delete
               </Button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Confirm Supplier & Create PO Modal */}
+      {poSupplier && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 animate-fade-in">
+          <div
+            className="absolute inset-0 bg-black/40 backdrop-blur-sm"
+            onClick={() => setPoSupplier(null)}
+          />
+          <div className="relative z-10 w-full max-w-md bg-white dark:bg-slate-900 rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-800 p-6">
+            <div className="flex items-center gap-3 text-emerald-600 dark:text-emerald-400 mb-4">
+              <CheckCircle2 size={22} className="flex-shrink-0" />
+              <h3 className="text-base font-bold text-slate-900 dark:text-white">Confirm Supplier &amp; Create PO</h3>
+            </div>
+            
+            <div className="space-y-4">
+              <p className="text-xs text-slate-600 dark:text-slate-400 leading-relaxed">
+                You are selecting <strong className="font-semibold text-slate-800 dark:text-slate-200">{poSupplier.supplier_name}</strong> as the final supplier for the item <strong className="font-semibold text-slate-800 dark:text-slate-200">{poSupplier.order_items?.item_name}</strong>.
+              </p>
+
+              <div className="bg-slate-50 dark:bg-slate-950/40 p-3.5 rounded-xl border border-slate-100 dark:border-slate-800 text-xs space-y-1.5 font-medium text-slate-600 dark:text-slate-400">
+                <div className="flex justify-between">
+                  <span>Quoted Price:</span>
+                  <span className="font-bold text-slate-800 dark:text-slate-250">${Number(poSupplier.quoted_price).toLocaleString()}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span>Quantity:</span>
+                  <span className="font-bold text-slate-800 dark:text-slate-250">
+                    {selectedOrder?.order_items?.find(item => item.id === poSupplier.order_item_id)?.quantity || 1}
+                  </span>
+                </div>
+                <div className="flex justify-between">
+                  <span>Lead Time:</span>
+                  <span className="font-bold text-slate-800 dark:text-slate-250">{poSupplier.lead_time_days} days</span>
+                </div>
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="po-contract-value" className="text-xs font-bold text-slate-700 dark:text-slate-300">
+                  Contract Value (USD)
+                </Label>
+                <div className="relative">
+                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400 font-bold">$</span>
+                  <Input
+                    id="po-contract-value"
+                    type="number"
+                    value={poContractValue || ''}
+                    onChange={(e) => setPoContractValue(Number(e.target.value))}
+                    className="pl-7 bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 text-sm font-semibold rounded-xl"
+                  />
+                </div>
+                <p className="text-[10px] text-slate-400">
+                  Default calculated as: Quoted Price × Quantity. You can adjust this value as needed.
+                </p>
+              </div>
+
+              {errorMessage && (
+                <div className="p-3 bg-red-50 text-red-600 dark:bg-red-950/20 dark:text-red-400 rounded-xl text-xs font-medium border border-red-200 dark:border-red-900/50 flex items-center gap-2">
+                  <AlertCircle size={14} className="flex-shrink-0" />
+                  <span>{errorMessage}</span>
+                </div>
+              )}
+
+              <div className="flex gap-3 pt-2">
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => setPoSupplier(null)}
+                  className="flex-1 h-9 text-sm cursor-pointer"
+                >
+                  Cancel
+                </Button>
+                <Button
+                  type="button"
+                  disabled={isPoConfirming || !poContractValue || poContractValue <= 0}
+                  onClick={async () => {
+                    if (!selectedOrderId || !poSupplier.supplier_id) return
+                    setIsPoConfirming(true)
+                    setErrorMessage(null)
+                    const res = await confirmSupplierAndCreatePoAction({
+                      orderId: selectedOrderId,
+                      selectedSupplierId: poSupplier.supplier_id,
+                      contractValue: poContractValue
+                    })
+                    setIsPoConfirming(false)
+                    if (res.success) {
+                      setPoSupplier(null)
+                      router.refresh()
+                    } else {
+                      setErrorMessage(res.error || 'Failed to create PO')
+                    }
+                  }}
+                  className="flex-1 h-9 text-sm bg-emerald-600 hover:bg-emerald-700 text-white cursor-pointer gap-2"
+                >
+                  {isPoConfirming ? (
+                    <>
+                      <Loader2 size={14} className="animate-spin" />
+                      Creating PO...
+                    </>
+                  ) : (
+                    <>
+                      <CheckCircle2 size={14} />
+                      Confirm &amp; Create PO
+                    </>
+                  )}
+                </Button>
+              </div>
             </div>
           </div>
         </div>

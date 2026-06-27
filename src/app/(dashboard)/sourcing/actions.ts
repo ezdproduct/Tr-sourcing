@@ -142,7 +142,7 @@ export async function classifyOrderItemAction(orderItemId: string, itemType: str
 
       if (!fetchError && order) {
         const stage = order.stage
-        if (stage === 'Order Intake' || stage === 'Pending Classification' || !stage) {
+        if (stage === 'Order' || stage === 'Order Intake' || stage === 'Pending Classification' || !stage) {
           // Update order stage to Sourcing
           await supabase
             .from('orders')
@@ -186,7 +186,7 @@ export async function classifyOrderItemsBatchAction(items: BatchClassificationIt
       return { success: false, error: error.message }
     }
 
-    // 3. Update parent order stage to Sourcing if it was 'Order Intake' or 'Pending Classification'
+    // 3. Update parent order stage to Sourcing if it was 'Order', 'Order Intake' or 'Pending Classification'
     const { data: order, error: fetchError } = await supabase
       .from('orders')
       .select('stage')
@@ -195,7 +195,7 @@ export async function classifyOrderItemsBatchAction(items: BatchClassificationIt
 
     if (!fetchError && order) {
       const stage = order.stage
-      if (stage === 'Order Intake' || stage === 'Pending Classification' || !stage) {
+      if (stage === 'Order' || stage === 'Order Intake' || stage === 'Pending Classification' || !stage) {
         await supabase
           .from('orders')
           .update({ stage: 'Sourcing' })
@@ -483,11 +483,18 @@ export async function sendShortlistToQcAction(orderId?: string | null) {
     let successCount = 0
 
     for (const supplierId of supplierIds) {
-      const { data: existingAudit, error: fetchError } = await supabase
+      let queryBuilder = supabase
         .from('factory_audits')
         .select('id, audit_status')
         .eq('supplier_id', supplierId)
-        .maybeSingle()
+
+      if (orderId) {
+        queryBuilder = queryBuilder.eq('order_id', orderId)
+      } else {
+        queryBuilder = queryBuilder.is('order_id', null)
+      }
+
+      const { data: existingAudit, error: fetchError } = await queryBuilder.maybeSingle()
 
       if (!fetchError && existingAudit) {
         // If an audit already exists, only update it if it hasn't been scheduled or completed
@@ -512,6 +519,7 @@ export async function sendShortlistToQcAction(orderId?: string | null) {
           .from('factory_audits')
           .insert({
             supplier_id: supplierId,
+            order_id: orderId || null,
             audit_status: 'Pending QC Assignment'
           })
 
@@ -519,8 +527,19 @@ export async function sendShortlistToQcAction(orderId?: string | null) {
       }
     }
 
+    if (orderId) {
+      const { error: stageError } = await supabase
+        .from('orders')
+        .update({ stage: 'QC' })
+        .eq('id', orderId)
+      if (stageError) {
+        console.error('Error updating order stage to QC:', stageError.message)
+      }
+    }
+
     revalidatePath('/sourcing')
     revalidatePath('/audit')
+    revalidatePath('/orders')
     return { success: true, count: successCount }
   } catch (error: any) {
     console.error('Uncaught error sending shortlist to QC:', error)
@@ -618,6 +637,89 @@ export async function updateSupplierProfileAction(input: UpdateSupplierProfileIn
   }
 }
 
+export interface ConfirmSupplierAndCreatePoInput {
+  orderId: string
+  selectedSupplierId: string
+  contractValue: number
+}
 
+export async function confirmSupplierAndCreatePoAction(input: ConfirmSupplierAndCreatePoInput) {
+  try {
+    const supabase = await createClient()
 
+    // 1. Fetch supplier name
+    const { data: supplier, error: supplierError } = await supabase
+      .from('suppliers')
+      .select('name')
+      .eq('id', input.selectedSupplierId)
+      .single()
 
+    if (supplierError || !supplier) {
+      console.error('Error fetching supplier name:', supplierError?.message)
+      return { success: false, error: 'Supplier not found' }
+    }
+
+    // 2. Fetch order items
+    const { data: items, error: itemsError } = await supabase
+      .from('order_items')
+      .select('item_name, quantity')
+      .eq('order_id', input.orderId)
+
+    if (itemsError) {
+      console.error('Error fetching order items:', itemsError.message)
+      return { success: false, error: itemsError.message }
+    }
+
+    // 3. Update parent order details & stage to Production
+    const { error: orderUpdateError } = await supabase
+      .from('orders')
+      .update({
+        selected_supplier_id: input.selectedSupplierId,
+        contract_value: input.contractValue,
+        stage: 'Production'
+      })
+      .eq('id', input.orderId)
+
+    if (orderUpdateError) {
+      console.error('Error updating order to Production stage:', orderUpdateError.message)
+      return { success: false, error: orderUpdateError.message }
+    }
+
+    // 4. Create production jobs for each item
+    if (items && items.length > 0) {
+      // Clear any existing production jobs for this order to prevent duplicates on retry
+      await supabase
+        .from('production_jobs')
+        .delete()
+        .eq('order_id', input.orderId)
+
+      const jobsToInsert = items.map(item => ({
+        order_id: input.orderId,
+        supplier_id: input.selectedSupplierId,
+        factory_name: supplier.name,
+        item_name: item.item_name,
+        target_qty: item.quantity,
+        output_qty: 0,
+        progress_pct: 0.00,
+        defect_rate: 0.00,
+        status: 'running'
+      }))
+
+      const { error: jobsError } = await supabase
+        .from('production_jobs')
+        .insert(jobsToInsert)
+
+      if (jobsError) {
+        console.error('Error inserting production jobs:', jobsError.message)
+      }
+    }
+
+    revalidatePath('/sourcing')
+    revalidatePath('/orders')
+    revalidatePath('/production')
+    return { success: true }
+  } catch (error: any) {
+    console.error('Uncaught error confirming supplier & PO:', error)
+    return { success: false, error: error.message || 'An unexpected error occurred' }
+  }
+}

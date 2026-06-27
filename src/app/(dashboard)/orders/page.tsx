@@ -6,10 +6,9 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/com
 async function OrdersLoader() {
   const supabase = await createClient()
 
-  // Fetch orders and items from live Supabase database
   const { data: orders, error } = await supabase
     .from('orders')
-    .select('*, order_items(*)')
+    .select('*, order_items(*), order_stage_timelines(*)')
     .order('created_at', { ascending: false })
 
   if (error) {
@@ -36,9 +35,6 @@ function OrdersFallback() {
           <h1 className="text-2xl font-bold tracking-tight text-slate-900 dark:text-white">
             Order Management
           </h1>
-          <p className="text-sm text-slate-500">
-            Phase 1: Monitor active supply chain purchase orders and ingest material specs
-          </p>
         </div>
       </div>
 

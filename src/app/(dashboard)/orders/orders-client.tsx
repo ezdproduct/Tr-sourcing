@@ -1,7 +1,10 @@
 'use client'
 
-import React, { useState } from 'react'
+import React, { useState, useEffect } from 'react'
+import { useSearchParams } from 'next/navigation'
 import { useSourcing } from '@/providers/sourcing-provider'
+import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
+import { DataTable } from '@/components/ui/data-table'
 import { createOrderAction, updateOrderAction, deleteOrderAction } from './actions'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -18,7 +21,10 @@ import {
   Layers,
   Calendar,
   FileText,
-  Edit3
+  Edit3,
+  TrendingUp,
+  CheckCircle2,
+  Clock
 } from 'lucide-react'
 
 export interface DatabaseOrderItem {
@@ -31,6 +37,16 @@ export interface DatabaseOrderItem {
   item_type?: string
 }
 
+export interface DatabaseStageTimeline {
+  id: string
+  order_id: string
+  stage_name: string
+  estimated_start_date: string
+  estimated_end_date: string
+  actual_start_date?: string | null
+  actual_end_date?: string | null
+}
+
 export interface DatabaseOrder {
   id: string
   order_code: string
@@ -40,6 +56,7 @@ export interface DatabaseOrder {
   order_date: string
   estimated_delivery_date: string | null
   order_items?: DatabaseOrderItem[]
+  order_stage_timelines?: DatabaseStageTimeline[]
 }
 
 // Helper to upload a file to Cloudflare R2 via proxy API
@@ -113,6 +130,23 @@ export function getOrderTypeFromItems(items?: DatabaseOrderItem[]): string {
 export function OrdersClient({ initialOrders }: OrdersClientProps) {
   const { userRole, searchQuery } = useSourcing()
   const [subtab, setSubtab] = useState<'overview' | 'workplace'>('overview')
+  const searchParams = useSearchParams()
+
+  useEffect(() => {
+    const tab = searchParams.get('subtab')
+    if (tab === 'overview' || tab === 'workplace') {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setSubtab(tab)
+    }
+  }, [searchParams])
+
+  const handleTabChange = (val: 'overview' | 'workplace') => {
+    setSubtab(val)
+    if (typeof window !== 'undefined') {
+      const newUrl = `${window.location.pathname}?subtab=${val}`
+      window.history.pushState({ ...window.history.state, as: newUrl, url: newUrl }, '', newUrl)
+    }
+  }
   
   const formatOrderType = (type: string) => {
     if (!type) return '-'
@@ -147,6 +181,7 @@ export function OrdersClient({ initialOrders }: OrdersClientProps) {
   const [items, setItems] = useState<Array<{ itemName: string; quantity: number; specFiles: File[] }>>([
     { itemName: '', quantity: 1, specFiles: [] }
   ])
+  const [stageTimelines, setStageTimelines] = useState<Array<{ stageName: string; estimatedStartDate: string; estimatedEndDate: string }>>([])
 
   // Editing form states
   const [editFormData, setEditFormData] = useState({
@@ -154,8 +189,64 @@ export function OrdersClient({ initialOrders }: OrdersClientProps) {
     estimatedDeliveryDate: ''
   })
   const [editItems, setEditItems] = useState<Array<{ itemName: string; quantity: number; specFiles: File[]; specFileUrls: string[]; itemType?: string }>>([])
+  const [editStage, setEditStage] = useState<string>('')
+  const [editStageTimelines, setEditStageTimelines] = useState<Array<{ stageName: string; estimatedStartDate: string; estimatedEndDate: string }>>([])
 
   const isStaffOrAdmin = userRole === 'staff' || userRole === 'admin'
+
+  // Helper to split duration into 6 equal stages
+  const calculateEqualStages = (startDateStr: string, endDateStr: string) => {
+    if (!startDateStr || !endDateStr) return []
+    const start = new Date(startDateStr).getTime()
+    const end = new Date(endDateStr).getTime()
+    if (isNaN(start) || isNaN(end) || end < start) return []
+    
+    const stageNames = ['Order', 'Sourcing', 'QC', 'Inspection', 'Logistic', 'Production']
+    const totalMs = end - start
+    const chunkMs = totalMs / 6
+    
+    return stageNames.map((name, idx) => {
+      const sTime = start + chunkMs * idx
+      const eTime = start + chunkMs * (idx + 1)
+      return {
+        stageName: name,
+        estimatedStartDate: new Date(sTime).toISOString().split('T')[0],
+        estimatedEndDate: new Date(eTime).toISOString().split('T')[0]
+      }
+    })
+  }
+
+  const handleCreateDateChange = (field: 'orderDate' | 'estimatedDeliveryDate', value: string) => {
+    const newFormData = { ...formData, [field]: value }
+    setFormData(newFormData)
+    
+    if (newFormData.orderDate && newFormData.estimatedDeliveryDate) {
+      const calculated = calculateEqualStages(newFormData.orderDate, newFormData.estimatedDeliveryDate)
+      setStageTimelines(calculated)
+    }
+  }
+
+  const handleEditDateChange = (field: 'orderDate' | 'estimatedDeliveryDate', value: string) => {
+    const newEditFormData = { ...editFormData, [field]: value }
+    setEditFormData(newEditFormData)
+    
+    if (newEditFormData.orderDate && newEditFormData.estimatedDeliveryDate) {
+      const calculated = calculateEqualStages(newEditFormData.orderDate, newEditFormData.estimatedDeliveryDate)
+      setEditStageTimelines(calculated)
+    }
+  }
+
+  const handleStageTimelineChange = (index: number, field: 'estimatedStartDate' | 'estimatedEndDate', value: string) => {
+    const updated = [...stageTimelines]
+    updated[index] = { ...updated[index], [field]: value }
+    setStageTimelines(updated)
+  }
+  
+  const handleEditStageTimelineChange = (index: number, field: 'estimatedStartDate' | 'estimatedEndDate', value: string) => {
+    const updated = [...editStageTimelines]
+    updated[index] = { ...updated[index], [field]: value }
+    setEditStageTimelines(updated)
+  }
 
   // --- Helpers for Item arrays (Create) ---
   const handleAddItem = () => {
@@ -240,7 +331,12 @@ export function OrdersClient({ initialOrders }: OrdersClientProps) {
       const result = await createOrderAction({
         orderDate: formData.orderDate,
         estimatedDeliveryDate: formData.estimatedDeliveryDate,
-        items: itemsInput
+        items: itemsInput,
+        stageTimelines: stageTimelines.map(st => ({
+          stageName: st.stageName.toLowerCase(),
+          estimatedStartDate: st.estimatedStartDate,
+          estimatedEndDate: st.estimatedEndDate
+        }))
       })
 
       setIsSubmitting(false)
@@ -251,6 +347,7 @@ export function OrdersClient({ initialOrders }: OrdersClientProps) {
           estimatedDeliveryDate: ''
         })
         setItems([{ itemName: '', quantity: 1, specFiles: [] }])
+        setStageTimelines([])
         setIsOpen(false)
       } else {
         setErrorMessage(result.error || 'Failed to create order.')
@@ -279,6 +376,34 @@ export function OrdersClient({ initialOrders }: OrdersClientProps) {
       })))
     } else {
       setEditItems([{ itemName: '', quantity: 1, specFiles: [], specFileUrls: [] }])
+    }
+
+    // Initialize stage and stage timelines for edit dialog
+    setEditStage(order.stage || 'Order')
+    
+    const existingTimelines = order.order_stage_timelines || []
+    if (existingTimelines.length > 0) {
+      const formatted = existingTimelines.map(t => {
+        let name = t.stage_name || ''
+        // Map lowercase DB name to capitalize display name
+        if (name.toLowerCase() === 'qc') name = 'QC'
+        else name = name ? name.charAt(0).toUpperCase() + name.slice(1) : ''
+        
+        return {
+          stageName: name,
+          estimatedStartDate: t.estimated_start_date ? new Date(t.estimated_start_date).toISOString().split('T')[0] : '',
+          estimatedEndDate: t.estimated_end_date ? new Date(t.estimated_end_date).toISOString().split('T')[0] : ''
+        }
+      })
+      const stageOrder = ['Order', 'Sourcing', 'QC', 'Inspection', 'Logistic', 'Production']
+      formatted.sort((a, b) => stageOrder.indexOf(a.stageName) - stageOrder.indexOf(b.stageName))
+      setEditStageTimelines(formatted)
+    } else {
+      const calculated = calculateEqualStages(
+        order.order_date ? new Date(order.order_date).toISOString().split('T')[0] : new Date().toISOString().split('T')[0],
+        order.estimated_delivery_date ? new Date(order.estimated_delivery_date).toISOString().split('T')[0] : ''
+      )
+      setEditStageTimelines(calculated)
     }
     
     setEditErrorMessage(null)
@@ -331,13 +456,21 @@ export function OrdersClient({ initialOrders }: OrdersClientProps) {
         orderType: getOrderTypeFromItems(editingOrder.order_items) as any,
         orderDate: editFormData.orderDate,
         estimatedDeliveryDate: editFormData.estimatedDeliveryDate,
-        items: itemsInput
+        stage: editStage,
+        items: itemsInput,
+        stageTimelines: editStageTimelines.map(st => ({
+          stageName: st.stageName.toLowerCase(),
+          estimatedStartDate: st.estimatedStartDate,
+          estimatedEndDate: st.estimatedEndDate
+        }))
       })
 
       setIsSubmitting(false)
 
       if (result.success) {
         setEditingOrder(null)
+        setEditStage('')
+        setEditStageTimelines([])
       } else {
         setEditErrorMessage(result.error || 'Failed to update order.')
       }
@@ -399,9 +532,6 @@ export function OrdersClient({ initialOrders }: OrdersClientProps) {
           <h1 className="text-2xl font-bold tracking-tight text-slate-900 dark:text-white">
             Order Management
           </h1>
-          <p className="text-sm text-slate-500">
-            Phase 1: Monitor active supply chain purchase orders and ingest material specs
-          </p>
         </div>
 
         {isStaffOrAdmin && (
@@ -413,33 +543,12 @@ export function OrdersClient({ initialOrders }: OrdersClientProps) {
       </div>
 
       {/* Subtab Switcher */}
-      <div className="flex border-b border-slate-200 dark:border-slate-800">
-        <button
-          onClick={() => setSubtab('overview')}
-          className={`px-4 py-2 text-xs font-bold border-b-2 transition-colors cursor-pointer ${
-            subtab === 'overview'
-              ? 'border-[#5c59e9] text-[#5c59e9]'
-              : 'border-transparent text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'
-          }`}
-        >
-          Overview
-        </button>
-        <button
-          onClick={() => setSubtab('workplace')}
-          className={`px-4 py-2 text-xs font-bold border-b-2 transition-colors cursor-pointer ${
-            subtab === 'workplace'
-              ? 'border-[#5c59e9] text-[#5c59e9]'
-              : 'border-transparent text-slate-500 hover:text-slate-700 dark:hover:text-slate-300'
-          }`}
-        >
-          Workplace
-        </button>
-      </div>
+      <Tabs value={subtab} className="w-full space-y-6">
 
-      {subtab === 'overview' ? (
+        <TabsContent value="overview" className="space-y-6 mt-0 border-none p-0 focus-visible:ring-0 focus-visible:ring-offset-0">
         <div className="space-y-6">
           {/* KPI Grid */}
-          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
             <Card className="border-slate-200/60 dark:border-slate-800">
               <CardHeader className="pb-2 flex flex-row items-center justify-between">
                 <CardTitle className="text-xs font-bold text-slate-500 uppercase tracking-wider">Total Orders</CardTitle>
@@ -447,33 +556,57 @@ export function OrdersClient({ initialOrders }: OrdersClientProps) {
               </CardHeader>
               <CardContent>
                 <div className="text-2xl font-black text-slate-900 dark:text-white">{initialOrders.length}</div>
-                <p className="text-[10px] text-slate-400 mt-1">Active purchase orders in database</p>
+                <p className="text-[10px] text-slate-400 mt-1">Total registered campaigns</p>
               </CardContent>
             </Card>
 
             <Card className="border-slate-200/60 dark:border-slate-800">
               <CardHeader className="pb-2 flex flex-row items-center justify-between">
-                <CardTitle className="text-xs font-bold text-slate-500 uppercase tracking-wider">Material Orders</CardTitle>
-                <Package className="h-4 w-4 text-emerald-500" />
+                <CardTitle className="text-xs font-bold text-slate-500 uppercase tracking-wider">Open Orders</CardTitle>
+                <TrendingUp className="h-4 w-4 text-amber-500" />
               </CardHeader>
               <CardContent>
                 <div className="text-2xl font-black text-slate-900 dark:text-white">
-                  {initialOrders.filter(o => getOrderTypeFromItems(o.order_items) === 'MATERIAL').length}
+                  {initialOrders.filter(o => o.stage.toLowerCase() !== 'closed').length}
                 </div>
-                <p className="text-[10px] text-slate-400 mt-1">Raw material purchase orders</p>
+                <p className="text-[10px] text-slate-400 mt-1">Orders currently in progress</p>
               </CardContent>
             </Card>
 
             <Card className="border-slate-200/60 dark:border-slate-800">
               <CardHeader className="pb-2 flex flex-row items-center justify-between">
-                <CardTitle className="text-xs font-bold text-slate-500 uppercase tracking-wider">Product Orders</CardTitle>
-                <Package className="h-4 w-4 text-blue-500" />
+                <CardTitle className="text-xs font-bold text-slate-500 uppercase tracking-wider">Closed Orders</CardTitle>
+                <CheckCircle2 className="h-4 w-4 text-emerald-500" />
               </CardHeader>
               <CardContent>
                 <div className="text-2xl font-black text-slate-900 dark:text-white">
-                  {initialOrders.filter(o => getOrderTypeFromItems(o.order_items) === 'PRODUCT').length}
+                  {initialOrders.filter(o => o.stage.toLowerCase() === 'closed').length}
                 </div>
-                <p className="text-[10px] text-slate-400 mt-1">Finished product orders</p>
+                <p className="text-[10px] text-slate-400 mt-1">Orders completed &amp; reconciled</p>
+              </CardContent>
+            </Card>
+
+            <Card className="border-slate-200/60 dark:border-slate-800">
+              <CardHeader className="pb-2 flex flex-row items-center justify-between">
+                <CardTitle className="text-xs font-bold text-slate-500 uppercase tracking-wider">Avg Cycle Time</CardTitle>
+                <Clock className="h-4 w-4 text-blue-500" />
+              </CardHeader>
+              <CardContent>
+                <div className="text-2xl font-black text-slate-900 dark:text-white">
+                  {(() => {
+                    const closedOrders = initialOrders.filter(o => o.stage.toLowerCase() === 'closed')
+                    if (closedOrders.length === 0) return 'N/A'
+                    const totalDays = closedOrders.reduce((sum, order) => {
+                      const start = new Date(order.order_date)
+                      const end = order.estimated_delivery_date ? new Date(order.estimated_delivery_date) : new Date()
+                      const diffTime = Math.abs(end.getTime() - start.getTime())
+                      const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24))
+                      return sum + diffDays
+                    }, 0)
+                    return `${Math.round(totalDays / closedOrders.length)} days`
+                  })()}
+                </div>
+                <p className="text-[10px] text-slate-400 mt-1">Average duration of closed orders</p>
               </CardContent>
             </Card>
           </div>
@@ -535,7 +668,9 @@ export function OrdersClient({ initialOrders }: OrdersClientProps) {
             </Card>
           </div>
         </div>
-      ) : (
+      </TabsContent>
+
+      <TabsContent value="workplace" className="space-y-6 mt-0 border-none p-0 focus-visible:ring-0 focus-visible:ring-offset-0">
         <Card className="border-slate-200/60 dark:border-slate-800">
           <CardHeader className="pb-3 border-b border-slate-100 dark:border-slate-800 flex flex-row items-center justify-between">
             <div>
@@ -550,103 +685,92 @@ export function OrdersClient({ initialOrders }: OrdersClientProps) {
             </Button>
           </CardHeader>
           <CardContent className="p-0">
-            <div className="overflow-x-auto">
-              <table className="w-full text-left border-collapse">
-                <thead>
-                  <tr className="border-b border-slate-100 bg-slate-50/50 text-xs font-bold uppercase tracking-wider text-slate-500 dark:border-slate-800 dark:bg-slate-900/50">
-                    <th className="px-6 py-4 text-left">Order Code</th>
-                    <th className="px-6 py-4 text-center">Order Type</th>
-                    <th className="px-6 py-4 text-center">Stage</th>
-                    <th className="px-6 py-4 text-center">Product Items</th>
-                    <th className="px-6 py-4 text-center">Order Date</th>
-                    <th className="px-6 py-4 text-center">Est. Delivery</th>
-                    <th className="px-6 py-4 text-right pr-8"></th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-100 dark:divide-slate-800 text-sm">
-                  {filteredOrders.length === 0 ? (
-                    <tr>
-                      <td colSpan={7} className="px-6 py-8 text-center text-slate-400">
-                        No orders found. {searchQuery ? 'Try adjusting your search query.' : 'Click Create Order to add one.'}
-                      </td>
-                    </tr>
-                  ) : (
-                    filteredOrders.map((order) => (
-                      <tr
-                        key={order.id}
-                        onClick={() => setSelectedOrder(order)}
-                        className="hover:bg-slate-50/50 dark:hover:bg-slate-900/20 cursor-pointer transition-colors"
-                      >
-                        <td className="px-6 py-4 font-bold text-indigo-600 dark:text-indigo-400 hover:underline text-left">
-                          {order.order_code}
-                        </td>
-                        <td className="px-6 py-4 text-center">
-                          <Badge variant="outline" className="text-xs font-semibold capitalize bg-slate-50 dark:bg-slate-900">
-                            {formatOrderType(getOrderTypeFromItems(order.order_items))}
-                          </Badge>
-                        </td>
-                        <td className="px-6 py-4 text-center">
-                          <Badge variant="outline" className={getStageBadgeColor(order.stage)}>
-                            {order.stage}
-                          </Badge>
-                        </td>
-                        <td className="px-6 py-4">
-                          <div className="flex items-center justify-center gap-1.5">
-                            <Layers size={13} className="text-slate-400" />
-                            <span className="font-semibold text-slate-700 dark:text-slate-300">
-                              {order.order_items?.length || 0} items
-                            </span>
-                          </div>
-                        </td>
-                        <td className="px-6 py-4 text-slate-500 text-center">
-                          {order.order_date ? new Date(order.order_date).toLocaleDateString('en-US', {
-                            year: 'numeric',
-                            month: 'short',
-                            day: 'numeric'
-                          }) : '-'}
-                        </td>
-                        <td className="px-6 py-4 text-slate-500 font-medium text-center">
-                          {order.estimated_delivery_date ? new Date(order.estimated_delivery_date).toLocaleDateString('en-US', {
-                            year: 'numeric',
-                            month: 'short',
-                            day: 'numeric'
-                          }) : '-'}
-                        </td>
-                        <td className="px-6 py-4 text-right pr-8" onClick={(e) => e.stopPropagation()}>
-                          <div className="flex justify-end gap-1.5">
-                            {isStaffOrAdmin && (
-                              <>
-                                <Button
-                                  size="sm"
-                                  variant="outline"
-                                  onClick={() => handleStartEdit(order)}
-                                  className="h-8 w-8 p-0 text-indigo-600 dark:text-indigo-400 hover:text-indigo-700 hover:bg-indigo-50 border-indigo-100 dark:border-indigo-900/40 cursor-pointer rounded-lg"
-                                  title="Update Order"
-                                >
-                                  <Edit3 size={14} />
-                                </Button>
-                                <Button
-                                  size="sm"
-                                  variant="outline"
-                                  onClick={() => setDeletingOrder(order)}
-                                  className="h-8 w-8 p-0 text-red-600 dark:text-red-400 hover:text-red-700 hover:bg-red-50 border-red-100 dark:border-red-900/40 cursor-pointer rounded-lg"
-                                  title="Delete Order"
-                                >
-                                  <Trash2 size={14} />
-                                </Button>
-                              </>
-                            )}
-                          </div>
-                        </td>
-                      </tr>
-                    ))
-                  )}
-                </tbody>
-              </table>
-            </div>
+            <DataTable
+              headers={[
+                <div key="code" className="text-left">Order Code</div>,
+                <div key="type" className="text-center">Order Type</div>,
+                <div key="stage" className="text-center">Stage</div>,
+                <div key="items" className="text-center">Product Items</div>,
+                <div key="date" className="text-center">Order Date</div>,
+                <div key="est" className="text-center">Est. Delivery</div>,
+                <div key="act" className="text-right pr-8">Actions</div>
+              ]}
+              items={filteredOrders}
+              emptyMessage={searchQuery ? 'No orders found. Try adjusting your search query.' : 'Click Create Order to add one.'}
+              renderRow={(order) => (
+                <tr
+                  key={order.id}
+                  onClick={() => setSelectedOrder(order)}
+                  className="hover:bg-slate-50/50 dark:hover:bg-slate-900/20 cursor-pointer transition-colors"
+                >
+                  <td className="px-6 py-4 font-bold text-indigo-600 dark:text-indigo-400 hover:underline text-left">
+                    {order.order_code}
+                  </td>
+                  <td className="px-6 py-4 text-center">
+                    <Badge variant="outline" className="text-xs font-semibold capitalize bg-slate-50 dark:bg-slate-900">
+                      {formatOrderType(getOrderTypeFromItems(order.order_items))}
+                    </Badge>
+                  </td>
+                  <td className="px-6 py-4 text-center">
+                    <Badge variant="outline" className={getStageBadgeColor(order.stage)}>
+                      {order.stage}
+                    </Badge>
+                  </td>
+                  <td className="px-6 py-4">
+                    <div className="flex items-center justify-center gap-1.5">
+                      <Layers size={13} className="text-slate-400" />
+                      <span className="font-semibold text-slate-700 dark:text-slate-300">
+                        {order.order_items?.length || 0} items
+                      </span>
+                    </div>
+                  </td>
+                  <td className="px-6 py-4 text-slate-500 text-center">
+                    {order.order_date ? new Date(order.order_date).toLocaleDateString('en-US', {
+                      year: 'numeric',
+                      month: 'short',
+                      day: 'numeric'
+                    }) : '-'}
+                  </td>
+                  <td className="px-6 py-4 text-slate-500 font-medium text-center">
+                    {order.estimated_delivery_date ? new Date(order.estimated_delivery_date).toLocaleDateString('en-US', {
+                      year: 'numeric',
+                      month: 'short',
+                      day: 'numeric'
+                    }) : '-'}
+                  </td>
+                  <td className="px-6 py-4 text-right pr-8" onClick={(e) => e.stopPropagation()}>
+                    <div className="flex justify-end gap-1.5">
+                      {isStaffOrAdmin && (
+                        <>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => handleStartEdit(order)}
+                            className="h-8 w-8 p-0 text-indigo-600 dark:text-indigo-400 hover:text-indigo-700 hover:bg-indigo-50 border-indigo-100 dark:border-indigo-900/40 cursor-pointer rounded-lg"
+                            title="Update Order"
+                          >
+                            <Edit3 size={14} />
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => setDeletingOrder(order)}
+                            className="h-8 w-8 p-0 text-red-600 dark:text-red-400 hover:text-red-700 hover:bg-red-50 border-red-100 dark:border-red-900/40 cursor-pointer rounded-lg"
+                            title="Delete Order"
+                          >
+                            <Trash2 size={14} />
+                          </Button>
+                        </>
+                      )}
+                    </div>
+                  </td>
+                </tr>
+              )}
+            />
           </CardContent>
         </Card>
-      )}
+      </TabsContent>
+      </Tabs>
 
       {/* CREATE Modal Dialog Form */}
       {isOpen && (
@@ -702,7 +826,7 @@ export function OrdersClient({ initialOrders }: OrdersClientProps) {
                     id="orderDate"
                     type="date"
                     value={formData.orderDate}
-                    onChange={(e) => setFormData({ ...formData, orderDate: e.target.value })}
+                    onChange={(e) => handleCreateDateChange('orderDate', e.target.value)}
                     required
                     className="h-11 text-sm rounded-lg"
                   />
@@ -714,13 +838,54 @@ export function OrdersClient({ initialOrders }: OrdersClientProps) {
                     id="estimatedDeliveryDate"
                     type="date"
                     value={formData.estimatedDeliveryDate}
-                    onChange={(e) => setFormData({ ...formData, estimatedDeliveryDate: e.target.value })}
+                    onChange={(e) => handleCreateDateChange('estimatedDeliveryDate', e.target.value)}
                     required
                     min={formData.orderDate}
                     className="h-11 text-sm rounded-lg"
                   />
                 </div>
               </div>
+
+              {/* Stage Timelines Configuration */}
+              {stageTimelines.length > 0 && (
+                <div className="space-y-3 pt-3 border-t border-slate-100 dark:border-slate-800">
+                  <span className="text-xs font-bold text-slate-400 uppercase tracking-wider block">
+                    Estimated Stage Timelines (Auto-proposed)
+                  </span>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3 max-h-[220px] overflow-y-auto pr-1">
+                    {stageTimelines.map((st, idx) => (
+                      <div key={idx} className="p-3 border border-slate-100 dark:border-slate-800/80 rounded-lg bg-slate-50/50 dark:bg-slate-900/30 space-y-2">
+                        <span className="text-xs font-bold text-slate-700 dark:text-slate-300 block">
+                          Stage {idx + 1}: {st.stageName}
+                        </span>
+                        <div className="grid grid-cols-2 gap-2">
+                          <div className="space-y-1">
+                            <label className="text-[10px] font-semibold text-slate-400">Start Date</label>
+                            <Input
+                              type="date"
+                              value={st.estimatedStartDate}
+                              onChange={(e) => handleStageTimelineChange(idx, 'estimatedStartDate', e.target.value)}
+                              className="h-8 text-xs px-2"
+                              required
+                            />
+                          </div>
+                          <div className="space-y-1">
+                            <label className="text-[10px] font-semibold text-slate-400">End Date</label>
+                            <Input
+                              type="date"
+                              value={st.estimatedEndDate}
+                              onChange={(e) => handleStageTimelineChange(idx, 'estimatedEndDate', e.target.value)}
+                              className="h-8 text-xs px-2"
+                              required
+                              min={st.estimatedStartDate}
+                            />
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
 
               {/* Dynamic items section */}
               <div className="space-y-2.5 pt-2 border-t border-slate-100 dark:border-slate-800">
@@ -915,6 +1080,24 @@ export function OrdersClient({ initialOrders }: OrdersClientProps) {
                 </div>
               </div>
 
+              {/* Order Workflow Stage Select */}
+              <div className="space-y-1.5">
+                <Label htmlFor="editStage" className="text-sm font-bold text-slate-700 dark:text-slate-300">Order Workflow Stage</Label>
+                <select
+                  id="editStage"
+                  value={editStage}
+                  onChange={(e) => setEditStage(e.target.value)}
+                  className="flex h-11 w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm ring-offset-background file:border-0 file:bg-transparent file:text-sm file:font-medium placeholder:text-slate-400 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 dark:border-slate-800 dark:bg-slate-950 dark:text-slate-50 cursor-pointer"
+                >
+                  <option value="Order">Order</option>
+                  <option value="Sourcing">Sourcing</option>
+                  <option value="QC">QC</option>
+                  <option value="Inspection">Inspection</option>
+                  <option value="Logistic">Logistic</option>
+                  <option value="Production">Production</option>
+                </select>
+              </div>
+
               {/* Date Pickers */}
               <div className="grid grid-cols-2 gap-4">
                 <div className="space-y-1.5">
@@ -923,7 +1106,7 @@ export function OrdersClient({ initialOrders }: OrdersClientProps) {
                     id="editOrderDate"
                     type="date"
                     value={editFormData.orderDate}
-                    onChange={(e) => setEditFormData({ ...editFormData, orderDate: e.target.value })}
+                    onChange={(e) => handleEditDateChange('orderDate', e.target.value)}
                     required
                     className="h-11 text-sm rounded-lg"
                   />
@@ -935,13 +1118,54 @@ export function OrdersClient({ initialOrders }: OrdersClientProps) {
                     id="editEstimatedDeliveryDate"
                     type="date"
                     value={editFormData.estimatedDeliveryDate}
-                    onChange={(e) => setEditFormData({ ...editFormData, estimatedDeliveryDate: e.target.value })}
+                    onChange={(e) => handleEditDateChange('estimatedDeliveryDate', e.target.value)}
                     required
                     min={editFormData.orderDate}
                     className="h-11 text-sm rounded-lg"
                   />
                 </div>
               </div>
+
+              {/* Stage Timelines Configuration */}
+              {editStageTimelines.length > 0 && (
+                <div className="space-y-3 pt-3 border-t border-slate-100 dark:border-slate-800">
+                  <span className="text-xs font-bold text-slate-400 uppercase tracking-wider block">
+                    Estimated Stage Timelines
+                  </span>
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3 max-h-[220px] overflow-y-auto pr-1">
+                    {editStageTimelines.map((st, idx) => (
+                      <div key={idx} className="p-3 border border-slate-100 dark:border-slate-800/80 rounded-lg bg-slate-50/50 dark:bg-slate-900/30 space-y-2">
+                        <span className="text-xs font-bold text-slate-700 dark:text-slate-300 block">
+                          Stage {idx + 1}: {st.stageName}
+                        </span>
+                        <div className="grid grid-cols-2 gap-2">
+                          <div className="space-y-1">
+                            <label className="text-[10px] font-semibold text-slate-400">Start Date</label>
+                            <Input
+                              type="date"
+                              value={st.estimatedStartDate}
+                              onChange={(e) => handleEditStageTimelineChange(idx, 'estimatedStartDate', e.target.value)}
+                              className="h-8 text-xs px-2"
+                              required
+                            />
+                          </div>
+                          <div className="space-y-1">
+                            <label className="text-[10px] font-semibold text-slate-400">End Date</label>
+                            <Input
+                              type="date"
+                              value={st.estimatedEndDate}
+                              onChange={(e) => handleEditStageTimelineChange(idx, 'estimatedEndDate', e.target.value)}
+                              className="h-8 text-xs px-2"
+                              required
+                              min={st.estimatedStartDate}
+                            />
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
 
               {/* Dynamic products list for editing */}
               <div className="space-y-2.5 pt-2 border-t border-slate-100 dark:border-slate-800">
@@ -1200,6 +1424,146 @@ export function OrdersClient({ initialOrders }: OrdersClientProps) {
                 <Badge variant="outline" className={`mt-0.5 text-xs px-2.5 py-0.5 ${getStageBadgeColor(selectedOrder.stage)}`}>
                   {selectedOrder.stage}
                 </Badge>
+              </div>
+              {/* Unified Delivery & Stage Timeline (Timeline for Accord style) */}
+              <div className="col-span-2 pt-5 border-t border-slate-100 dark:border-slate-800/80 overflow-x-auto no-scrollbar">
+                <span className="text-slate-400 block mb-3 font-bold text-[10px] uppercase tracking-wider">Order Sourcing & Delivery Timeline</span>
+                {(() => {
+                  const start = selectedOrder.order_date ? new Date(selectedOrder.order_date).getTime() : 0
+                  const end = selectedOrder.estimated_delivery_date ? new Date(selectedOrder.estimated_delivery_date).getTime() : 0
+                  const now = new Date().getTime()
+                  
+                  if (!start || !end) return <span className="text-xs text-slate-400">Timeline not available</span>
+                  
+                  const total = end - start
+                  if (total <= 0) return <span className="text-xs text-slate-400">Invalid dates</span>
+                  
+                  let progressPct = ((now - start) / total) * 100
+                  progressPct = Math.max(0, Math.min(100, progressPct))
+                  
+                  const daysLeft = Math.ceil((end - now) / (1000 * 60 * 60 * 24))
+                  const daysElapsed = Math.floor((now - start) / (1000 * 60 * 60 * 24))
+                                 const stages = [
+                    { name: 'Order' },
+                    { name: 'Sourcing' },
+                    { name: 'QC' },
+                    { name: 'Inspection' },
+                    { name: 'Logistic' },
+                    { name: 'Production' }
+                  ]
+                  
+                  const getStageIndex = (stg: string) => {
+                    const s = stg ? stg.toLowerCase() : ''
+                    if (s.includes('definition') || s.includes('draft') || s.includes('order')) return 0
+                    if (s.includes('sourcing')) return 1
+                    if (s.includes('audit') || s.includes('qc')) return 2
+                    if (s.includes('inspection') || s.includes('port')) return 3
+                    if (s.includes('logistics') || s.includes('inbound') || s.includes('logistic')) return 4
+                    if (s.includes('production') || s.includes('run') || s.includes('completed')) return 5
+                    return 1 // default Sourcing
+                  }
+                  
+                  const activeIdx = getStageIndex(selectedOrder.stage)
+                  const stageProgressPct = (activeIdx / (stages.length - 1)) * 100
+                  
+                  const getStageDate = (idx: number) => {
+                    const stageName = stages[idx].name.toLowerCase()
+                    const timelineRecord = selectedOrder.order_stage_timelines?.find(
+                      t => t.stage_name.toLowerCase() === stageName
+                    )
+                    
+                    if (timelineRecord && timelineRecord.estimated_end_date) {
+                      return new Date(timelineRecord.estimated_end_date).toLocaleDateString('en-US', {
+                        month: 'short',
+                        day: 'numeric'
+                      })
+                    }
+                    
+                    // Fallback to old interpolated logic
+                    const time = start + (end - start) * (idx / 5)
+                    return new Date(time).toLocaleDateString('en-US', {
+                      month: 'short',
+                      day: 'numeric'
+                    })
+                  }
+                  
+                  return (
+                    <div className="space-y-4 py-2 px-1 min-w-[700px]">
+                      {/* Timeline graphic container */}
+                      <div className="relative flex items-center justify-between w-full h-16">
+                        {/* Connecting Line Track (Background) */}
+                        <div className="absolute left-5 right-5 top-7 h-1 bg-slate-100 dark:bg-slate-800 z-0 rounded-full border border-slate-200/20" />
+                        
+                        {/* Active Connecting Line Highlight */}
+                        <div 
+                          className="absolute left-5 top-7 h-1 bg-[#5c59e9] transition-all duration-500 z-0 rounded-full"
+                          style={{ width: `calc((100% - 40px) * (${stageProgressPct} / 100))` }}
+                        />
+                        
+                        {stages.map((stage, idx) => {
+                          const isCompleted = idx < activeIdx
+                          const isActive = idx === activeIdx
+                          
+                          return (
+                            <div key={idx} className="relative flex flex-col items-center z-10 w-20">
+                              {/* Top Row: Date Label */}
+                              <div className="absolute -top-5 text-center">
+                                <span className={`text-[9px] font-bold ${isActive ? 'text-[#5c59e9] font-black' : 'text-slate-500'}`}>
+                                  {getStageDate(idx)}
+                                </span>
+                              </div>
+ 
+                              {/* Middle Row: Circle Node */}
+                              <div 
+                                className={`h-7 w-7 rounded-full flex items-center justify-center text-[10px] font-bold border transition-all duration-300 ${
+                                  isCompleted 
+                                    ? 'bg-[#5c59e9] border-[#5c59e9] text-white shadow-sm'
+                                    : isActive
+                                    ? 'bg-[#5c59e9] border-2 border-white text-white dark:border-slate-900 shadow-md ring-4 ring-indigo-100 dark:ring-indigo-950/40 scale-105'
+                                    : 'bg-white border-2 border-slate-200 text-slate-400 dark:bg-slate-900 dark:border-slate-800'
+                                }`}
+                              >
+                                {isCompleted ? (
+                                  <svg xmlns="http://www.w3.org/2000/svg" className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3.5}>
+                                    <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                                  </svg>
+                                ) : isActive ? (
+                                  <span>{idx + 1}</span>
+                                ) : (
+                                  <span className="opacity-40">{idx + 1}</span>
+                                )}
+                              </div>
+
+                              {/* Bottom Row: Stage Details */}
+                              <div className="absolute top-9 text-center w-24">
+                                <span 
+                                  className={`block text-[10px] font-bold tracking-tight transition-colors duration-300 ${
+                                    isActive 
+                                      ? 'text-[#5c59e9]' 
+                                      : isCompleted 
+                                      ? 'text-slate-800 dark:text-slate-200 font-bold' 
+                                      : 'text-slate-400'
+                                  }`}
+                                >
+                                  {stage.name}
+                                </span>
+                              </div>
+                            </div>
+                          )
+                        })}
+                      </div>
+                      
+                      {/* Summary Text Info below the graphic */}
+                      <div className="flex items-center justify-between text-[11px] text-slate-500 font-semibold pt-3 px-1 border-t border-slate-100 dark:border-slate-800/60 mt-2">
+                        <span>Started: {selectedOrder.order_date ? new Date(selectedOrder.order_date).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' }) : '-'} ({daysElapsed}d elapsed)</span>
+                        <span className="text-[#5c59e9] font-bold">
+                          {daysLeft > 0 ? `${daysLeft} days remaining` : `Target Date Reached / Passed`}
+                        </span>
+                        <span>Delivery: {selectedOrder.estimated_delivery_date ? new Date(selectedOrder.estimated_delivery_date).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' }) : '-'}</span>
+                      </div>
+                    </div>
+                  )
+                })()}
               </div>
             </div>
 

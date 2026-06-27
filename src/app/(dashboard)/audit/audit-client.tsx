@@ -40,11 +40,14 @@ export interface ShortlistedSupplier {
   name: string
   phone: string | null
   address: string | null
+  order_id?: string | null
+  order_code?: string | null
 }
 
 export interface FactoryAudit {
   id: string
   supplier_id: string
+  order_id?: string | null
   audit_date: string | null
   auditor_name: string | null
   quality_control_score: number | null
@@ -64,6 +67,7 @@ export interface FactoryAudit {
 interface AuditClientProps {
   initialShortlistedSuppliers: ShortlistedSupplier[]
   initialAudits: FactoryAudit[]
+  initialOrders: any[]
   schemaMissing: boolean
 }
 
@@ -104,10 +108,33 @@ const StarRating = ({
 export function AuditClient({
   initialShortlistedSuppliers,
   initialAudits,
+  initialOrders,
   schemaMissing
 }: AuditClientProps) {
   const router = useRouter()
   const [subtab, setSubtab] = useState<'overview' | 'workplace'>('overview')
+  const [selectedOrderId, setSelectedOrderId] = useState<string | null>(null)
+
+  const getStageBadge = (stage: string) => {
+    switch (stage.toLowerCase()) {
+      case 'order':
+        return 'bg-purple-50 text-purple-700 border-purple-200 dark:bg-purple-950/20 dark:text-purple-400 dark:border-purple-900'
+      case 'sourcing':
+        return 'bg-blue-50 text-blue-700 border-blue-200 dark:bg-blue-950/20 dark:text-blue-400 dark:border-blue-900'
+      case 'qc':
+        return 'bg-amber-50 text-amber-700 border-amber-200 dark:bg-amber-950/20 dark:text-amber-400 dark:border-amber-900'
+      case 'inspection':
+        return 'bg-teal-50 text-teal-700 border-teal-200 dark:bg-teal-950/20 dark:text-teal-400 dark:border-teal-900'
+      case 'logistic':
+        return 'bg-sky-50 text-sky-700 border-sky-200 dark:bg-sky-950/20 dark:text-sky-400 dark:border-sky-900'
+      case 'production':
+        return 'bg-indigo-50 text-indigo-700 border-indigo-200 dark:bg-indigo-950/20 dark:text-indigo-400 dark:border-indigo-900'
+      case 'closed':
+        return 'bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-950/20 dark:text-emerald-400 dark:border-emerald-900'
+      default:
+        return 'bg-slate-50 text-slate-700 border-slate-200 dark:bg-slate-900 dark:text-slate-400'
+    }
+  }
   const [isPending, startTransition] = useTransition()
   const [activeTab, setActiveTab] = useState<'suppliers' | 'logs'>('suppliers')
   const [searchQuery, setSearchQuery] = useState('')
@@ -150,9 +177,10 @@ export function AuditClient({
   const filteredSuppliers = React.useMemo(() => {
     return initialShortlistedSuppliers.filter((s) => {
       const matchesSearch = s.name.toLowerCase().includes(searchQuery.toLowerCase())
-      return matchesSearch
+      const matchesOrder = !selectedOrderId || s.order_id === selectedOrderId
+      return matchesSearch && matchesOrder
     })
-  }, [initialShortlistedSuppliers, searchQuery])
+  }, [initialShortlistedSuppliers, searchQuery, selectedOrderId])
 
   // Filter Audits
   const filteredAudits = React.useMemo(() => {
@@ -165,9 +193,10 @@ export function AuditClient({
       const matchesSearch = 
         supplierName.toLowerCase().includes(searchQuery.toLowerCase()) ||
         (a.auditor_name || '').toLowerCase().includes(searchQuery.toLowerCase())
-      return matchesSearch
+      const matchesOrder = !selectedOrderId || a.order_id === selectedOrderId
+      return matchesSearch && matchesOrder
     })
-  }, [initialAudits, searchQuery])
+  }, [initialAudits, searchQuery, selectedOrderId])
 
   // Calculate Metrics
   const metrics = React.useMemo(() => {
@@ -272,7 +301,51 @@ export function AuditClient({
 
 
   return (
-    <div className="space-y-6">
+    <div className="-m-8 flex h-[calc(100vh-4rem)] overflow-hidden bg-slate-50 dark:bg-slate-950">
+      {/* Left Column: Purchase Orders sub-sidebar */}
+      <aside className="w-64 h-full flex flex-col border-r border-slate-200/80 bg-white dark:border-slate-800/80 dark:bg-slate-950 flex-shrink-0 select-none">
+        <div className="flex h-16 items-center px-6 border-b border-slate-200/60 dark:border-slate-800/80 flex-shrink-0">
+          <span className="text-sm font-black text-slate-900 dark:text-white uppercase tracking-wider">Purchase Orders</span>
+        </div>
+        <div className="flex-1 overflow-y-auto p-4 space-y-1">
+          <button
+            onClick={() => setSelectedOrderId(null)}
+            className={`w-full text-left px-4 py-3 flex items-center justify-between gap-2 transition-colors cursor-pointer rounded-xl ${
+              selectedOrderId === null
+                ? 'bg-indigo-50 text-[#5c59e9] font-bold dark:bg-indigo-950/30 dark:text-white border border-indigo-100/50 dark:border-indigo-950'
+                : 'hover:bg-slate-50/80 dark:hover:bg-slate-900/20 text-slate-700 dark:text-slate-355'
+            }`}
+          >
+            <span className="text-xs font-semibold">All Orders</span>
+            <Badge variant="outline" className="text-[10px] bg-slate-100 dark:bg-slate-800 text-slate-500 border-none">
+              {initialOrders.length}
+            </Badge>
+          </button>
+
+          {initialOrders.map(order => (
+            <button
+              key={order.id}
+              onClick={() => setSelectedOrderId(order.id)}
+              className={`w-full text-left px-4 py-3 flex flex-col gap-1 transition-colors cursor-pointer rounded-xl ${
+                selectedOrderId === order.id
+                  ? 'bg-indigo-50 text-[#5c59e9] font-bold dark:bg-indigo-950/30 dark:text-white border border-indigo-100/50 dark:border-indigo-950'
+                  : 'hover:bg-slate-50/80 dark:hover:bg-slate-900/20 text-slate-700 dark:text-slate-355'
+              }`}
+            >
+              <div className="flex items-center justify-between w-full">
+                <span className="font-mono text-xs font-bold">{order.order_code}</span>
+                <span className={`text-[9px] font-bold uppercase tracking-wide px-1.5 py-0.5 rounded border inline-block ${getStageBadge(order.stage)}`}>
+                  {order.stage}
+                </span>
+              </div>
+              <span className="text-[10px] text-slate-400">{order.order_date}</span>
+            </button>
+          ))}
+        </div>
+      </aside>
+
+      {/* Right Column: Main Content area */}
+      <div className="flex-1 h-full overflow-y-auto p-8 space-y-6">
       {/* Page Header */}
       <div className="flex flex-col gap-2">
         <h1 className="text-2xl font-black tracking-tight text-slate-900 dark:text-white flex items-center gap-2">
@@ -1037,6 +1110,7 @@ export function AuditClient({
           </Card>
         </div>
       )}
+      </div>
     </div>
   )
 }

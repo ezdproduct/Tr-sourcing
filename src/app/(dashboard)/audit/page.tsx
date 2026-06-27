@@ -6,33 +6,36 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/com
 async function AuditLoader() {
   const supabase = await createClient()
 
-  // 1. Fetch shortlisted suppliers from order_suppliers
+  // 1. Fetch shortlisted suppliers from order_suppliers with order links
   const { data: shortlistedBids, error: bidsError } = await supabase
     .from('order_suppliers')
-    .select('supplier_id, is_shortlisted, suppliers(id, name, phone, address)')
+    .select('order_id, supplier_id, is_shortlisted, suppliers(id, name, phone, address), orders(order_code)')
     .eq('is_shortlisted', true)
 
   if (bidsError) {
     console.error('Error fetching shortlisted suppliers:', bidsError.message)
   }
 
-  // De-duplicate shortlisted suppliers by supplier_id
-  const shortlistedSuppliersMap = new Map<string, any>()
-  if (shortlistedBids) {
-    shortlistedBids.forEach((bid: any) => {
-      if (bid.suppliers && bid.supplier_id) {
-        shortlistedSuppliersMap.set(bid.supplier_id, {
-          id: bid.suppliers.id,
-          name: bid.suppliers.name,
-          phone: bid.suppliers.phone,
-          address: bid.suppliers.address
-        })
-      }
-    })
-  }
-  const shortlistedSuppliers = Array.from(shortlistedSuppliersMap.values())
+  const shortlistedSuppliers = shortlistedBids ? shortlistedBids.map((bid: any) => ({
+    id: bid.suppliers?.id,
+    name: bid.suppliers?.name,
+    phone: bid.suppliers?.phone,
+    address: bid.suppliers?.address,
+    order_id: bid.order_id,
+    order_code: bid.orders?.order_code
+  })).filter(s => s.id) : []
 
-  // 2. Fetch existing factory audits
+  // 2. Fetch all orders for the sidebar
+  const { data: orders, error: ordersError } = await supabase
+    .from('orders')
+    .select('id, order_code, order_type, stage, order_date')
+    .order('created_at', { ascending: false })
+
+  if (ordersError) {
+    console.error('Error fetching orders:', ordersError.message)
+  }
+
+  // 3. Fetch existing factory audits
   let audits: any[] = []
   let schemaMissing = false
 
@@ -60,6 +63,7 @@ async function AuditLoader() {
     <AuditClient
       initialShortlistedSuppliers={shortlistedSuppliers}
       initialAudits={audits}
+      initialOrders={orders || []}
       schemaMissing={schemaMissing}
     />
   )
@@ -80,9 +84,6 @@ function AuditFallback() {
         <h1 className="text-2xl font-bold tracking-tight text-slate-900 dark:text-white">
           Factory Auditing &amp; Quality Control
         </h1>
-        <p className="text-sm text-slate-500">
-          Phase 3: Log factory compliance checks, manufacturing capacity scorecards, and environmental certifications
-        </p>
       </div>
 
       <Card className="border-slate-200/60 dark:border-slate-800">

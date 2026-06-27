@@ -1,4 +1,4 @@
-import React from 'react'
+import React, { Suspense } from 'react'
 import { Sidebar } from '@/components/sidebar'
 import { Header } from '@/components/header'
 import { SourcingProvider } from '@/providers/sourcing-provider'
@@ -14,7 +14,9 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
       <AuthGuard>
         <div className="flex h-screen w-screen overflow-hidden bg-slate-50 dark:bg-slate-950">
           {/* Sidebar (Left Sidebar Panel) */}
-          <Sidebar />
+          <Suspense fallback={<aside className="hidden w-72 bg-[#100e2b] md:flex border-r border-[#1e1b4b]" />}>
+            <Sidebar />
+          </Suspense>
 
           {/* Content Area (Right Area wrapper) */}
           <div className="flex flex-1 flex-col overflow-hidden">
