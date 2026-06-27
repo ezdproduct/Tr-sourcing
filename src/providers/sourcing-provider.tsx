@@ -3,12 +3,16 @@
 /* eslint-disable react-hooks/set-state-in-effect */
 
 import React, { createContext, useContext, useState, useEffect } from 'react'
+import { createClient } from '@/supabase/client'
 
 export type UserRole = 'admin' | 'boss' | 'staff'
+export type UserDepartment = 'all' | 'orders' | 'sourcing' | 'audit' | 'inspection' | 'logistics' | 'production'
 
 interface SourcingContextType {
   userRole: UserRole
   setUserRole: (role: UserRole) => void
+  userDepartment: UserDepartment
+  setUserDepartment: (dept: UserDepartment) => void
   searchQuery: string
   setSearchQuery: (query: string) => void
 }
@@ -17,13 +21,52 @@ const SourcingContext = createContext<SourcingContextType | undefined>(undefined
 
 export function SourcingProvider({ children }: { children: React.ReactNode }) {
   const [userRole, setUserRole] = useState<UserRole>('admin')
+  const [userDepartment, setUserDepartment] = useState<UserDepartment>('all')
   const [searchQuery, setSearchQuery] = useState('')
 
-  // Load initial role from localStorage if available
+  // Load initial role and department from Supabase user session or localStorage
   useEffect(() => {
-    const savedRole = localStorage.getItem('sourcing_user_role') as UserRole
-    if (savedRole && ['admin', 'boss', 'staff'].includes(savedRole)) {
-      setUserRole(savedRole)
+    const supabase = createClient()
+
+    supabase.auth.getUser().then(({ data }) => {
+      if (data?.user) {
+        const meta = data.user.user_metadata || {}
+        if (meta.role) {
+          setUserRole(meta.role as UserRole)
+        }
+        if (meta.department) {
+          setUserDepartment(meta.department as UserDepartment)
+        }
+      } else {
+        const savedRole = localStorage.getItem('sourcing_user_role') as UserRole
+        if (savedRole && ['admin', 'boss', 'staff'].includes(savedRole)) {
+          setUserRole(savedRole)
+        }
+        const savedDept = localStorage.getItem('sourcing_user_department') as UserDepartment
+        if (savedDept && ['all', 'orders', 'sourcing', 'audit', 'inspection', 'logistics', 'production'].includes(savedDept)) {
+          setUserDepartment(savedDept)
+        }
+      }
+    })
+
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+      if (session?.user) {
+        const meta = session.user.user_metadata || {}
+        if (meta.role) {
+          setUserRole(meta.role as UserRole)
+        }
+        if (meta.department) {
+          setUserDepartment(meta.department as UserDepartment)
+        }
+      } else {
+        // Fallback for anonymous
+        setUserRole('admin')
+        setUserDepartment('all')
+      }
+    })
+
+    return () => {
+      subscription.unsubscribe()
     }
   }, [])
 
@@ -32,11 +75,18 @@ export function SourcingProvider({ children }: { children: React.ReactNode }) {
     localStorage.setItem('sourcing_user_role', role)
   }
 
+  const handleSetDepartment = (dept: UserDepartment) => {
+    setUserDepartment(dept)
+    localStorage.setItem('sourcing_user_department', dept)
+  }
+
   return (
     <SourcingContext.Provider
       value={{
         userRole,
         setUserRole: handleSetRole,
+        userDepartment,
+        setUserDepartment: handleSetDepartment,
         searchQuery,
         setSearchQuery,
       }}

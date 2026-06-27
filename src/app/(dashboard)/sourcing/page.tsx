@@ -16,10 +16,10 @@ async function SourcingLoader() {
     console.error('Error fetching orders for sourcing:', ordersError.message)
   }
 
-  // Fetch all supplier records joined with associated order_code and order_item
+  // Fetch all supplier records joined with associated order_code, order_item, and basic contact info
   const { data: suppliers, error: suppliersError } = await supabase
     .from('order_suppliers')
-    .select('*, orders(order_code), order_items(item_name)')
+    .select('*, orders(order_code), order_items(item_name), suppliers(email, phone, address)')
     .order('created_at', { ascending: false })
 
   if (suppliersError) {

@@ -3,7 +3,7 @@
 import React, { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@/supabase/client'
-import { useSourcing, UserRole } from '@/providers/sourcing-provider'
+import { useSourcing, UserRole, UserDepartment } from '@/providers/sourcing-provider'
 import { ThemeSwitcher } from '@/components/theme-switcher'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -25,7 +25,7 @@ import {
 
 export function Header() {
   const router = useRouter()
-  const { userRole, setUserRole, searchQuery, setSearchQuery } = useSourcing()
+  const { userRole, setUserRole, userDepartment, setUserDepartment, searchQuery, setSearchQuery } = useSourcing()
   const [user, setUser] = useState<any>(null)
 
   useEffect(() => {
@@ -58,13 +58,23 @@ export function Header() {
     router.push('/auth/login')
   }
 
-  const getRoleLabel = (role: UserRole) => {
-    switch (role) {
-      case 'admin':
-        return 'ADMIN'
-      case 'boss':
-        return 'BOSS'
-      case 'staff':
+  const getRoleLabel = (role: UserRole, dept: UserDepartment) => {
+    if (role === 'admin') return 'ADMIN'
+    if (role === 'boss') return 'BOSS'
+    switch (dept) {
+      case 'orders':
+        return 'ORDERS DEPT'
+      case 'sourcing':
+        return 'SOURCING DEPT'
+      case 'audit':
+        return 'AUDIT DEPT'
+      case 'inspection':
+        return 'INSPECTION DEPT'
+      case 'logistics':
+        return 'LOGISTICS DEPT'
+      case 'production':
+        return 'PRODUCTION DEPT'
+      default:
         return 'STAFF'
     }
   }
@@ -98,21 +108,38 @@ export function Header() {
           <DropdownMenuTrigger asChild>
             <Button variant="outline" size="sm" className="h-9 gap-2 text-xs border-slate-200 dark:border-slate-800">
               <Shield size={14} className="text-[#5c59e9]" />
-              <span className="font-bold">{getRoleLabel(userRole)}</span>
+              <span className="font-bold">{getRoleLabel(userRole, userDepartment)}</span>
               <ChevronDown size={12} className="text-slate-400" />
             </Button>
           </DropdownMenuTrigger>
-          <DropdownMenuContent align="end" className="w-40">
-            <DropdownMenuLabel className="text-xs text-slate-400">Switch User Role</DropdownMenuLabel>
+          <DropdownMenuContent align="end" className="w-48">
+            <DropdownMenuLabel className="text-xs text-slate-400">Switch User Context</DropdownMenuLabel>
             <DropdownMenuSeparator />
-            <DropdownMenuItem onClick={() => setUserRole('admin')} className="text-xs cursor-pointer font-medium">
-              Admin Role
+            <DropdownMenuItem onClick={() => { setUserRole('admin'); setUserDepartment('all'); }} className="text-xs cursor-pointer font-medium">
+              Admin (All Access)
             </DropdownMenuItem>
-            <DropdownMenuItem onClick={() => setUserRole('boss')} className="text-xs cursor-pointer font-medium">
-              Boss Role
+            <DropdownMenuItem onClick={() => { setUserRole('boss'); setUserDepartment('all'); }} className="text-xs cursor-pointer font-medium">
+              Boss (Dashboard ONLY)
             </DropdownMenuItem>
-            <DropdownMenuItem onClick={() => setUserRole('staff')} className="text-xs cursor-pointer font-medium">
-              Staff Role
+            <DropdownMenuSeparator />
+            <DropdownMenuLabel className="text-xs text-slate-400">Staff Departments</DropdownMenuLabel>
+            <DropdownMenuItem onClick={() => { setUserRole('staff'); setUserDepartment('orders'); }} className="text-xs cursor-pointer font-medium">
+              Orders Department
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={() => { setUserRole('staff'); setUserDepartment('sourcing'); }} className="text-xs cursor-pointer font-medium">
+              Sourcing Department
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={() => { setUserRole('staff'); setUserDepartment('audit'); }} className="text-xs cursor-pointer font-medium">
+              Factory Audit Dept
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={() => { setUserRole('staff'); setUserDepartment('inspection'); }} className="text-xs cursor-pointer font-medium">
+              Port Inspection Dept
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={() => { setUserRole('staff'); setUserDepartment('logistics'); }} className="text-xs cursor-pointer font-medium">
+              Logistics & Inbound
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={() => { setUserRole('staff'); setUserDepartment('production'); }} className="text-xs cursor-pointer font-medium">
+              Production Run Dept
             </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
@@ -129,7 +156,7 @@ export function Header() {
                   {user ? user.email.split('@')[0] : 'Mock User'}
                 </span>
                 <span className="text-[10px] text-slate-400">
-                  {getRoleLabel(userRole).toLowerCase()}
+                  {getRoleLabel(userRole, userDepartment).toLowerCase()}
                 </span>
               </div>
             </Button>

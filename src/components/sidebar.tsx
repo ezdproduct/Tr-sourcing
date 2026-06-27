@@ -3,6 +3,7 @@
 import React from 'react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
+import { useSourcing } from '@/providers/sourcing-provider'
 import {
   BarChart3,
   Package,
@@ -60,6 +61,36 @@ const navItems: NavItem[] = [
 
 export function Sidebar() {
   const pathname = usePathname()
+  const { userRole, userDepartment } = useSourcing()
+
+  const filteredNavItems = navItems.filter((item) => {
+    if (userRole === 'admin') {
+      return true
+    }
+    if (userRole === 'boss') {
+      return item.href === '/dashboard'
+    }
+    // Staff roles
+    if (item.href === '/dashboard') {
+      return false
+    }
+    switch (userDepartment) {
+      case 'orders':
+        return item.href === '/orders'
+      case 'sourcing':
+        return item.href === '/sourcing'
+      case 'audit':
+        return item.href === '/audit'
+      case 'inspection':
+        return item.href === '/inspection'
+      case 'logistics':
+        return item.href === '/logistics'
+      case 'production':
+        return item.href === '/production'
+      default:
+        return false
+    }
+  })
 
   return (
     <aside className="hidden w-72 flex-col border-r border-[#1e1b4b] bg-[#100e2b] text-slate-200 dark:border-indigo-950/40 dark:bg-[#09081a] md:flex">
@@ -73,7 +104,7 @@ export function Sidebar() {
 
       {/* Navigation Menus */}
       <nav className="flex-1 space-y-1.5 px-4 py-6">
-        {navItems.map((item) => {
+        {filteredNavItems.map((item) => {
           const isActive = pathname === item.href || (item.href !== '/' && pathname.startsWith(item.href))
           const Icon = item.icon
 

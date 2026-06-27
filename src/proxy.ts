@@ -2,6 +2,7 @@ import { updateSession } from '@/supabase/proxy'
 import { type NextRequest } from 'next/server'
 
 export async function proxy(request: NextRequest) {
+  console.log(">>> MIDDLEWARE PROXY RUNNING FOR PATH:", request.nextUrl.pathname)
   return await updateSession(request)
 }
 

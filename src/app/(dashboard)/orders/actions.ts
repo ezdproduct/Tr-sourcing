@@ -138,6 +138,7 @@ export async function deleteOrderAction(orderId: string) {
 
     // Trigger Next.js App Router cache revalidation
     revalidatePath('/orders')
+    revalidatePath('/sourcing')
 
     return { success: true }
   } catch (error: any) {
