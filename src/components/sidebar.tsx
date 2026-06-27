@@ -56,6 +56,11 @@ const navItems: NavItem[] = [
     label: 'Production Run',
     href: '/production',
     icon: TrendingUp
+  },
+  {
+    label: 'Management System',
+    href: '/management',
+    icon: Database
   }
 ]
 
@@ -71,7 +76,7 @@ export function Sidebar() {
       return item.href === '/dashboard'
     }
     // Staff roles
-    if (item.href === '/dashboard') {
+    if (item.href === '/dashboard' || item.href === '/management') {
       return false
     }
     switch (userDepartment) {

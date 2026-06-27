@@ -1,5 +1,7 @@
 'use client'
 
+/* eslint-disable react-hooks/set-state-in-effect */
+
 import { cn } from '@/utils/tailwind'
 import { createClient } from '@/supabase/client'
 import { Button } from '@/components/ui/button'
@@ -7,8 +9,8 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
-import { useState } from 'react'
-import { ShoppingBag, Loader2, AlertCircle, Eye, EyeOff } from 'lucide-react'
+import { useState, useEffect } from 'react'
+import { ShoppingBag, Loader2, AlertCircle, Eye, EyeOff, Check } from 'lucide-react'
 
 export function LoginForm({
   className,
@@ -19,7 +21,21 @@ export function LoginForm({
   const [showPassword, setShowPassword] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [isLoading, setIsLoading] = useState(false)
+  const [isRegistered, setIsRegistered] = useState(false)
+  const [isUnauthorized, setIsUnauthorized] = useState(false)
   const router = useRouter()
+
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      const params = new URLSearchParams(window.location.search)
+      if (params.get('registered') === 'true') {
+        setIsRegistered(true)
+      }
+      if (params.get('unauthorized') === 'true') {
+        setIsUnauthorized(true)
+      }
+    }
+  }, [])
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -28,11 +44,27 @@ export function LoginForm({
     setError(null)
 
     try {
-      const { error } = await supabase.auth.signInWithPassword({
+      const { data, error } = await supabase.auth.signInWithPassword({
         email,
         password,
       })
       if (error) throw error
+
+      if (data?.user) {
+        const { data: profile, error: profileError } = await supabase
+          .from('profiles')
+          .select('is_approved')
+          .eq('id', data.user.id)
+          .single()
+
+        if (profileError) {
+          console.error('Error fetching profile approval status:', profileError.message)
+        } else if (profile && !profile.is_approved) {
+          await supabase.auth.signOut()
+          throw new Error('Your account is pending administrator approval. Please contact your admin.')
+        }
+      }
+
       router.push('/')
     } catch (error: unknown) {
       setError(error instanceof Error ? error.message : 'An error occurred')
@@ -64,6 +96,20 @@ export function LoginForm({
             <div className="p-3 bg-rose-50 dark:bg-rose-950/20 text-rose-600 dark:text-rose-450 text-xs rounded-xl flex items-center gap-2 font-medium border border-rose-100/30">
               <AlertCircle size={14} className="flex-shrink-0" />
               <span>{error}</span>
+            </div>
+          )}
+
+          {isRegistered && (
+            <div className="p-3 bg-emerald-50 dark:bg-emerald-950/20 text-emerald-600 dark:text-emerald-450 text-xs rounded-xl flex items-center gap-2 font-semibold border border-emerald-100/30">
+              <Check size={14} className="flex-shrink-0 stroke-[2.5]" />
+              <span>Account created successfully! Please sign in below.</span>
+            </div>
+          )}
+
+          {isUnauthorized && (
+            <div className="p-3 bg-amber-50 dark:bg-amber-950/20 text-amber-600 dark:text-amber-450 text-xs rounded-xl flex items-center gap-2 font-semibold border border-amber-100/30">
+              <AlertCircle size={14} className="flex-shrink-0" />
+              <span>Your session has been terminated or your account approval was revoked. Please contact your admin.</span>
             </div>
           )}
 

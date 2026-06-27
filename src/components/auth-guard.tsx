@@ -10,6 +10,8 @@ import { Button } from '@/components/ui/button'
 
 // Mapping of departments to their allowed tabs
 const deptToRouteMap: Record<string, string> = {
+  all: '/orders',
+  dashboard: '/dashboard',
   orders: '/orders',
   sourcing: '/sourcing',
   audit: '/audit',
@@ -25,8 +27,23 @@ export function AuthGuard({ children }: { children: React.ReactNode }) {
   const [isRedirecting, setIsRedirecting] = useState(false)
 
   useEffect(() => {
-    // 1. If hitting root or dashboard, and user is staff
-    if ((pathname === '/' || pathname === '/dashboard') && userRole === 'staff') {
+    // 1. Redirection based on roles/departments
+    if (pathname === '/') {
+      if (userRole === 'staff') {
+        const allowedRoute = deptToRouteMap[userDepartment]
+        if (allowedRoute) {
+          setIsRedirecting(true)
+          router.replace(allowedRoute)
+        } else {
+          setIsRedirecting(false)
+        }
+      } else if (userRole === 'boss') {
+        setIsRedirecting(true)
+        router.replace('/dashboard')
+      } else {
+        setIsRedirecting(false)
+      }
+    } else if (pathname === '/dashboard' && userRole === 'staff') {
       const allowedRoute = deptToRouteMap[userDepartment]
       if (allowedRoute) {
         setIsRedirecting(true)
@@ -51,6 +68,7 @@ export function AuthGuard({ children }: { children: React.ReactNode }) {
   // 2. Check page-level permissions
   const isAuthorized = () => {
     if (userRole === 'admin') return true
+    if (pathname.startsWith('/management')) return false
 
     if (userRole === 'boss') {
       // Boss only allowed to see dashboard
@@ -60,12 +78,12 @@ export function AuthGuard({ children }: { children: React.ReactNode }) {
     // Staff roles
     if (pathname === '/dashboard' || pathname === '/') return false
 
-    if (pathname.startsWith('/orders') && userDepartment !== 'orders') return false
-    if (pathname.startsWith('/sourcing') && userDepartment !== 'sourcing') return false
-    if (pathname.startsWith('/audit') && userDepartment !== 'audit') return false
-    if (pathname.startsWith('/inspection') && userDepartment !== 'inspection') return false
-    if (pathname.startsWith('/logistics') && userDepartment !== 'logistics') return false
-    if (pathname.startsWith('/production') && userDepartment !== 'production') return false
+    if (pathname.startsWith('/orders') && userDepartment !== 'orders' && userDepartment !== 'all') return false
+    if (pathname.startsWith('/sourcing') && userDepartment !== 'sourcing' && userDepartment !== 'all') return false
+    if (pathname.startsWith('/audit') && userDepartment !== 'audit' && userDepartment !== 'all') return false
+    if (pathname.startsWith('/inspection') && userDepartment !== 'inspection' && userDepartment !== 'all') return false
+    if (pathname.startsWith('/logistics') && userDepartment !== 'logistics' && userDepartment !== 'all') return false
+    if (pathname.startsWith('/production') && userDepartment !== 'production' && userDepartment !== 'all') return false
 
     return true
   }

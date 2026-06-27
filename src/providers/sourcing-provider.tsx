@@ -6,7 +6,7 @@ import React, { createContext, useContext, useState, useEffect } from 'react'
 import { createClient } from '@/supabase/client'
 
 export type UserRole = 'admin' | 'boss' | 'staff'
-export type UserDepartment = 'all' | 'orders' | 'sourcing' | 'audit' | 'inspection' | 'logistics' | 'production'
+export type UserDepartment = 'all' | 'orders' | 'sourcing' | 'audit' | 'inspection' | 'logistics' | 'production' | 'dashboard'
 
 interface SourcingContextType {
   userRole: UserRole
@@ -30,13 +30,23 @@ export function SourcingProvider({ children }: { children: React.ReactNode }) {
 
     supabase.auth.getUser().then(({ data }) => {
       if (data?.user) {
-        const meta = data.user.user_metadata || {}
-        if (meta.role) {
-          setUserRole(meta.role as UserRole)
-        }
-        if (meta.department) {
-          setUserDepartment(meta.department as UserDepartment)
-        }
+        supabase
+          .from('profiles')
+          .select('role, department, is_approved')
+          .eq('id', data.user.id)
+          .single()
+          .then(({ data: profile }) => {
+            if (profile) {
+              if (!profile.is_approved) {
+                supabase.auth.signOut().then(() => {
+                  window.location.href = '/auth/login?unauthorized=true'
+                })
+              } else {
+                setUserRole(profile.role as UserRole)
+                setUserDepartment(profile.department as UserDepartment)
+              }
+            }
+          })
       } else {
         const savedRole = localStorage.getItem('sourcing_user_role') as UserRole
         if (savedRole && ['admin', 'boss', 'staff'].includes(savedRole)) {
@@ -51,13 +61,23 @@ export function SourcingProvider({ children }: { children: React.ReactNode }) {
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
       if (session?.user) {
-        const meta = session.user.user_metadata || {}
-        if (meta.role) {
-          setUserRole(meta.role as UserRole)
-        }
-        if (meta.department) {
-          setUserDepartment(meta.department as UserDepartment)
-        }
+        supabase
+          .from('profiles')
+          .select('role, department, is_approved')
+          .eq('id', session.user.id)
+          .single()
+          .then(({ data: profile }) => {
+            if (profile) {
+              if (!profile.is_approved) {
+                supabase.auth.signOut().then(() => {
+                  window.location.href = '/auth/login?unauthorized=true'
+                })
+              } else {
+                setUserRole(profile.role as UserRole)
+                setUserDepartment(profile.department as UserDepartment)
+              }
+            }
+          })
       } else {
         // Fallback for anonymous
         setUserRole('admin')
