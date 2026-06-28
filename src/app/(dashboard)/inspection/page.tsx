@@ -16,20 +16,42 @@ async function InspectionLoader() {
     console.error('Error fetching inspections:', inspError.message)
   }
 
-  // 2. Fetch active orders waiting for inspection (stage = 'Inspection')
-  const { data: activeOrders, error: orderError } = await supabase
-    .from('orders')
-    .select('id, order_code, order_items(item_name)')
-    .eq('stage', 'Inspection')
+  // 2. Fetch active order items waiting for inspection (item_status = 'ARRIVED')
+  const { data: arrivedItems, error: orderError } = await supabase
+    .from('order_items')
+    .select('id, item_name, quantity, uom, item_status, order_id, orders(order_code)')
+    .eq('item_status', 'ARRIVED')
 
   if (orderError) {
     console.error('Error fetching active inspection orders:', orderError.message)
+  }
+
+  const activeOrders = arrivedItems ? arrivedItems.map((item: any) => ({
+    id: item.order_id,
+    order_code: item.orders?.order_code || 'N/A',
+    order_items: [{
+      id: item.id,
+      item_name: item.item_name,
+      quantity: item.quantity,
+      uom: item.uom
+    }]
+  })) : []
+
+  // 3. Fetch all orders for the sidebar
+  const { data: orders, error: allOrdersError } = await supabase
+    .from('orders')
+    .select('id, order_code, order_type, stage, order_date')
+    .order('created_at', { ascending: false })
+
+  if (allOrdersError) {
+    console.error('Error fetching all orders:', allOrdersError.message)
   }
 
   return (
     <InspectionClient
       initialInspections={inspections || []}
       activeOrders={activeOrders || []}
+      initialOrders={orders || []}
     />
   )
 }

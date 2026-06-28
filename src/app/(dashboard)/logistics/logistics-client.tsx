@@ -1,12 +1,15 @@
 'use client'
 
-import React, { useState, useTransition } from 'react'
+import React, { useState, useTransition, useEffect } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
 import { DataTable } from '@/components/ui/data-table'
+import { useSourcing } from '@/providers/sourcing-provider'
+import { updateOrderStageAction } from '@/app/(dashboard)/orders/actions'
+import { KanbanBoard } from '@/app/(dashboard)/orders/kanban-board'
 import {
   FileCheck2,
   CheckCircle,
@@ -34,19 +37,36 @@ export interface DatabaseLogisticsRecord {
   invoice_price: number
   status: 'matched' | 'mismatched' | 'pending'
   created_at: string
+  orders?: {
+    order_type: string
+    order_items?: Array<{
+      item_name: string
+      item_type: string
+    }>
+  } | null
 }
 
 interface LogisticsClientProps {
   initialRecords: DatabaseLogisticsRecord[]
+  initialOrders: any[]
 }
 
-export function LogisticsClient({ initialRecords }: LogisticsClientProps) {
+export function LogisticsClient({ initialRecords, initialOrders }: LogisticsClientProps) {
   const router = useRouter()
+  const { userRole } = useSourcing()
   const searchParams = useSearchParams()
   const [subtab, setSubtab] = useState<'overview' | 'workplace'>((searchParams.get('subtab') as 'overview' | 'workplace') || 'overview')
+  const [overviewMode, setOverviewMode] = useState<'analytics' | 'kanban'>('analytics')
   const [isPending, startTransition] = useTransition()
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
-  const [matchingRecordId, setMatchingRecordId] = useState<string | null>(null)
+
+  // Sync subtab when URL searchParams change (e.g., sidebar link click without unmount)
+  useEffect(() => {
+    const tab = searchParams.get('subtab')
+    if (tab === 'overview' || tab === 'workplace') {
+      setSubtab(tab)
+    }
+  }, [searchParams])
 
   const handleTabChange = (val: 'overview' | 'workplace') => {
     setSubtab(val)
@@ -55,6 +75,18 @@ export function LogisticsClient({ initialRecords }: LogisticsClientProps) {
       window.history.pushState({ ...window.history.state, as: newUrl, url: newUrl }, '', newUrl)
     }
   }
+
+  const isStaffOrAdmin = userRole === 'staff' || userRole === 'admin'
+
+  const handleStageChange = async (orderId: string, newStage: string) => {
+    const result = await updateOrderStageAction(orderId, newStage)
+    if (!result.success) {
+      alert(`Failed to update order stage: ${result.error}`)
+      return false
+    }
+    return true
+  }
+  const [matchingRecordId, setMatchingRecordId] = useState<string | null>(null)
 
   const handleExecuteAllMatches = () => {
     startTransition(async () => {
@@ -85,19 +117,6 @@ export function LogisticsClient({ initialRecords }: LogisticsClientProps) {
 
   return (
     <div className="space-y-6">
-      {/* Page Header */}
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-        <div className="flex flex-col gap-1">
-          <h1 className="text-2xl font-bold tracking-tight text-slate-900 dark:text-white">
-            Logistics &amp; Inbound Reconciliation
-          </h1>
-        </div>
-
-        <Button onClick={handleExecuteAllMatches} disabled={isPending} className="gap-2 bg-[#5c59e9] hover:bg-[#4a47d2] cursor-pointer">
-          <RefreshCw size={16} className={isPending ? 'animate-spin' : ''} />
-          <span>Execute All Matches</span>
-        </Button>
-      </div>
 
       {errorMessage && (
         <div className="p-3 bg-red-50 text-red-650 rounded-xl text-xs font-medium border border-red-200 flex items-center gap-2">
@@ -108,146 +127,187 @@ export function LogisticsClient({ initialRecords }: LogisticsClientProps) {
 
       {/* Subtab Switcher */}
       <Tabs value={subtab} onValueChange={(v) => handleTabChange(v as 'overview' | 'workplace')} className="w-full space-y-6">
-        <TabsList className="bg-slate-100 dark:bg-slate-950 p-1 rounded-xl w-fit flex gap-1">
-          <TabsTrigger value="overview" className="px-4 py-1.5 text-xs font-bold rounded-lg cursor-pointer transition-all data-[state=active]:bg-white dark:data-[state=active]:bg-slate-900">
-            Overview
-          </TabsTrigger>
-          <TabsTrigger value="workplace" className="px-4 py-1.5 text-xs font-bold rounded-lg cursor-pointer transition-all data-[state=active]:bg-white dark:data-[state=active]:bg-slate-900">
-            Workplace
-          </TabsTrigger>
-        </TabsList>
 
         <TabsContent value="overview" className="space-y-6 mt-0 border-none p-0 focus-visible:ring-0 focus-visible:ring-offset-0">
-          <div className="space-y-6">
-            {/* KPI Grid */}
-            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-              <Card className="border-slate-200/60 dark:border-slate-800">
-                <CardHeader className="pb-2 flex flex-row items-center justify-between">
-                  <CardTitle className="text-xs font-bold text-slate-500 uppercase tracking-wider">Logistics Invoices</CardTitle>
-                  <FileCheck2 className="h-4 w-4 text-indigo-500" />
-                </CardHeader>
-                <CardContent>
-                  <div className="text-2xl font-black text-slate-900 dark:text-white">{initialRecords.length}</div>
-                  <p className="text-[10px] text-slate-400 mt-1">Intake invoices registered in database</p>
-                </CardContent>
-              </Card>
-
-              <Card className="border-slate-200/60 dark:border-slate-800">
-                <CardHeader className="pb-2 flex flex-row items-center justify-between">
-                  <CardTitle className="text-xs font-bold text-slate-500 uppercase tracking-wider">3-Way Match Rate</CardTitle>
-                  <CheckCircle2 className="h-4 w-4 text-emerald-500" />
-                </CardHeader>
-                <CardContent>
-                  <div className="text-2xl font-black text-slate-900 dark:text-white">
-                    {(() => {
-                      const matched = initialRecords.filter(r => r.status === 'matched').length
-                      if (initialRecords.length === 0) return '100%'
-                      return `${((matched / initialRecords.length) * 100).toFixed(0)}%`
-                    })()}
-                  </div>
-                  <p className="text-[10px] text-slate-400 mt-1">PO-GR-Invoice matching rate</p>
-                </CardContent>
-              </Card>
-
-              <Card className="border-slate-200/60 dark:border-slate-800">
-                <CardHeader className="pb-2 flex flex-row items-center justify-between">
-                  <CardTitle className="text-xs font-bold text-slate-500 uppercase tracking-wider">Discrepancies</CardTitle>
-                  <AlertCircle className="h-4 w-4 text-rose-500" />
-                </CardHeader>
-                <CardContent>
-                  <div className="text-2xl font-black text-rose-600 dark:text-rose-455">
-                    {initialRecords.filter(r => r.status === 'mismatched').length}
-                  </div>
-                  <p className="text-[10px] text-rose-500 mt-1 font-medium">Requires price or quantity checks</p>
-                </CardContent>
-              </Card>
-
-              <Card className="border-slate-200/60 dark:border-slate-800">
-                <CardHeader className="pb-2 flex flex-row items-center justify-between">
-                  <CardTitle className="text-xs font-bold text-slate-500 uppercase tracking-wider">Inbound Shipments</CardTitle>
-                  <Truck className="h-4 w-4 text-blue-500" />
-                </CardHeader>
-                <CardContent>
-                  <div className="text-2xl font-black text-slate-900 dark:text-white">
-                    {initialRecords.filter(r => r.status === 'pending').length} Pending
-                  </div>
-                  <p className="text-[10px] text-slate-400 mt-1">Containers en route to warehouse</p>
-                </CardContent>
-              </Card>
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 bg-slate-50/50 dark:bg-slate-900/10 p-4 rounded-2xl border border-slate-100 dark:border-slate-800/60">
+            <div className="space-y-0.5">
+              <h2 className="text-sm font-bold text-slate-950 dark:text-slate-50">Logistics Overview</h2>
+              <p className="text-xs text-slate-400 dark:text-slate-500 font-medium">
+                Monitor key metrics and track purchase order lifecycle stages in real-time.
+              </p>
             </div>
-
-            {/* Logistics charts */}
-            <div className="grid gap-6 md:grid-cols-2">
-              <Card className="border-slate-200/60 dark:border-slate-800">
-                <CardHeader>
-                  <CardTitle className="text-sm font-bold text-slate-900 dark:text-white">Logistics Verification Funnel</CardTitle>
-                  <CardDescription className="text-xs">Intake matching step completion rates</CardDescription>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  {[
-                    { label: 'Purchase Order Verification', pct: '100%' },
-                    { label: 'Goods Receipt Audit (GR)', pct: '95%' },
-                    { label: 'Invoice Match Check (INV)', pct: '85%' },
-                    { label: 'Final Payment Authorization', pct: '70%' }
-                  ].map((item, idx) => (
-                    <div key={idx} className="space-y-1.5">
-                      <div className="flex items-center justify-between text-xs font-semibold">
-                        <span className="text-slate-700 dark:text-slate-300">{item.label}</span>
-                        <span className="text-indigo-600 dark:text-indigo-400">{item.pct}</span>
-                      </div>
-                      <div className="h-1.5 w-full bg-slate-100 rounded-full dark:bg-slate-900">
-                        <div className="h-full bg-indigo-500 rounded-full" style={{ width: item.pct }} />
-                      </div>
-                    </div>
-                  ))}
-                </CardContent>
-              </Card>
-
-              <Card className="border-slate-200/60 dark:border-slate-800">
-                <CardHeader>
-                  <CardTitle className="text-sm font-bold text-slate-900 dark:text-white">Recent Intake Verification Logs</CardTitle>
-                  <CardDescription className="text-xs">Latest matched and mismatched invoices</CardDescription>
-                </CardHeader>
-                <CardContent className="space-y-4">
-                  {initialRecords.length === 0 ? (
-                    <p className="text-xs text-slate-400">No records available.</p>
-                  ) : (
-                    initialRecords.slice(0, 3).map((item, idx) => (
-                      <div key={idx} className="flex items-start gap-4 border-b border-slate-100 pb-3 last:border-0 last:pb-0 dark:border-slate-900">
-                        <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
-                          item.status === 'matched'
-                            ? 'bg-emerald-50 text-emerald-700 border border-emerald-200 dark:bg-emerald-950/20 dark:text-emerald-400'
-                            : 'bg-rose-50 text-rose-700 border border-rose-200 dark:bg-rose-950/20 dark:text-rose-455'
-                        }`}>
-                          {item.po_number}
-                        </span>
-                        <div className="flex-1 space-y-0.5">
-                          <p className="text-xs text-slate-800 dark:text-slate-200 font-medium">
-                            {item.product_name} | Qty: {Number(item.po_qty).toLocaleString()}
-                          </p>
-                          <p className="text-[10px] text-slate-400">
-                            Invoice: {item.invoice_number} | Status: {item.status}
-                          </p>
-                        </div>
-                      </div>
-                    ))
-                  )}
-                </CardContent>
-              </Card>
+            <div className="flex items-center gap-1 bg-slate-100 dark:bg-slate-955 p-1 rounded-xl self-start sm:self-auto border border-slate-200/50 dark:border-slate-800/80">
+              <Button
+                variant={overviewMode === 'analytics' ? 'secondary' : 'ghost'}
+                size="sm"
+                onClick={() => setOverviewMode('analytics')}
+                className={`text-xs font-semibold px-4 py-1.5 h-8 rounded-lg cursor-pointer transition-all ${
+                  overviewMode === 'analytics'
+                    ? 'bg-white text-[#5c59e9] shadow-sm dark:bg-slate-900 dark:text-white'
+                    : 'text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white'
+                }`}
+              >
+                <span>Analytics View</span>
+              </Button>
+              <Button
+                variant={overviewMode === 'kanban' ? 'secondary' : 'ghost'}
+                size="sm"
+                onClick={() => setOverviewMode('kanban')}
+                className={`text-xs font-semibold px-4 py-1.5 h-8 rounded-lg cursor-pointer transition-all ${
+                  overviewMode === 'kanban'
+                    ? 'bg-white text-[#5c59e9] shadow-sm dark:bg-slate-900 dark:text-white'
+                    : 'text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white'
+                }`}
+              >
+                <span>Kanban Board</span>
+              </Button>
             </div>
           </div>
+
+          {overviewMode === 'analytics' ? (
+            <div className="space-y-6 animate-in fade-in duration-300">
+              {/* KPI Grid */}
+              <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+                <Card className="border-slate-200/60 dark:border-slate-800">
+                  <CardHeader className="pb-2 flex flex-row items-center justify-between">
+                    <CardTitle className="text-xs font-bold text-slate-500 uppercase tracking-wider">Logistics Invoices</CardTitle>
+                    <FileCheck2 className="h-4 w-4 text-indigo-500" />
+                  </CardHeader>
+                  <CardContent>
+                    <div className="text-2xl font-black text-slate-900 dark:text-white">{initialRecords.length}</div>
+                    <p className="text-[10px] text-slate-400 mt-1">Intake invoices registered in database</p>
+                  </CardContent>
+                </Card>
+
+                <Card className="border-slate-200/60 dark:border-slate-800">
+                  <CardHeader className="pb-2 flex flex-row items-center justify-between">
+                    <CardTitle className="text-xs font-bold text-slate-500 uppercase tracking-wider">3-Way Match Rate</CardTitle>
+                    <CheckCircle2 className="h-4 w-4 text-emerald-500" />
+                  </CardHeader>
+                  <CardContent>
+                    <div className="text-2xl font-black text-slate-900 dark:text-white">
+                      {(() => {
+                        const matched = initialRecords.filter(r => r.status === 'matched').length
+                        if (initialRecords.length === 0) return '100%'
+                        return `${((matched / initialRecords.length) * 100).toFixed(0)}%`
+                      })()}
+                    </div>
+                    <p className="text-[10px] text-slate-400 mt-1">PO-GR-Invoice matching rate</p>
+                  </CardContent>
+                </Card>
+
+                <Card className="border-slate-200/60 dark:border-slate-800">
+                  <CardHeader className="pb-2 flex flex-row items-center justify-between">
+                    <CardTitle className="text-xs font-bold text-slate-500 uppercase tracking-wider">Discrepancies</CardTitle>
+                    <AlertCircle className="h-4 w-4 text-rose-500" />
+                  </CardHeader>
+                  <CardContent>
+                    <div className="text-2xl font-black text-rose-600 dark:text-rose-455">
+                      {initialRecords.filter(r => r.status === 'mismatched').length}
+                    </div>
+                    <p className="text-[10px] text-rose-500 mt-1 font-medium">Requires price or quantity checks</p>
+                  </CardContent>
+                </Card>
+
+                <Card className="border-slate-200/60 dark:border-slate-800">
+                  <CardHeader className="pb-2 flex flex-row items-center justify-between">
+                    <CardTitle className="text-xs font-bold text-slate-500 uppercase tracking-wider">Inbound Shipments</CardTitle>
+                    <Truck className="h-4 w-4 text-blue-500" />
+                  </CardHeader>
+                  <CardContent>
+                    <div className="text-2xl font-black text-slate-900 dark:text-white">
+                      {initialRecords.filter(r => r.status === 'pending').length} Pending
+                    </div>
+                    <p className="text-[10px] text-slate-400 mt-1">Containers en route to warehouse</p>
+                  </CardContent>
+                </Card>
+              </div>
+
+              {/* Logistics charts */}
+              <div className="grid gap-6 md:grid-cols-2">
+                <Card className="border-slate-200/60 dark:border-slate-800">
+                  <CardHeader>
+                    <CardTitle className="text-sm font-bold text-slate-900 dark:text-white">Logistics Verification Funnel</CardTitle>
+                    <CardDescription className="text-xs">Intake matching step completion rates</CardDescription>
+                  </CardHeader>
+                  <CardContent className="space-y-4">
+                    {[
+                      { label: 'Purchase Order Verification', pct: '100%' },
+                      { label: 'Goods Receipt Audit (GR)', pct: '95%' },
+                      { label: 'Invoice Match Check (INV)', pct: '85%' },
+                      { label: 'Final Payment Authorization', pct: '70%' }
+                    ].map((item, idx) => (
+                      <div key={idx} className="space-y-1.5">
+                        <div className="flex items-center justify-between text-xs font-semibold">
+                          <span className="text-slate-700 dark:text-slate-300">{item.label}</span>
+                          <span className="text-indigo-600 dark:text-indigo-400">{item.pct}</span>
+                        </div>
+                        <div className="h-1.5 w-full bg-slate-100 rounded-full dark:bg-slate-900">
+                          <div className="h-full bg-indigo-500 rounded-full" style={{ width: item.pct }} />
+                        </div>
+                      </div>
+                    ))}
+                  </CardContent>
+                </Card>
+
+                <Card className="border-slate-200/60 dark:border-slate-800">
+                  <CardHeader>
+                    <CardTitle className="text-sm font-bold text-slate-900 dark:text-white">Recent Intake Verification Logs</CardTitle>
+                    <CardDescription className="text-xs">Latest matched and mismatched invoices</CardDescription>
+                  </CardHeader>
+                  <CardContent className="space-y-4">
+                    {initialRecords.length === 0 ? (
+                      <p className="text-xs text-slate-400">No records available.</p>
+                    ) : (
+                      initialRecords.slice(0, 3).map((item, idx) => (
+                        <div key={idx} className="flex items-start gap-4 border-b border-slate-100 pb-3 last:border-0 last:pb-0 dark:border-slate-900">
+                          <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
+                            item.status === 'matched'
+                              ? 'bg-emerald-50 text-emerald-700 border border-emerald-200 dark:bg-emerald-950/20 dark:text-emerald-400'
+                              : 'bg-rose-50 text-rose-700 border border-rose-200 dark:bg-rose-950/20 dark:text-rose-455'
+                          }`}>
+                            {item.po_number}
+                          </span>
+                          <div className="flex-1 space-y-0.5">
+                            <p className="text-xs text-slate-800 dark:text-slate-200 font-medium">
+                              {item.product_name} | Qty: {Number(item.po_qty).toLocaleString()}
+                            </p>
+                            <p className="text-[10px] text-slate-400">
+                              Invoice: {item.invoice_number} | Status: {item.status}
+                            </p>
+                          </div>
+                        </div>
+                      ))
+                    )}
+                  </CardContent>
+                </Card>
+              </div>
+            </div>
+          ) : (
+            <div className="animate-in fade-in duration-300">
+              <KanbanBoard
+                orders={initialOrders}
+                isStaffOrAdmin={isStaffOrAdmin}
+                onCardClick={(order) => {
+                  // In Logistics, select order in workplace if possible
+                  setSubtab('workplace')
+                }}
+                onStageChange={handleStageChange}
+              />
+            </div>
+          )}
         </TabsContent>
 
-        <TabsContent value="workplace" className="space-y-6 mt-0 border-none p-0 focus-visible:ring-0 focus-visible:ring-offset-0">
-          {/* 3-Way Match Verification Matrix Table */}
-          <Card className="border-slate-200/60 dark:border-slate-800">
-            <CardHeader className="pb-3 border-b border-slate-100 dark:border-slate-800">
-              <CardTitle className="text-base font-bold">3-Way Match Verification Grid</CardTitle>
-              <CardDescription className="text-xs">
-                Matches Purchase Order (PO), Goods Receipt (GR), and Vendor Invoice. Quantities must match within 2% tolerance.
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="p-0">
+        <TabsContent value="workplace" className="mt-0 border-none p-0 focus-visible:ring-0 focus-visible:ring-offset-0">
+          <div className="-mx-8 -mt-8 -mb-8 h-[calc(100vh-4rem)] overflow-hidden p-3">
+            <Card className="border-slate-200/60 dark:border-slate-800 h-full flex flex-col overflow-hidden">
+              <CardHeader className="pb-3 border-b border-slate-100 dark:border-slate-800 flex-shrink-0">
+                <CardTitle className="text-base font-bold">3-Way Match Verification Grid</CardTitle>
+                <CardDescription className="text-xs">
+                  Matches Purchase Order (PO), Goods Receipt (GR), and Vendor Invoice. Quantities must match within 2% tolerance.
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="p-0 flex-1 overflow-y-auto">
               {initialRecords.length === 0 ? (
                 <div className="p-12 text-center text-slate-400">No logistics records currently waiting for match.</div>
               ) : (
@@ -327,12 +387,24 @@ export function LogisticsClient({ initialRecords }: LogisticsClientProps) {
                             )}
                             <span>Reconcile &amp; Close PO</span>
                           </Button>
-                        ) : (
-                          <Button size="sm" variant="outline" disabled className="text-xs h-8 gap-1">
-                            <CheckCircle size={12} />
-                            <span>Matched</span>
-                          </Button>
-                        )}
+                        ) : (() => {
+                          const matchingItem = r.orders?.order_items?.find(item => item.item_name === r.product_name)
+                          const isProduct = matchingItem ? matchingItem.item_type === 'PRODUCT' : r.orders?.order_type === 'PRODUCT'
+                          if (isProduct) {
+                            return (
+                              <span className="text-xs font-semibold text-emerald-600 dark:text-emerald-400 flex items-center justify-end gap-1.5 py-1.5">
+                                <CheckCircle2 size={13} className="text-emerald-500" />
+                                <span>Order Closed</span>
+                              </span>
+                            )
+                          }
+                          return (
+                            <span className="text-xs font-semibold text-blue-600 dark:text-blue-400 flex items-center justify-end gap-1.5 py-1.5">
+                              <TrendingUp size={13} className="text-blue-500" />
+                              <span>Transferred to Production</span>
+                            </span>
+                          )
+                        })()}
                       </td>
                     </tr>
                   )}
@@ -340,6 +412,7 @@ export function LogisticsClient({ initialRecords }: LogisticsClientProps) {
               )}
             </CardContent>
           </Card>
+          </div>
         </TabsContent>
       </Tabs>
     </div>

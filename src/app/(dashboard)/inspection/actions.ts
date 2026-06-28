@@ -5,31 +5,39 @@ import { revalidatePath } from 'next/cache'
 
 export interface CreateInspectionInput {
   orderId: string
+  orderItemId: string
   portName: string
   containerNumber: string
   sealNumber: string
   defectRate: number
   inspector: string
+  verifiedQuantity: number
+  qualityStatus: 'PASS' | 'FAIL'
+  defectNotes?: string
 }
 
 export async function createInspectionAction(input: CreateInspectionInput) {
   try {
     const supabase = await createClient()
 
-    const verdict = input.defectRate <= 2.5 ? 'Approved' : 'Rejected'
+    const verdict = input.qualityStatus === 'PASS' ? 'Approved' : 'Rejected'
 
     // 1. Insert inspection record
     const { error: insertError } = await supabase
       .from('inspection_records')
       .insert({
         order_id: input.orderId,
+        order_item_id: input.orderItemId,
         port_name: input.portName,
         container_number: input.containerNumber,
         seal_number: input.sealNumber,
         defect_rate: input.defectRate,
         verdict,
         inspector: input.inspector,
-        date_checked: new Date().toISOString().split('T')[0]
+        date_checked: new Date().toISOString().split('T')[0],
+        verified_quantity: input.verifiedQuantity,
+        quality_status: input.qualityStatus,
+        defect_notes: input.defectNotes || null
       })
 
     if (insertError) {
@@ -37,10 +45,10 @@ export async function createInspectionAction(input: CreateInspectionInput) {
       return { success: false, error: insertError.message }
     }
 
-    // 2. Fetch order code and contract value for creating logistics PO
+    // 2. Fetch order code and contract value
     const { data: order, error: orderFetchError } = await supabase
       .from('orders')
-      .select('order_code, contract_value, order_items(item_name, quantity)')
+      .select('order_code, contract_value')
       .eq('id', input.orderId)
       .single()
 
@@ -49,23 +57,73 @@ export async function createInspectionAction(input: CreateInspectionInput) {
       return { success: false, error: 'Order not found' }
     }
 
-    // 3. If approved, transition stage to 'Logistic' and create a logistics record
-    if (verdict === 'Approved') {
+    // 3. Update specific order item status and verified_quantity
+    const { error: itemError } = await supabase
+      .from('order_items')
+      .update({
+        item_status: input.qualityStatus === 'PASS' ? 'INSPECTION_PASSED' : 'ARRIVED',
+        verified_quantity: input.verifiedQuantity
+      })
+      .eq('id', input.orderItemId)
+
+    if (itemError) {
+      console.error('Error updating order item status:', itemError.message)
+    }
+
+    // 4. Query all order items to see if all are fully inspected
+    const { data: allItems } = await supabase
+      .from('order_items')
+      .select('item_status')
+      .eq('order_id', input.orderId)
+
+    const allInspected = allItems && allItems.length > 0 && allItems.every(
+      (item: any) => item.item_status === 'INSPECTION_PASSED' || 
+                     item.item_status === 'IN_STOCK' || 
+                     item.item_status === 'COMPLETED'
+    )
+
+    if (input.qualityStatus === 'PASS') {
+      // SUCCESS: set stage to 'INSPECTION PASSED' if all are inspected, else keep awaiting
       const { error: stageError } = await supabase
         .from('orders')
-        .update({ stage: 'Logistic' })
+        .update({ stage: allInspected ? 'INSPECTION PASSED' : 'ARRIVED - AWAITING INSPECTION' })
         .eq('id', input.orderId)
 
       if (stageError) {
-        console.error('Error updating order stage to Logistic:', stageError.message)
+        console.error('Error updating order stage:', stageError.message)
       }
+
+      // Add activity log
+      await supabase
+        .from('order_activities')
+        .insert({
+          order_id: input.orderId,
+          activity_text: `Automated System: Port Inspection passed for item. Quantity verified: ${input.verifiedQuantity}. Released to Logistics & Inbound.`
+        })
 
       // Generate GR and INV numbers
       const grNum = `GR-2026-${Math.floor(1000 + Math.random() * 9000)}`
       const invNum = `INV-${Math.floor(100000 + Math.random() * 900000)}`
-      const prodName = order.order_items?.[0]?.item_name || 'Goods'
-      const totalQty = order.order_items?.reduce((sum: number, item: any) => sum + item.quantity, 0) || 100
-      const contractValue = order.contract_value || 10000
+
+      // Fetch current item details
+      const { data: currentItem } = await supabase
+        .from('order_items')
+        .select('item_name, quantity')
+        .eq('id', input.orderItemId)
+        .single()
+
+      const prodName = currentItem?.item_name || 'Goods'
+      const totalQty = currentItem?.quantity || 100
+
+      // Get shortlisted supplier bid's price
+      const { data: bid } = await supabase
+        .from('order_suppliers')
+        .select('quoted_price')
+        .eq('order_item_id', input.orderItemId)
+        .eq('is_shortlisted', true)
+        .single()
+
+      const itemPrice = bid ? (Number(bid.quoted_price) * totalQty) : (order.contract_value || 10000)
 
       // Insert logistics record
       const { error: logError } = await supabase
@@ -77,15 +135,36 @@ export async function createInspectionAction(input: CreateInspectionInput) {
           invoice_number: invNum,
           product_name: prodName,
           po_qty: totalQty,
-          gr_qty: totalQty,
-          po_price: contractValue,
-          invoice_price: contractValue, // default matching
+          gr_qty: input.verifiedQuantity,
+          po_price: itemPrice,
+          invoice_price: itemPrice,
           status: 'pending'
         })
 
       if (logError) {
         console.error('Error creating logistics record:', logError.message)
       }
+    } else {
+      // FAILURE: set stage to 'INSPECTION FAILED', dispute_flag = true
+      const { error: stageError } = await supabase
+        .from('orders')
+        .update({ 
+          stage: 'INSPECTION FAILED',
+          dispute_flag: true 
+        })
+        .eq('id', input.orderId)
+
+      if (stageError) {
+        console.error('Error updating order stage to INSPECTION FAILED:', stageError.message)
+      }
+
+      // Add activity log
+      await supabase
+        .from('order_activities')
+        .insert({
+          order_id: input.orderId,
+          activity_text: 'Automated System: Port Inspection failed. Inbound process blocked, order state frozen, and supplier dispute flag logged.'
+        })
     }
 
     revalidatePath('/inspection')

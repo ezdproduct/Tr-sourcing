@@ -23,15 +23,7 @@ export default function DashboardPage() {
 
   return (
     <div className="space-y-6">
-      {/* Title & Role Info */}
-      <div className="flex flex-col gap-1">
-        <h1 className="text-2xl font-bold tracking-tight text-slate-900 dark:text-white">
-          Sourcing Executive Dashboard
-        </h1>
-        <p className="text-sm text-slate-500">
-          Real-time overview of the Sourcing Hub workflow (Role: <span className="font-semibold text-indigo-600 dark:text-indigo-400 capitalize">{userRole}</span>)
-        </p>
-      </div>
+      {/* KPI Cards */}
 
       {/* KPI Cards */}
       <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-4">

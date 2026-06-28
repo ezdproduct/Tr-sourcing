@@ -19,6 +19,8 @@ import {
   updateSupplierProfileAction,
   confirmSupplierAndCreatePoAction
 } from './actions'
+import { KanbanBoard } from '@/app/(dashboard)/orders/kanban-board'
+import { updateOrderStageAction } from '@/app/(dashboard)/orders/actions'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -54,6 +56,7 @@ import {
   SlidersHorizontal,
   Shield,
   CheckCircle2,
+  FileText,
 } from 'lucide-react'
 
 // ─── CSV Parser Helper ────────────────────────────────────────────────────────
@@ -138,6 +141,7 @@ export interface DatabaseSupplier {
 interface SourcingClientProps {
   initialOrders: DatabaseOrder[]
   initialSuppliers: DatabaseSupplier[]
+  initialAudits?: any[]
 }
 
 // ─── View Mode ─────────────────────────────────────────────────────────────────
@@ -154,12 +158,25 @@ export function getOrderTypeFromItems(items?: DatabaseOrderItem[]): string {
 }
 
 export function SourcingClient({ initialOrders, initialSuppliers }: SourcingClientProps) {
-  const { searchQuery } = useSourcing()
+  const { searchQuery, userRole } = useSourcing()
   const router = useRouter()
+
+  const [overviewMode, setOverviewMode] = useState<'analytics' | 'kanban'>('analytics')
+  const isStaffOrAdmin = userRole === 'staff' || userRole === 'admin'
+
+  const handleStageChange = async (orderId: string, newStage: string) => {
+    const result = await updateOrderStageAction(orderId, newStage)
+    if (!result.success) {
+      alert(`Failed to update order stage: ${result.error}`)
+      return false
+    }
+    return true
+  }
 
   // View mode: 'order' = per-order matrix, 'all' = global all-suppliers table
   const [viewMode, setViewMode] = useState<ViewMode>('order')
   const [allSuppliersSearch, setAllSuppliersSearch] = useState('')
+  const [sidebarOrderSearch, setSidebarOrderSearch] = useState('')
   const [shortlistFilterOnly, setShortlistFilterOnly] = useState(false)
   const [orderShortlistFilterOnly, setOrderShortlistFilterOnly] = useState(false)
 
@@ -187,8 +204,9 @@ export function SourcingClient({ initialOrders, initialSuppliers }: SourcingClie
     router.refresh()
   }, [router])
 
-  const [subtab, setSubtab] = useState<'overview' | 'workplace'>('overview')
   const searchParams = useSearchParams()
+  const initialSubtab = (searchParams.get('subtab') as 'overview' | 'workplace') || 'overview'
+  const [subtab, setSubtab] = useState<'overview' | 'workplace'>(initialSubtab)
 
   useEffect(() => {
     const tab = searchParams.get('subtab')
@@ -441,10 +459,10 @@ export function SourcingClient({ initialOrders, initialSuppliers }: SourcingClie
   const filteredOrders = orders.filter(o => {
     const type = getOrderTypeFromItems(o.order_items)
     return (
-      o.order_code.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      type.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      o.order_code.toLowerCase().includes(sidebarOrderSearch.toLowerCase()) ||
+      type.toLowerCase().includes(sidebarOrderSearch.toLowerCase()) ||
       (o.order_items && o.order_items.some(item =>
-        item.item_name.toLowerCase().includes(searchQuery.toLowerCase())
+        item.item_name.toLowerCase().includes(sidebarOrderSearch.toLowerCase())
       ))
     )
   })
@@ -813,19 +831,59 @@ export function SourcingClient({ initialOrders, initialSuppliers }: SourcingClie
   return (
     <div className="space-y-6">
       {/* Page Header */}
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-        <div className="flex flex-col gap-1">
-          <h1 className="text-2xl font-bold tracking-tight text-slate-900 dark:text-white">
-            Supplier Sourcing &amp; Matrix
-          </h1>
+      {subtab === 'overview' && (
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex flex-col gap-1">
+            <h1 className="text-2xl font-bold tracking-tight text-slate-900 dark:text-white">
+              Supplier Sourcing &amp; Matrix
+            </h1>
+          </div>
         </div>
-      </div>
+      )}
 
       {/* Subtab Switcher */}
       <Tabs value={subtab} className="w-full space-y-6">
 
         <TabsContent value="overview" className="space-y-6 mt-0 border-none p-0 focus-visible:ring-0 focus-visible:ring-offset-0">
         <div className="space-y-6">
+          {/* Subtab Switcher */}
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 bg-slate-50/50 dark:bg-slate-900/10 p-4 rounded-2xl border border-slate-100 dark:border-slate-800/60">
+            <div className="space-y-0.5">
+              <h2 className="text-sm font-bold text-slate-955 dark:text-slate-50">Sourcing Overview</h2>
+              <p className="text-xs text-slate-400 dark:text-slate-500 font-medium">
+                Monitor key metrics and track purchase order lifecycle stages in real-time.
+              </p>
+            </div>
+            <div className="flex items-center gap-1 bg-slate-100 dark:bg-slate-955 p-1 rounded-xl self-start sm:self-auto border border-slate-200/50 dark:border-slate-800/80">
+              <Button
+                variant={overviewMode === 'analytics' ? 'secondary' : 'ghost'}
+                size="sm"
+                onClick={() => setOverviewMode('analytics')}
+                className={`text-xs font-semibold px-4 py-1.5 h-8 rounded-lg cursor-pointer transition-all ${
+                  overviewMode === 'analytics'
+                    ? 'bg-white text-[#5c59e9] shadow-sm dark:bg-slate-900 dark:text-white'
+                    : 'text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white'
+                }`}
+              >
+                <span>Analytics View</span>
+              </Button>
+              <Button
+                variant={overviewMode === 'kanban' ? 'secondary' : 'ghost'}
+                size="sm"
+                onClick={() => setOverviewMode('kanban')}
+                className={`text-xs font-semibold px-4 py-1.5 h-8 rounded-lg cursor-pointer transition-all ${
+                  overviewMode === 'kanban'
+                    ? 'bg-white text-[#5c59e9] shadow-sm dark:bg-slate-900 dark:text-white'
+                    : 'text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white'
+                }`}
+              >
+                <span>Kanban Board</span>
+              </Button>
+            </div>
+          </div>
+
+          {overviewMode === 'analytics' ? (
+            <div className="space-y-6">
           {/* KPI Grid */}
           <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
             <Card className="border-slate-200/60 dark:border-slate-800">
@@ -932,103 +990,111 @@ export function SourcingClient({ initialOrders, initialSuppliers }: SourcingClie
                 )}
               </CardContent>
             </Card>
+            </div>
           </div>
+        ) : (
+            <div className="animate-in fade-in duration-300">
+              <KanbanBoard
+                orders={initialOrders}
+                isStaffOrAdmin={isStaffOrAdmin}
+                onCardClick={(order) => {
+                  setSelectedOrderId(order.id)
+                  setSubtab('workplace')
+                }}
+                onStageChange={handleStageChange}
+              />
+            </div>
+          )}
         </div>
       </TabsContent>
 
       <TabsContent value="workplace" className="space-y-6 mt-0 border-none p-0 focus-visible:ring-0 focus-visible:ring-offset-0">
       {/* Main Content: Order List + Matrix / All Suppliers */}
-      <div className="grid gap-6 lg:grid-cols-[280px_1fr]">
+      <div className="grid lg:grid-cols-[280px_1fr] -mx-8 -mt-8 -mb-8 h-[calc(100vh-4rem)] overflow-hidden">
 
-        {/* Orders Sidebar */}
-        <Card className="border-slate-200/60 dark:border-slate-800 h-fit">
-          <CardHeader className="pb-3 border-b border-slate-100 dark:border-slate-800">
-            <CardTitle className="text-sm font-bold">Purchase Orders</CardTitle>
-            <CardDescription className="text-xs">Select an order to manage suppliers</CardDescription>
-          </CardHeader>
-          <CardContent className="p-0">
+        {/* Left column: Purchase Orders sidebar */}
+        <div className="border-r border-slate-200/60 dark:border-slate-800 bg-white dark:bg-slate-950 flex flex-col h-full overflow-hidden">
+          <div className="p-2 border-b border-slate-100 dark:border-slate-800 flex-shrink-0 space-y-1.5">
+            <div>
+              <h3 className="text-xs font-bold text-slate-900 dark:text-white">Purchase Orders</h3>
+            </div>
+            <div className="relative">
+              <Search size={12} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" />
+              <input
+                type="text"
+                placeholder="Search orders..."
+                value={sidebarOrderSearch}
+                onChange={(e) => setSidebarOrderSearch(e.target.value)}
+                className="w-full pl-7.5 pr-2.5 py-0.5 text-[11px] rounded-md border border-slate-200 focus:outline-none focus:ring-1 focus:ring-indigo-500 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-100"
+              />
+            </div>
+          </div>
+          <div className="flex-1 overflow-y-auto">
             {/* All Suppliers button */}
-            <div className="px-3 pt-3 pb-2">
+            <div className="border-b border-slate-100 dark:border-slate-800/80">
               <button
                 id="btn-all-suppliers"
                 onClick={() => setViewMode('all')}
-                className={`w-full flex items-center gap-2.5 px-4 py-2.5 rounded-xl border-2 text-sm font-semibold transition-all cursor-pointer ${
+                className={`w-full text-left px-2.5 py-3 flex items-center justify-between gap-1 transition-colors cursor-pointer ${
                   viewMode === 'all'
-                    ? 'bg-[#5c59e9] border-[#5c59e9] text-white shadow-sm shadow-indigo-300/30'
-                    : 'border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-300 hover:border-[#5c59e9]/40 hover:bg-indigo-50/60 dark:hover:bg-indigo-950/20 hover:text-[#5c59e9]'
+                    ? 'bg-indigo-50 dark:bg-indigo-950/30'
+                    : 'hover:bg-slate-50/80 dark:hover:bg-slate-900/20'
                 }`}
               >
-                <Globe size={15} className={viewMode === 'all' ? 'text-white' : 'text-[#5c59e9]'} />
-                All Suppliers
-                <span className={`ml-auto text-xs font-bold px-1.5 py-0.5 rounded-md ${
+                <div className="flex items-center gap-2 min-w-0">
+                  <Globe size={13} className={viewMode === 'all' ? 'text-indigo-600 dark:text-indigo-400' : 'text-slate-400 dark:text-slate-500'} />
+                  <span className={`text-xs font-bold ${viewMode === 'all' ? 'text-indigo-700 dark:text-indigo-400' : 'text-slate-800 dark:text-slate-200'}`}>
+                    All Suppliers
+                  </span>
+                </div>
+                <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-md ${
                   viewMode === 'all'
-                    ? 'bg-white/20 text-white'
-                    : 'bg-indigo-100 dark:bg-indigo-950/50 text-indigo-700 dark:text-indigo-400'
+                    ? 'bg-indigo-200/50 dark:bg-indigo-900/50 text-indigo-700 dark:text-indigo-400'
+                    : 'bg-slate-100 dark:bg-slate-800 text-slate-505'
                 }`}>
                   {suppliers.length}
                 </span>
               </button>
             </div>
 
-            <div className="px-3 pb-2">
-              <div className="border-t border-slate-100 dark:border-slate-800 pt-2">
-                <p className="text-[10px] font-semibold uppercase tracking-wider text-slate-400 px-1 pb-1.5">By Order</p>
-              </div>
-            </div>
-
             {filteredOrders.length === 0 ? (
-              <div className="px-4 pb-4 text-center text-sm text-slate-400">
+              <div className="p-3 text-center text-xs text-slate-400">
                 No orders found.
               </div>
             ) : (
-              <ul className="divide-y divide-slate-100 dark:divide-slate-800 pb-2">
-                {filteredOrders.map(order => {
-                  const type = getOrderTypeFromItems(order.order_items)
-                  return (
-                    <li key={order.id}>
-                      <button
-                        id={`order-select-${order.id}`}
-                        onClick={() => { setSelectedOrderId(order.id); setViewMode('order') }}
-                        className={`w-full text-left px-4 py-3 flex items-center justify-between gap-2 transition-colors cursor-pointer ${
+              <ul className="divide-y divide-slate-100 dark:divide-slate-800">
+                {filteredOrders.map(order => (
+                  <li key={order.id}>
+                    <button
+                      id={`order-select-${order.id}`}
+                      onClick={() => { setSelectedOrderId(order.id); setViewMode('order') }}
+                      className={`w-full text-left px-2.5 py-3 flex items-center justify-between gap-1 transition-colors cursor-pointer ${
+                        viewMode === 'order' && selectedOrderId === order.id
+                          ? 'bg-indigo-50 dark:bg-indigo-950/30'
+                          : 'hover:bg-slate-50/80 dark:hover:bg-slate-900/20'
+                      }`}
+                    >
+                      <div className="flex items-center gap-2 min-w-0">
+                        <FileText size={13} className={viewMode === 'order' && selectedOrderId === order.id ? 'text-indigo-600 dark:text-indigo-400' : 'text-slate-400 dark:text-slate-500'} />
+                        <span className={`text-xs font-bold truncate ${
                           viewMode === 'order' && selectedOrderId === order.id
-                            ? 'bg-indigo-50 dark:bg-indigo-950/30'
-                            : 'hover:bg-slate-50/80 dark:hover:bg-slate-900/20'
-                        }`}
-                      >
-                        <div className="flex flex-col gap-0.5 min-w-0">
-                          <span className={`text-xs font-bold truncate ${
-                            viewMode === 'order' && selectedOrderId === order.id
-                              ? 'text-indigo-700 dark:text-indigo-400'
-                              : 'text-slate-800 dark:text-slate-200'
-                          }`}>
-                            {order.order_code}
-                          </span>
-                          <span className="text-[10px] text-slate-400">
-                            {type === 'MIXED' ? (
-                              <span className="text-indigo-600 dark:text-indigo-400 font-semibold">Mixed</span>
-                            ) : type === 'PRODUCT' ? (
-                              'Product'
-                            ) : type === 'PENDING' ? (
-                              <span className="text-amber-500 font-semibold">Pending Classification</span>
-                            ) : (
-                              'Material'
-                            )}
-                          </span>
-                          <span className={`text-[9px] font-semibold uppercase tracking-wide mt-0.5 px-1.5 py-0.5 rounded border inline-block w-fit ${getStageBadge(order.stage)}`}>
-                            {order.stage}
-                          </span>
-                        </div>
-                        <ChevronRight size={14} className={viewMode === 'order' && selectedOrderId === order.id ? 'text-indigo-500' : 'text-slate-300'} />
-                      </button>
-                    </li>
-                  )
-                })}
+                            ? 'text-indigo-700 dark:text-indigo-400'
+                            : 'text-slate-800 dark:text-slate-200'
+                        }`}>
+                          {order.order_code}
+                        </span>
+                      </div>
+                      <ChevronRight size={12} className={viewMode === 'order' && selectedOrderId === order.id ? 'text-indigo-500' : 'text-slate-300'} />
+                    </button>
+                  </li>
+                ))}
               </ul>
             )}
-          </CardContent>
-        </Card>
+          </div>
+        </div>
 
-        {/* Right Panel — either All Suppliers or per-order Matrix */}
+        {/* Right column: main workplace panel */}
+        <div className="flex flex-col h-full overflow-y-auto p-3">
         {viewMode === 'all' ? (
           /* ── All Suppliers Overview ───────────────────────────────────────── */
           <Card className="border-slate-200/60 dark:border-slate-800">
@@ -1349,24 +1415,16 @@ export function SourcingClient({ initialOrders, initialSuppliers }: SourcingClie
                             )}
                             {columnVisibility.shortlistStatus && (
                               <td className="px-6 py-4 text-center">
-                                <button
-                                  id={`all-shortlist-${supplier.id}`}
-                                  onClick={() => handleToggleShortlist(supplier)}
-                                  disabled={isPending}
-                                  title={supplier.is_shortlisted ? 'Remove from shortlist' : 'Add to shortlist'}
-                                  className="cursor-pointer disabled:opacity-50"
+                                <Badge
+                                  variant="outline"
+                                  className={`text-[10px] font-semibold px-2.5 py-0.5 select-none ${
+                                    supplier.is_shortlisted
+                                      ? 'bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-950/20 dark:text-emerald-450 dark:border-emerald-800'
+                                      : 'bg-slate-50 text-slate-500 border-slate-200 dark:bg-slate-900/50 dark:text-slate-400 dark:border-slate-700'
+                                  }`}
                                 >
-                                  <Badge
-                                    variant="outline"
-                                    className={`text-[10px] font-semibold px-2.5 py-0.5 ${
-                                      supplier.is_shortlisted
-                                        ? 'bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-950/20 dark:text-emerald-400 dark:border-emerald-800'
-                                        : 'bg-slate-50 text-slate-500 border-slate-200 dark:bg-slate-900/50 dark:text-slate-400 dark:border-slate-700'
-                                    }`}
-                                  >
-                                    {supplier.is_shortlisted ? '✓ Shortlisted' : 'Not shortlisted'}
-                                  </Badge>
-                                </button>
+                                  {supplier.is_shortlisted ? '✓ Shortlisted' : 'Not shortlisted'}
+                                </Badge>
                               </td>
                             )}
                             <td className="px-6 py-4 text-right">
@@ -1422,28 +1480,28 @@ export function SourcingClient({ initialOrders, initialSuppliers }: SourcingClie
                           <div className="overflow-x-auto">
                             <table className="w-full text-left border-collapse">
                               <thead>
-                                <tr className="border-b border-slate-100 bg-slate-50/50 text-xs font-medium uppercase tracking-wider text-slate-500 dark:border-slate-800 dark:bg-slate-900/50">
-                                  <th className="px-6 py-3">Product Item</th>
-                                  <th className="px-6 py-3">Quantity</th>
-                                  <th className="px-6 py-3">Classification</th>
+                                <tr className="border-b border-slate-100 bg-slate-50/50 text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:border-slate-800 dark:bg-slate-900/50">
+                                  <th className="px-6 py-4">Product Item</th>
+                                  <th className="px-6 py-4">Quantity</th>
+                                  <th className="px-6 py-4">Classification</th>
                                 </tr>
                               </thead>
-                              <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                              <tbody className="divide-y divide-slate-100 dark:divide-slate-800 text-xs">
                                 {selectedOrder.order_items.map((item) => {
                                   const currentVal = localTypes[item.id] || item.item_type || 'PENDING'
                                   return (
                                     <tr key={item.id} className="hover:bg-slate-50/50 dark:hover:bg-slate-900/20">
-                                      <td className="px-6 py-3 font-medium text-slate-800 dark:text-slate-200 text-sm">
+                                      <td className="px-6 py-4 font-semibold text-slate-800 dark:text-slate-200">
                                         {item.item_name}
                                       </td>
-                                      <td className="px-6 py-3 text-slate-700 dark:text-slate-300 font-medium text-sm">
+                                      <td className="px-6 py-4 text-slate-700 dark:text-slate-300 font-medium">
                                         {item.quantity}
                                       </td>
-                                      <td className="px-6 py-3">
+                                      <td className="px-6 py-4">
                                         <select
                                           value={currentVal}
                                           onChange={(e) => setLocalTypes(prev => ({ ...prev, [item.id]: e.target.value }))}
-                                          className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-sm rounded-lg px-2.5 py-1 focus:ring-1 focus:ring-[#5c59e9] outline-none font-medium text-slate-700 dark:text-slate-300 h-8.5"
+                                          className="bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-xs rounded-lg px-2.5 py-1.5 focus:ring-1 focus:ring-[#5c59e9] outline-none font-semibold text-slate-700 dark:text-slate-300"
                                         >
                                           <option value="PENDING">Pending</option>
                                           <option value="MATERIAL">Material</option>
@@ -1490,30 +1548,6 @@ export function SourcingClient({ initialOrders, initialSuppliers }: SourcingClie
                 ) : (
                   /* Classified State: Show collapsed success banner & Suppliers matrix */
                   <>
-                    <div className="flex items-center justify-between p-4 bg-emerald-50 dark:bg-emerald-950/20 border border-emerald-150 dark:border-emerald-900/50 rounded-xl">
-                      <div className="flex items-center gap-2.5">
-                        <div className="h-7 w-7 rounded-full bg-emerald-500/15 flex items-center justify-center text-emerald-600 dark:text-emerald-450">
-                          <Check size={14} className="stroke-[3]" />
-                        </div>
-                        <div>
-                          <p className="text-xs sm:text-sm font-bold text-slate-800 dark:text-slate-200">
-                            Items classified successfully
-                          </p>
-                          <p className="text-[10px] sm:text-xs text-slate-500 dark:text-slate-400">
-                            All product items for this order have been designated as Material or Product.
-                          </p>
-                        </div>
-                      </div>
-                      <Button
-                        onClick={() => setIsEditingClassification(true)}
-                        variant="outline"
-                        size="sm"
-                        className="h-8 text-xs font-semibold px-3 border-emerald-250 text-emerald-700 hover:bg-emerald-150/50 dark:border-emerald-900/50 dark:text-emerald-400 cursor-pointer"
-                      >
-                        Edit Classification
-                      </Button>
-                    </div>
-
                     {(() => {
                       const bestPricePerItem: Record<string, number> = {}
                       const bestLeadTimePerItem: Record<string, number> = {}
@@ -1543,8 +1577,11 @@ export function SourcingClient({ initialOrders, initialSuppliers }: SourcingClie
                         <Card className="border-slate-200/60 dark:border-slate-800">
                           <CardHeader className="pb-3 border-b border-slate-100 dark:border-slate-800 flex flex-row items-center justify-between">
                             <div>
-                              <CardTitle className="text-base font-bold">
+                              <CardTitle className="text-base font-bold flex items-center gap-2">
                                 Suppliers for {selectedOrder?.order_code}
+                                <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-250 dark:bg-emerald-950/20 dark:text-emerald-455 dark:border-emerald-900/50">
+                                  <Check size={10} className="stroke-[3]" /> Classified
+                                </span>
                               </CardTitle>
                               <CardDescription className="text-xs">
                                 Compare quotes, lead times, and shortlist preferred factory suppliers
@@ -1648,6 +1685,16 @@ export function SourcingClient({ initialOrders, initialSuppliers }: SourcingClie
                                       ))}
                                     </DropdownMenuContent>
                                   </DropdownMenu>
+
+                                  <Button
+                                    onClick={() => setIsEditingClassification(true)}
+                                    variant="outline"
+                                    size="sm"
+                                    className="gap-1.5 border-emerald-250 text-emerald-700 hover:bg-emerald-50/50 dark:border-emerald-900/50 dark:text-emerald-400 cursor-pointer h-8 px-3 rounded-lg text-xs"
+                                  >
+                                    <Package size={14} />
+                                    <span>Edit Classification</span>
+                                  </Button>
 
                                   <Button
                                     onClick={() => {
@@ -1902,6 +1949,7 @@ export function SourcingClient({ initialOrders, initialSuppliers }: SourcingClie
             )}
           </div>
         )}
+        </div>
       </div>
       </TabsContent>
       </Tabs>

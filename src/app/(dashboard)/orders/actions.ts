@@ -8,6 +8,7 @@ export interface OrderItemInput {
   quantity: number
   specFileUrl?: string
   itemType?: string
+  uom?: string
 }
 
 export interface StageTimelineInput {
@@ -43,7 +44,8 @@ export async function createOrderAction(input: CreateOrderInput) {
       item_name: item.itemName,
       quantity: item.quantity,
       spec_file_url: item.specFileUrl || '',
-      item_type: item.itemType || 'PENDING'
+      item_type: item.itemType || 'PENDING',
+      uom: item.uom || 'pcs'
     }))
 
     // order_type defaults to 'PENDING' — Sourcing team will classify in Phase 2
@@ -112,7 +114,8 @@ export async function updateOrderAction(input: UpdateOrderInput) {
       item_name: item.itemName,
       quantity: item.quantity,
       spec_file_url: item.specFileUrl || '',
-      item_type: item.itemType || 'PENDING'
+      item_type: item.itemType || 'PENDING',
+      uom: item.uom || 'pcs'
     }))
 
     // Call Supabase RPC function for dynamic transaction update
@@ -205,3 +208,30 @@ export async function deleteOrderAction(orderId: string) {
     return { success: false, error: error.message || 'An unexpected error occurred' }
   }
 }
+
+export async function updateOrderStageAction(orderId: string, stage: string) {
+  try {
+    const supabase = await createClient()
+
+    const { error } = await supabase
+      .from('orders')
+      .update({ stage })
+      .eq('id', orderId)
+
+    if (error) {
+      console.error('Database update stage error:', error.message)
+      return { success: false, error: error.message }
+    }
+
+    // Trigger Next.js App Router cache revalidation for dependent pages
+    revalidatePath('/orders')
+    revalidatePath('/sourcing')
+    revalidatePath('/dashboard')
+
+    return { success: true }
+  } catch (error: any) {
+    console.error('Server Action update stage uncaught error:', error)
+    return { success: false, error: error.message || 'An unexpected error occurred' }
+  }
+}
+

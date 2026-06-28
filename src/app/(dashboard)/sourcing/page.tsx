@@ -6,30 +6,92 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/com
 async function SourcingLoader() {
   const supabase = await createClient()
 
-  // Fetch all orders (with items for display)
+  // Fetch all orders with their items
   const { data: orders, error: ordersError } = await supabase
     .from('orders')
-    .select('*, order_items(id, item_name, quantity, item_type)')
+    .select('*, order_items(*)')
     .order('created_at', { ascending: false })
 
   if (ordersError) {
     console.error('Error fetching orders for sourcing:', ordersError.message)
   }
 
-  // Fetch all supplier records joined with associated order_code, order_item, and basic contact info
-  const { data: suppliers, error: suppliersError } = await supabase
-    .from('order_suppliers')
-    .select('*, orders(order_code), order_items(item_name), suppliers(email, phone, address)')
+  // Fetch all factory audits to verify QC completion
+  const { data: audits, error: auditsError } = await supabase
+    .from('factory_audits')
+    .select('*')
+
+  if (auditsError) {
+    console.error('Error fetching factory audits:', auditsError.message)
+  }
+
+  // Fetch all supplier records from the master suppliers table, and optionally join their bids if any
+  const { data: dbSuppliers, error: suppliersError } = await supabase
+    .from('suppliers')
+    .select('*, order_suppliers(*, orders(order_code), order_items(item_name))')
     .order('created_at', { ascending: false })
 
   if (suppliersError) {
     console.error('Error fetching suppliers:', suppliersError.message)
   }
 
+  // Transform to the flat structure expected by SourcingClient
+  const transformedSuppliers: any[] = []
+  if (dbSuppliers) {
+    dbSuppliers.forEach((s: any) => {
+      const validBids = s.order_suppliers ? s.order_suppliers.filter((b: any) => b.order_id !== null) : []
+
+      if (validBids.length === 0) {
+        transformedSuppliers.push({
+          id: s.id, // master supplier ID (since they have no bids, this is unique)
+          supplier_id: s.id,
+          order_id: null,
+          order_item_id: null,
+          supplier_name: s.name,
+          quoted_price: 0,
+          lead_time_days: 0,
+          is_shortlisted: false,
+          is_bid: false, // Flag to indicate master profile
+          created_at: s.created_at,
+          orders: null,
+          order_items: null,
+          suppliers: {
+            email: s.email,
+            phone: s.phone,
+            address: s.address
+          }
+        })
+      } else {
+        validBids.forEach((bid: any) => {
+          transformedSuppliers.push({
+            id: bid.id, // unique bid ID
+            supplier_id: s.id,
+            order_id: bid.order_id,
+            order_item_id: bid.order_item_id,
+            supplier_name: s.name,
+            quoted_price: bid.quoted_price,
+            lead_time_days: bid.lead_time_days,
+            is_shortlisted: bid.is_shortlisted,
+            is_bid: true, // Flag to indicate bid record
+            created_at: bid.created_at,
+            orders: bid.orders,
+            order_items: bid.order_items,
+            suppliers: {
+              email: s.email,
+              phone: s.phone,
+              address: s.address
+            }
+          })
+        })
+      }
+    })
+  }
+
   return (
     <SourcingClient
       initialOrders={(orders as any) || []}
-      initialSuppliers={(suppliers as any) || []}
+      initialSuppliers={transformedSuppliers}
+      initialAudits={audits || []}
     />
   )
 }

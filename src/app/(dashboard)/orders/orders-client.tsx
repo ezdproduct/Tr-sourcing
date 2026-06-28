@@ -5,7 +5,8 @@ import { useSearchParams } from 'next/navigation'
 import { useSourcing } from '@/providers/sourcing-provider'
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
 import { DataTable } from '@/components/ui/data-table'
-import { createOrderAction, updateOrderAction, deleteOrderAction } from './actions'
+import { createOrderAction, updateOrderAction, deleteOrderAction, updateOrderStageAction } from './actions'
+import { KanbanBoard } from './kanban-board'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -35,6 +36,8 @@ export interface DatabaseOrderItem {
   spec_file_url: string | null
   created_at: string
   item_type?: string
+  uom?: string
+  selected_supplier_id?: string | null
 }
 
 export interface DatabaseStageTimeline {
@@ -129,8 +132,10 @@ export function getOrderTypeFromItems(items?: DatabaseOrderItem[]): string {
 
 export function OrdersClient({ initialOrders }: OrdersClientProps) {
   const { userRole, searchQuery } = useSourcing()
-  const [subtab, setSubtab] = useState<'overview' | 'workplace'>('overview')
   const searchParams = useSearchParams()
+  const initialSubtab = (searchParams.get('subtab') as 'overview' | 'workplace') || 'overview'
+  const [subtab, setSubtab] = useState<'overview' | 'workplace'>(initialSubtab)
+  const [viewMode, setViewMode] = useState<'analytics' | 'kanban'>('analytics')
 
   useEffect(() => {
     const tab = searchParams.get('subtab')
@@ -178,8 +183,8 @@ export function OrdersClient({ initialOrders }: OrdersClientProps) {
     orderDate: new Date().toISOString().split('T')[0],
     estimatedDeliveryDate: ''
   })
-  const [items, setItems] = useState<Array<{ itemName: string; quantity: number; specFiles: File[] }>>([
-    { itemName: '', quantity: 1, specFiles: [] }
+  const [items, setItems] = useState<Array<{ itemName: string; quantity: number | ''; uom: string; specFiles: File[] }>>([
+    { itemName: '', quantity: 1, uom: 'pcs', specFiles: [] }
   ])
   const [stageTimelines, setStageTimelines] = useState<Array<{ stageName: string; estimatedStartDate: string; estimatedEndDate: string }>>([])
 
@@ -188,11 +193,20 @@ export function OrdersClient({ initialOrders }: OrdersClientProps) {
     orderDate: '',
     estimatedDeliveryDate: ''
   })
-  const [editItems, setEditItems] = useState<Array<{ itemName: string; quantity: number; specFiles: File[]; specFileUrls: string[]; itemType?: string }>>([])
+  const [editItems, setEditItems] = useState<Array<{ itemName: string; quantity: number | ''; uom: string; specFiles: File[]; specFileUrls: string[]; itemType?: string }>>([])
   const [editStage, setEditStage] = useState<string>('')
   const [editStageTimelines, setEditStageTimelines] = useState<Array<{ stageName: string; estimatedStartDate: string; estimatedEndDate: string }>>([])
 
   const isStaffOrAdmin = userRole === 'staff' || userRole === 'admin'
+
+  const handleStageChange = async (orderId: string, newStage: string) => {
+    const result = await updateOrderStageAction(orderId, newStage)
+    if (!result.success) {
+      alert(`Failed to update order stage: ${result.error}`)
+      return false
+    }
+    return true
+  }
 
   // Helper to split duration into 6 equal stages
   const calculateEqualStages = (startDateStr: string, endDateStr: string) => {
@@ -250,7 +264,7 @@ export function OrdersClient({ initialOrders }: OrdersClientProps) {
 
   // --- Helpers for Item arrays (Create) ---
   const handleAddItem = () => {
-    setItems([...items, { itemName: '', quantity: 1, specFiles: [] }])
+    setItems([...items, { itemName: '', quantity: 1, uom: 'pcs', specFiles: [] }])
   }
 
   const handleRemoveItem = (index: number) => {
@@ -259,7 +273,7 @@ export function OrdersClient({ initialOrders }: OrdersClientProps) {
     setItems(newItems)
   }
 
-  const handleItemChange = (index: number, field: 'itemName' | 'quantity' | 'specFiles', value: any) => {
+  const handleItemChange = (index: number, field: 'itemName' | 'quantity' | 'uom' | 'specFiles', value: any) => {
     const newItems = [...items]
     newItems[index] = {
       ...newItems[index],
@@ -270,7 +284,7 @@ export function OrdersClient({ initialOrders }: OrdersClientProps) {
 
   // --- Helpers for Item arrays (Edit) ---
   const handleAddEditItem = () => {
-    setEditItems([...editItems, { itemName: '', quantity: 1, specFiles: [], specFileUrls: [] }])
+    setEditItems([...editItems, { itemName: '', quantity: 1, uom: 'pcs', specFiles: [], specFileUrls: [] }])
   }
 
   const handleRemoveEditItem = (index: number) => {
@@ -279,7 +293,7 @@ export function OrdersClient({ initialOrders }: OrdersClientProps) {
     setEditItems(newItems)
   }
 
-  const handleEditItemChange = (index: number, field: 'itemName' | 'quantity' | 'specFiles' | 'specFileUrls', value: any) => {
+  const handleEditItemChange = (index: number, field: 'itemName' | 'quantity' | 'uom' | 'specFiles' | 'specFileUrls', value: any) => {
     const newItems = [...editItems]
     newItems[index] = {
       ...newItems[index],
@@ -292,7 +306,7 @@ export function OrdersClient({ initialOrders }: OrdersClientProps) {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     
-    if (items.some(item => !item.itemName || item.quantity <= 0)) {
+    if (items.some(item => !item.itemName || item.quantity === '' || item.quantity <= 0)) {
       setErrorMessage('Please fill in all item names and ensure quantities are greater than 0.')
       return
     }
@@ -322,8 +336,9 @@ export function OrdersClient({ initialOrders }: OrdersClientProps) {
           
           return {
             itemName: item.itemName,
-            quantity: item.quantity,
-            specFileUrl
+            quantity: Number(item.quantity),
+            specFileUrl,
+            uom: item.uom || 'pcs'
           }
         })
       )
@@ -346,7 +361,7 @@ export function OrdersClient({ initialOrders }: OrdersClientProps) {
           orderDate: new Date().toISOString().split('T')[0],
           estimatedDeliveryDate: ''
         })
-        setItems([{ itemName: '', quantity: 1, specFiles: [] }])
+        setItems([{ itemName: '', quantity: 1, uom: 'pcs', specFiles: [] }])
         setStageTimelines([])
         setIsOpen(false)
       } else {
@@ -370,12 +385,13 @@ export function OrdersClient({ initialOrders }: OrdersClientProps) {
       setEditItems(existingItems.map(item => ({
         itemName: item.item_name,
         quantity: item.quantity,
+        uom: item.uom || 'pcs',
         specFiles: [],
         specFileUrls: parseSpecFileUrls(item.spec_file_url),
         itemType: item.item_type || 'PENDING'
       })))
     } else {
-      setEditItems([{ itemName: '', quantity: 1, specFiles: [], specFileUrls: [] }])
+      setEditItems([{ itemName: '', quantity: 1, uom: 'pcs', specFiles: [], specFileUrls: [] }])
     }
 
     // Initialize stage and stage timelines for edit dialog
@@ -413,7 +429,7 @@ export function OrdersClient({ initialOrders }: OrdersClientProps) {
     e.preventDefault()
     if (!editingOrder) return
 
-    if (editItems.some(item => !item.itemName || item.quantity <= 0)) {
+    if (editItems.some(item => !item.itemName || item.quantity === '' || item.quantity <= 0)) {
       setEditErrorMessage('Please fill in all item names and ensure quantities are greater than 0.')
       return
     }
@@ -444,9 +460,10 @@ export function OrdersClient({ initialOrders }: OrdersClientProps) {
           
           return {
             itemName: item.itemName,
-            quantity: item.quantity,
+            quantity: Number(item.quantity),
             specFileUrl,
-            itemType: item.itemType || 'PENDING'
+            itemType: item.itemType || 'PENDING',
+            uom: item.uom || 'pcs'
           }
         })
       )
@@ -519,6 +536,10 @@ export function OrdersClient({ initialOrders }: OrdersClientProps) {
         return 'bg-blue-50 text-blue-700 border-blue-200 dark:bg-blue-950/20 dark:text-blue-400'
       case 'completed':
         return 'bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-950/20 dark:text-emerald-400'
+      case 'po issued':
+        return 'bg-indigo-50 text-indigo-700 border-indigo-200 dark:bg-indigo-950/20 dark:text-indigo-400'
+      case 'partial po issued':
+        return 'bg-purple-50 text-purple-700 border-purple-200 dark:bg-purple-950/20 dark:text-purple-400'
       default:
         return 'bg-slate-50 text-slate-700 border-slate-200 dark:bg-slate-900 dark:text-slate-400'
     }
@@ -527,148 +548,182 @@ export function OrdersClient({ initialOrders }: OrdersClientProps) {
   return (
     <div className="space-y-6">
       {/* Page Header */}
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-        <div className="flex flex-col gap-1">
-          <h1 className="text-2xl font-bold tracking-tight text-slate-900 dark:text-white">
-            Order Management
-          </h1>
-        </div>
-
-        {isStaffOrAdmin && (
+      {isStaffOrAdmin && (
+        <div className="flex justify-end">
           <Button onClick={() => setIsOpen(true)} className="gap-2 bg-[#5c59e9] hover:bg-[#4a47d2] cursor-pointer">
             <PlusCircle size={16} />
             <span>Create Order</span>
           </Button>
-        )}
-      </div>
+        </div>
+      )}
 
       {/* Subtab Switcher */}
       <Tabs value={subtab} className="w-full space-y-6">
 
         <TabsContent value="overview" className="space-y-6 mt-0 border-none p-0 focus-visible:ring-0 focus-visible:ring-offset-0">
-        <div className="space-y-6">
-          {/* KPI Grid */}
-          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-            <Card className="border-slate-200/60 dark:border-slate-800">
-              <CardHeader className="pb-2 flex flex-row items-center justify-between">
-                <CardTitle className="text-xs font-bold text-slate-500 uppercase tracking-wider">Total Orders</CardTitle>
-                <Package className="h-4 w-4 text-indigo-500" />
-              </CardHeader>
-              <CardContent>
-                <div className="text-2xl font-black text-slate-900 dark:text-white">{initialOrders.length}</div>
-                <p className="text-[10px] text-slate-400 mt-1">Total registered campaigns</p>
-              </CardContent>
-            </Card>
-
-            <Card className="border-slate-200/60 dark:border-slate-800">
-              <CardHeader className="pb-2 flex flex-row items-center justify-between">
-                <CardTitle className="text-xs font-bold text-slate-500 uppercase tracking-wider">Open Orders</CardTitle>
-                <TrendingUp className="h-4 w-4 text-amber-500" />
-              </CardHeader>
-              <CardContent>
-                <div className="text-2xl font-black text-slate-900 dark:text-white">
-                  {initialOrders.filter(o => o.stage.toLowerCase() !== 'closed').length}
-                </div>
-                <p className="text-[10px] text-slate-400 mt-1">Orders currently in progress</p>
-              </CardContent>
-            </Card>
-
-            <Card className="border-slate-200/60 dark:border-slate-800">
-              <CardHeader className="pb-2 flex flex-row items-center justify-between">
-                <CardTitle className="text-xs font-bold text-slate-500 uppercase tracking-wider">Closed Orders</CardTitle>
-                <CheckCircle2 className="h-4 w-4 text-emerald-500" />
-              </CardHeader>
-              <CardContent>
-                <div className="text-2xl font-black text-slate-900 dark:text-white">
-                  {initialOrders.filter(o => o.stage.toLowerCase() === 'closed').length}
-                </div>
-                <p className="text-[10px] text-slate-400 mt-1">Orders completed &amp; reconciled</p>
-              </CardContent>
-            </Card>
-
-            <Card className="border-slate-200/60 dark:border-slate-800">
-              <CardHeader className="pb-2 flex flex-row items-center justify-between">
-                <CardTitle className="text-xs font-bold text-slate-500 uppercase tracking-wider">Avg Cycle Time</CardTitle>
-                <Clock className="h-4 w-4 text-blue-500" />
-              </CardHeader>
-              <CardContent>
-                <div className="text-2xl font-black text-slate-900 dark:text-white">
-                  {(() => {
-                    const closedOrders = initialOrders.filter(o => o.stage.toLowerCase() === 'closed')
-                    if (closedOrders.length === 0) return 'N/A'
-                    const totalDays = closedOrders.reduce((sum, order) => {
-                      const start = new Date(order.order_date)
-                      const end = order.estimated_delivery_date ? new Date(order.estimated_delivery_date) : new Date()
-                      const diffTime = Math.abs(end.getTime() - start.getTime())
-                      const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24))
-                      return sum + diffDays
-                    }, 0)
-                    return `${Math.round(totalDays / closedOrders.length)} days`
-                  })()}
-                </div>
-                <p className="text-[10px] text-slate-400 mt-1">Average duration of closed orders</p>
-              </CardContent>
-            </Card>
+          <div className="flex justify-end">
+            <div className="flex items-center gap-1 bg-slate-100 dark:bg-slate-950 p-1 rounded-xl border border-slate-200/50 dark:border-slate-800/80">
+              <Button
+                variant={viewMode === 'analytics' ? 'secondary' : 'ghost'}
+                size="sm"
+                onClick={() => setViewMode('analytics')}
+                className={`text-xs font-semibold px-4 py-1.5 h-8 rounded-lg cursor-pointer transition-all ${
+                  viewMode === 'analytics'
+                    ? 'bg-white text-[#5c59e9] shadow-sm dark:bg-slate-900 dark:text-white'
+                    : 'text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white'
+                }`}
+              >
+                <span>Analytics View</span>
+              </Button>
+              <Button
+                variant={viewMode === 'kanban' ? 'secondary' : 'ghost'}
+                size="sm"
+                onClick={() => setViewMode('kanban')}
+                className={`text-xs font-semibold px-4 py-1.5 h-8 rounded-lg cursor-pointer transition-all ${
+                  viewMode === 'kanban'
+                    ? 'bg-white text-[#5c59e9] shadow-sm dark:bg-slate-900 dark:text-white'
+                    : 'text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white'
+                }`}
+              >
+                <span>Kanban Board</span>
+              </Button>
+            </div>
           </div>
 
-          {/* Workflow progress or Distribution chart */}
-          <div className="grid gap-6 md:grid-cols-2">
-            <Card className="border-slate-200/60 dark:border-slate-800">
-              <CardHeader>
-                <CardTitle className="text-sm font-bold text-slate-900 dark:text-white">Order Pipeline Distribution</CardTitle>
-                <CardDescription className="text-xs">Workflow division of running campaigns</CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                {[
-                  { label: 'Draft / Definition', pct: '85%' },
-                  { label: 'Sourcing Phase', pct: '60%' },
-                  { label: 'Audit / QC', pct: '45%' },
-                  { label: 'Shipped / Inbound', pct: '70%' }
-                ].map((item, idx) => (
-                  <div key={idx} className="space-y-1.5">
-                    <div className="flex items-center justify-between text-xs font-semibold">
-                      <span className="text-slate-700 dark:text-slate-300">{item.label}</span>
-                      <span className="text-indigo-600 dark:text-indigo-400">{item.pct}</span>
-                    </div>
-                    <div className="h-1.5 w-full bg-slate-100 rounded-full dark:bg-slate-900">
-                      <div className="h-full bg-indigo-500 rounded-full" style={{ width: item.pct }} />
-                    </div>
-                  </div>
-                ))}
-              </CardContent>
-            </Card>
+          {viewMode === 'analytics' ? (
+            <div className="space-y-6 animate-in fade-in duration-300">
+              {/* KPI Grid */}
+              <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+                <Card className="border-slate-200/60 dark:border-slate-800">
+                  <CardHeader className="pb-2 flex flex-row items-center justify-between">
+                    <CardTitle className="text-xs font-bold text-slate-500 uppercase tracking-wider">Total Orders</CardTitle>
+                    <Package className="h-4 w-4 text-indigo-500" />
+                  </CardHeader>
+                  <CardContent>
+                    <div className="text-2xl font-black text-slate-900 dark:text-white">{initialOrders.length}</div>
+                    <p className="text-[10px] text-slate-400 mt-1">Total registered campaigns</p>
+                  </CardContent>
+                </Card>
 
-            <Card className="border-slate-200/60 dark:border-slate-800">
-              <CardHeader>
-                <CardTitle className="text-sm font-bold text-slate-900 dark:text-white">Recent Order Updates</CardTitle>
-                <CardDescription className="text-xs">Latest active updates in this stage</CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                {initialOrders.length === 0 ? (
-                  <p className="text-xs text-slate-400">No active updates available.</p>
-                ) : (
-                  initialOrders.slice(0, 3).map((order, idx) => (
-                    <div key={idx} className="flex items-start gap-4 border-b border-slate-100 pb-3 last:border-0 last:pb-0 dark:border-slate-900">
-                      <button
-                        onClick={() => setSelectedOrder(order)}
-                        className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-indigo-100 text-indigo-800 dark:bg-indigo-950/40 dark:text-indigo-400 hover:underline cursor-pointer"
-                      >
-                        {order.order_code}
-                      </button>
-                      <div className="flex-1 space-y-0.5">
-                        <p className="text-xs text-slate-800 dark:text-slate-200 font-medium">
-                          Order was created on {new Date(order.created_at).toLocaleDateString()}
-                        </p>
-                        <p className="text-[10px] text-slate-400">Status: {order.stage}</p>
+                <Card className="border-slate-200/60 dark:border-slate-800">
+                  <CardHeader className="pb-2 flex flex-row items-center justify-between">
+                    <CardTitle className="text-xs font-bold text-slate-500 uppercase tracking-wider">Open Orders</CardTitle>
+                    <TrendingUp className="h-4 w-4 text-amber-500" />
+                  </CardHeader>
+                  <CardContent>
+                    <div className="text-2xl font-black text-slate-900 dark:text-white">
+                      {initialOrders.filter(o => o.stage.toLowerCase() !== 'closed').length}
+                    </div>
+                    <p className="text-[10px] text-slate-400 mt-1">Orders currently in progress</p>
+                  </CardContent>
+                </Card>
+
+                <Card className="border-slate-200/60 dark:border-slate-800">
+                  <CardHeader className="pb-2 flex flex-row items-center justify-between">
+                    <CardTitle className="text-xs font-bold text-slate-500 uppercase tracking-wider">Closed Orders</CardTitle>
+                    <CheckCircle2 className="h-4 w-4 text-emerald-500" />
+                  </CardHeader>
+                  <CardContent>
+                    <div className="text-2xl font-black text-slate-900 dark:text-white">
+                      {initialOrders.filter(o => o.stage.toLowerCase() === 'closed').length}
+                    </div>
+                    <p className="text-[10px] text-slate-400 mt-1">Orders completed &amp; reconciled</p>
+                  </CardContent>
+                </Card>
+
+                <Card className="border-slate-200/60 dark:border-slate-800">
+                  <CardHeader className="pb-2 flex flex-row items-center justify-between">
+                    <CardTitle className="text-xs font-bold text-slate-500 uppercase tracking-wider">Avg Cycle Time</CardTitle>
+                    <Clock className="h-4 w-4 text-blue-500" />
+                  </CardHeader>
+                  <CardContent>
+                    <div className="text-2xl font-black text-slate-900 dark:text-white">
+                      {(() => {
+                        const closedOrders = initialOrders.filter(o => o.stage.toLowerCase() === 'closed')
+                        if (closedOrders.length === 0) return 'N/A'
+                        const totalDays = closedOrders.reduce((sum, order) => {
+                          const start = new Date(order.order_date)
+                          const end = order.estimated_delivery_date ? new Date(order.estimated_delivery_date) : new Date()
+                          const diffTime = Math.abs(end.getTime() - start.getTime())
+                          const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24))
+                          return sum + diffDays
+                        }, 0)
+                        return `${Math.round(totalDays / closedOrders.length)} days`
+                      })()}
+                    </div>
+                    <p className="text-[10px] text-slate-400 mt-1">Average duration of closed orders</p>
+                  </CardContent>
+                </Card>
+              </div>
+
+              {/* Workflow progress or Distribution chart */}
+              <div className="grid gap-6 md:grid-cols-2">
+                <Card className="border-slate-200/60 dark:border-slate-800">
+                  <CardHeader>
+                    <CardTitle className="text-sm font-bold text-slate-900 dark:text-white">Order Pipeline Distribution</CardTitle>
+                    <CardDescription className="text-xs">Workflow division of running campaigns</CardDescription>
+                  </CardHeader>
+                  <CardContent className="space-y-4">
+                    {[
+                      { label: 'Draft / Definition', pct: '85%' },
+                      { label: 'Sourcing Phase', pct: '60%' },
+                      { label: 'Audit / QC', pct: '45%' },
+                      { label: 'Shipped / Inbound', pct: '70%' }
+                    ].map((item, idx) => (
+                      <div key={idx} className="space-y-1.5">
+                        <div className="flex items-center justify-between text-xs font-semibold">
+                          <span className="text-slate-700 dark:text-slate-300">{item.label}</span>
+                          <span className="text-indigo-600 dark:text-indigo-400">{item.pct}</span>
+                        </div>
+                        <div className="h-1.5 w-full bg-slate-100 rounded-full dark:bg-slate-900">
+                          <div className="h-full bg-indigo-500 rounded-full" style={{ width: item.pct }} />
+                        </div>
                       </div>
-                    </div>
-                  ))
-                )}
-              </CardContent>
-            </Card>
-          </div>
-        </div>
-      </TabsContent>
+                    ))}
+                  </CardContent>
+                </Card>
+
+                <Card className="border-slate-200/60 dark:border-slate-800">
+                  <CardHeader>
+                    <CardTitle className="text-sm font-bold text-slate-900 dark:text-white">Recent Active Updates</CardTitle>
+                    <CardDescription className="text-xs">Latest active updates in this stage</CardDescription>
+                  </CardHeader>
+                  <CardContent className="space-y-4">
+                    {initialOrders.length === 0 ? (
+                      <p className="text-xs text-slate-400">No active orders.</p>
+                    ) : (
+                      initialOrders.slice(0, 3).map((order, idx) => (
+                        <div key={idx} className="flex items-start gap-4 border-b border-slate-100 pb-3 last:border-0 last:pb-0 dark:border-slate-900">
+                          <button
+                            onClick={() => setSelectedOrder(order)}
+                            className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-indigo-100 text-indigo-800 dark:bg-indigo-950/40 dark:text-indigo-400 hover:underline cursor-pointer"
+                          >
+                            {order.order_code}
+                          </button>
+                          <div className="flex-1 space-y-0.5">
+                            <p className="text-xs text-slate-800 dark:text-slate-200 font-medium">
+                              Order was created on {new Date(order.created_at).toLocaleDateString()}
+                            </p>
+                            <p className="text-[10px] text-slate-400">Status: {order.stage}</p>
+                          </div>
+                        </div>
+                      ))
+                    )}
+                  </CardContent>
+                </Card>
+              </div>
+            </div>
+          ) : (
+            <div className="animate-in fade-in duration-300">
+              <KanbanBoard
+                orders={filteredOrders}
+                isStaffOrAdmin={isStaffOrAdmin}
+                onCardClick={setSelectedOrder}
+                onStageChange={handleStageChange}
+              />
+            </div>
+          )}
+        </TabsContent>
 
       <TabsContent value="workplace" className="space-y-6 mt-0 border-none p-0 focus-visible:ring-0 focus-visible:ring-offset-0">
         <Card className="border-slate-200/60 dark:border-slate-800">
@@ -679,10 +734,6 @@ export function OrdersClient({ initialOrders }: OrdersClientProps) {
                 Click anywhere on a row to view complete order details & documents.
               </CardDescription>
             </div>
-            <Button variant="outline" size="sm" className="gap-1.5 h-8 text-xs">
-              <Download size={12} />
-              <span>Export CSV</span>
-            </Button>
           </CardHeader>
           <CardContent className="p-0">
             <DataTable
@@ -775,7 +826,7 @@ export function OrdersClient({ initialOrders }: OrdersClientProps) {
       {/* CREATE Modal Dialog Form */}
       {isOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-xs p-4 overflow-y-auto">
-          <div className="w-full max-w-4xl bg-white dark:bg-slate-900 rounded-xl p-6 shadow-xl border border-slate-200 dark:border-slate-800 animate-in zoom-in-95 duration-150 relative my-8">
+          <div className="w-full max-w-4xl bg-white dark:bg-slate-900 rounded-xl p-6 shadow-xl border border-slate-200 dark:border-slate-800 animate-in zoom-in-95 duration-150 relative my-8 max-h-[90vh] overflow-y-auto [&::-webkit-scrollbar]:hidden [scrollbar-width:none]">
             <button
               onClick={() => setIsOpen(false)}
               className="absolute top-4 right-4 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 cursor-pointer"
@@ -906,9 +957,10 @@ export function OrdersClient({ initialOrders }: OrdersClientProps) {
                 <div className="space-y-2 max-h-[240px] overflow-y-auto pr-1 border border-slate-100 dark:border-slate-800 rounded-lg p-3 bg-slate-50/50 dark:bg-slate-900/30">
                   {/* Grid Headers */}
                   <div className="grid grid-cols-12 gap-3 mb-2 text-xs font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500 px-1">
-                    <div className="col-span-6">Product Name</div>
+                    <div className="col-span-5">Product Name</div>
                     <div className="col-span-2">Quantity</div>
-                    <div className="col-span-3">Spec File</div>
+                    <div className="col-span-2">Unit</div>
+                    <div className="col-span-2">Spec File</div>
                     <div className="col-span-1 text-center">Delete</div>
                   </div>
 
@@ -916,7 +968,7 @@ export function OrdersClient({ initialOrders }: OrdersClientProps) {
                     {items.map((item, index) => (
                       <div key={index} className="grid grid-cols-12 gap-3 items-center border-b border-slate-100 dark:border-slate-800/60 pb-3 last:border-0 last:pb-0 px-1">
                         {/* Product Name */}
-                        <div className="col-span-6">
+                        <div className="col-span-5">
                           <Input
                             placeholder="Product Name"
                             value={item.itemName}
@@ -930,17 +982,45 @@ export function OrdersClient({ initialOrders }: OrdersClientProps) {
                         <div className="col-span-2">
                           <Input
                             type="number"
-                            min="1"
+                            step="any"
+                            min="0.0001"
                             placeholder="Qty"
                             value={item.quantity}
-                            onChange={(e) => handleItemChange(index, 'quantity', parseInt(e.target.value) || 0)}
+                            onChange={(e) => {
+                              const val = e.target.value;
+                              handleItemChange(index, 'quantity', val === '' ? '' : parseFloat(val));
+                            }}
                             required
                             className="h-11 text-sm rounded-lg"
                           />
                         </div>
 
+                        {/* UOM Select */}
+                        <div className="col-span-2">
+                          <select
+                            value={item.uom || 'pcs'}
+                            onChange={(e) => handleItemChange(index, 'uom', e.target.value)}
+                            required
+                            className="h-11 w-full text-sm rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 px-3 text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-[#5c59e9]/20"
+                          >
+                            <optgroup label="Furniture Products" className="text-xs text-slate-450 dark:text-slate-550 font-semibold bg-white dark:bg-slate-950">
+                              <option value="pcs">pcs (Pieces)</option>
+                              <option value="sets">sets (Sets)</option>
+                            </optgroup>
+                            <optgroup label="Raw Materials" className="text-xs text-slate-455 dark:text-slate-555 font-semibold bg-white dark:bg-slate-950">
+                              <option value="m3">m³ (Cubic Meters)</option>
+                              <option value="m2">m² (Square Meters)</option>
+                              <option value="m">m (Meters)</option>
+                              <option value="yards">yards (Yards)</option>
+                              <option value="rolls">rolls (Rolls)</option>
+                              <option value="kg">kg (Kilograms)</option>
+                              <option value="liters">liters (Liters)</option>
+                            </optgroup>
+                          </select>
+                        </div>
+
                         {/* File spec */}
-                        <div className="col-span-3 relative">
+                        <div className="col-span-2 relative">
                           <input
                             type="file"
                             id={`file-${index}`}
@@ -1028,7 +1108,7 @@ export function OrdersClient({ initialOrders }: OrdersClientProps) {
       {/* UPDATE / EDIT Modal Dialog Form */}
       {editingOrder && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-xs p-4 overflow-y-auto">
-          <div className="w-full max-w-4xl bg-white dark:bg-slate-900 rounded-xl p-6 shadow-xl border border-slate-200 dark:border-slate-800 animate-in zoom-in-95 duration-150 relative my-8">
+          <div className="w-full max-w-4xl bg-white dark:bg-slate-900 rounded-xl p-6 shadow-xl border border-slate-200 dark:border-slate-800 animate-in zoom-in-95 duration-150 relative my-8 max-h-[90vh] overflow-y-auto [&::-webkit-scrollbar]:hidden [scrollbar-width:none]">
             <button
               onClick={() => setEditingOrder(null)}
               className="absolute top-4 right-4 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 cursor-pointer"
@@ -1186,9 +1266,10 @@ export function OrdersClient({ initialOrders }: OrdersClientProps) {
                 <div className="space-y-2 max-h-[240px] overflow-y-auto pr-1 border border-slate-100 dark:border-slate-800 rounded-lg p-3 bg-slate-50/50 dark:bg-slate-900/30">
                   {/* Grid Headers */}
                   <div className="grid grid-cols-12 gap-3 mb-2 text-xs font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500 px-1">
-                    <div className="col-span-6">Product Name</div>
+                    <div className="col-span-5">Product Name</div>
                     <div className="col-span-2">Quantity</div>
-                    <div className="col-span-3">Spec File</div>
+                    <div className="col-span-2">Unit</div>
+                    <div className="col-span-2">Spec File</div>
                     <div className="col-span-1 text-center">Delete</div>
                   </div>
 
@@ -1196,7 +1277,7 @@ export function OrdersClient({ initialOrders }: OrdersClientProps) {
                     {editItems.map((item, index) => (
                       <div key={index} className="grid grid-cols-12 gap-3 items-center border-b border-slate-100 dark:border-slate-800/60 pb-3 last:border-0 last:pb-0 px-1">
                         {/* Product Name */}
-                        <div className="col-span-6">
+                        <div className="col-span-5">
                           <Input
                             placeholder="Product Name"
                             value={item.itemName}
@@ -1210,17 +1291,45 @@ export function OrdersClient({ initialOrders }: OrdersClientProps) {
                         <div className="col-span-2">
                           <Input
                             type="number"
-                            min="1"
+                            step="any"
+                            min="0.0001"
                             placeholder="Qty"
                             value={item.quantity}
-                            onChange={(e) => handleEditItemChange(index, 'quantity', parseInt(e.target.value) || 0)}
+                            onChange={(e) => {
+                              const val = e.target.value;
+                              handleEditItemChange(index, 'quantity', val === '' ? '' : parseFloat(val));
+                            }}
                             required
                             className="h-11 text-sm rounded-lg"
                           />
                         </div>
 
+                        {/* UOM Select */}
+                        <div className="col-span-2">
+                          <select
+                            value={item.uom || 'pcs'}
+                            onChange={(e) => handleEditItemChange(index, 'uom', e.target.value)}
+                            required
+                            className="h-11 w-full text-sm rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 px-3 text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-[#5c59e9]/20"
+                          >
+                            <optgroup label="Furniture Products" className="text-xs text-slate-450 dark:text-slate-550 font-semibold bg-white dark:bg-slate-950">
+                              <option value="pcs">pcs (Pieces)</option>
+                              <option value="sets">sets (Sets)</option>
+                            </optgroup>
+                            <optgroup label="Raw Materials" className="text-xs text-slate-455 dark:text-slate-555 font-semibold bg-white dark:bg-slate-950">
+                              <option value="m3">m³ (Cubic Meters)</option>
+                              <option value="m2">m² (Square Meters)</option>
+                              <option value="m">m (Meters)</option>
+                              <option value="yards">yards (Yards)</option>
+                              <option value="rolls">rolls (Rolls)</option>
+                              <option value="kg">kg (Kilograms)</option>
+                              <option value="liters">liters (Liters)</option>
+                            </optgroup>
+                          </select>
+                        </div>
+
                         {/* File spec */}
-                        <div className="col-span-3 relative">
+                        <div className="col-span-2 relative">
                           <input
                             type="file"
                             id={`edit-file-${index}`}
@@ -1623,7 +1732,9 @@ export function OrdersClient({ initialOrders }: OrdersClientProps) {
                       {/* Column 3: Quantity */}
                       <div className="text-right">
                         <span className="text-[10px] text-slate-400 font-semibold block uppercase tracking-wider mb-0.5">Quantity</span>
-                        <span className="font-extrabold text-slate-900 dark:text-white text-base sm:text-lg">{item.quantity}</span>
+                        <span className="font-extrabold text-slate-900 dark:text-white text-base sm:text-lg">
+                          {item.quantity} <span className="text-xs font-semibold text-slate-500 dark:text-slate-400">{item.uom || 'pcs'}</span>
+                        </span>
                       </div>
                     </div>
                   ))

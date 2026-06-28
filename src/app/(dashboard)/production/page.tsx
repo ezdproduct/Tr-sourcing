@@ -6,17 +6,23 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/com
 async function ProductionLoader() {
   const supabase = await createClient()
 
-  // Fetch production jobs from DB
-  const { data: jobs, error } = await supabase
-    .from('production_jobs')
-    .select('*, orders(order_code)')
+  // Fetch internal production batches from DB
+  const { data: batches, error } = await supabase
+    .from('internal_production_batches')
+    .select('*, orders(order_code, order_items(item_name))')
     .order('created_at', { ascending: false })
 
-  if (error) {
-    console.error('Error fetching production jobs:', error.message)
+  // Fetch all orders with their items for the Kanban board
+  const { data: orders, error: ordersError } = await supabase
+    .from('orders')
+    .select('*, order_items(*)')
+    .order('created_at', { ascending: false })
+
+  if (ordersError) {
+    console.error('Error fetching orders for production:', ordersError.message)
   }
 
-  return <ProductionClient initialJobs={jobs || []} />
+  return <ProductionClient initialBatches={batches || []} initialOrders={orders || []} />
 }
 
 export default function ProductionPage() {

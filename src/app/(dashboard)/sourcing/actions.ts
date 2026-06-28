@@ -1,5 +1,8 @@
 'use server'
 
+import { S3Client, PutObjectCommand } from '@aws-sdk/client-s3'
+import { Resend } from 'resend'
+import { generateToken } from '@/app/api/orders/update-progress/route'
 export type OrderType = 'MATERIAL' | 'PRODUCT'
 
 import { createClient } from '@/supabase/server'
@@ -65,18 +68,61 @@ export async function updateShortlistAction(supplierId: string, isShortlisted: b
   }
 }
 
-export async function deleteSupplierAction(supplierId: string) {
+export async function updateShortlistBatchAction(supplierIds: string[], isShortlisted: boolean) {
   try {
     const supabase = await createClient()
 
     const { error } = await supabase
       .from('order_suppliers')
-      .delete()
-      .eq('id', supplierId)
+      .update({ is_shortlisted: isShortlisted })
+      .in('id', supplierIds)
 
     if (error) {
-      console.error('Error deleting supplier:', error.message)
+      console.error('Error updating batch shortlist:', error.message)
       return { success: false, error: error.message }
+    }
+
+    revalidatePath('/sourcing')
+    return { success: true }
+  } catch (error: any) {
+    console.error('Uncaught error updating batch shortlist:', error)
+    return { success: false, error: error.message || 'An unexpected error occurred' }
+  }
+}
+
+export async function deleteSupplierAction(supplierId: string) {
+  try {
+    const supabase = await createClient()
+
+    // 1. Try to delete from order_suppliers first
+    const { data: orderSupplier, error: fetchError } = await supabase
+      .from('order_suppliers')
+      .select('id')
+      .eq('id', supplierId)
+      .maybeSingle()
+
+    if (orderSupplier) {
+      // It is a bid! Delete from order_suppliers
+      const { error: deleteError } = await supabase
+        .from('order_suppliers')
+        .delete()
+        .eq('id', supplierId)
+
+      if (deleteError) {
+        console.error('Error deleting order supplier bid:', deleteError.message)
+        return { success: false, error: deleteError.message }
+      }
+    } else {
+      // It is a master supplier profile! Delete from suppliers
+      const { error: deleteError } = await supabase
+        .from('suppliers')
+        .delete()
+        .eq('id', supplierId)
+
+      if (deleteError) {
+        console.error('Error deleting supplier profile:', deleteError.message)
+        return { success: false, error: deleteError.message }
+      }
     }
 
     revalidatePath('/sourcing')
@@ -186,7 +232,7 @@ export async function classifyOrderItemsBatchAction(items: BatchClassificationIt
       return { success: false, error: error.message }
     }
 
-    // 3. Update parent order stage to Sourcing if it was 'Order', 'Order Intake' or 'Pending Classification'
+    // 3. Update parent order stage and order_type based on items
     const { data: order, error: fetchError } = await supabase
       .from('orders')
       .select('stage')
@@ -195,10 +241,28 @@ export async function classifyOrderItemsBatchAction(items: BatchClassificationIt
 
     if (!fetchError && order) {
       const stage = order.stage
+      const updateData: any = {}
+      
       if (stage === 'Order' || stage === 'Order Intake' || stage === 'Pending Classification' || !stage) {
+        updateData.stage = 'Sourcing'
+      }
+
+      // Query the item types for this order to determine parent order_type
+      const { data: updatedItems } = await supabase
+        .from('order_items')
+        .select('item_type')
+        .eq('order_id', orderId)
+
+      if (updatedItems && updatedItems.length > 0) {
+        const hasMaterial = updatedItems.some((item: any) => item.item_type === 'MATERIAL')
+        const hasProduct = updatedItems.some((item: any) => item.item_type === 'PRODUCT')
+        updateData.order_type = (hasMaterial && hasProduct) ? 'MIXED' : hasMaterial ? 'MATERIAL' : 'PRODUCT'
+      }
+
+      if (Object.keys(updateData).length > 0) {
         await supabase
           .from('orders')
-          .update({ stage: 'Sourcing' })
+          .update(updateData)
           .eq('id', orderId)
       }
     }
@@ -426,14 +490,26 @@ export async function deleteSuppliersBatchAction(ids: string[]) {
   try {
     const supabase = await createClient()
 
-    const { error } = await supabase
+    // 1. Delete from order_suppliers
+    const { error: osError } = await supabase
       .from('order_suppliers')
       .delete()
       .in('id', ids)
 
-    if (error) {
-      console.error('Error batch deleting suppliers:', error.message)
-      return { success: false, error: error.message }
+    if (osError) {
+      console.error('Error batch deleting order suppliers:', osError.message)
+      return { success: false, error: osError.message }
+    }
+
+    // 2. Delete from suppliers (for master profiles)
+    const { error: sError } = await supabase
+      .from('suppliers')
+      .delete()
+      .in('id', ids)
+
+    if (sError) {
+      console.error('Error batch deleting supplier profiles:', sError.message)
+      return { success: false, error: sError.message }
     }
 
     revalidatePath('/sourcing')
@@ -637,87 +713,309 @@ export async function updateSupplierProfileAction(input: UpdateSupplierProfileIn
   }
 }
 
-export interface ConfirmSupplierAndCreatePoInput {
-  orderId: string
-  selectedSupplierId: string
-  contractValue: number
-}
-
-export async function confirmSupplierAndCreatePoAction(input: ConfirmSupplierAndCreatePoInput) {
+export async function confirmSupplierAndCreatePoAction(formData: FormData) {
   try {
     const supabase = await createClient()
 
-    // 1. Fetch supplier name
+    const orderId = formData.get('orderId') as string
+    const selectedSupplierId = formData.get('selectedSupplierId') as string
+    const orderItemId = formData.get('orderItemId') as string
+    const contractValue = Number(formData.get('contractValue'))
+    const targetDeliveryDate = formData.get('targetDeliveryDate') as string
+    const deliveryAddress = formData.get('deliveryAddress') as string
+    const contractFile = formData.get('contractFile') as File | null
+
+    if (!orderId || !selectedSupplierId || !targetDeliveryDate || !deliveryAddress || !orderItemId) {
+      return { success: false, error: 'Missing required fields' }
+    }
+
+    // 1. Fetch supplier name and email
     const { data: supplier, error: supplierError } = await supabase
       .from('suppliers')
-      .select('name')
-      .eq('id', input.selectedSupplierId)
+      .select('name, email')
+      .eq('id', selectedSupplierId)
       .single()
 
     if (supplierError || !supplier) {
-      console.error('Error fetching supplier name:', supplierError?.message)
+      console.error('Error fetching supplier info:', supplierError?.message)
       return { success: false, error: 'Supplier not found' }
     }
 
-    // 2. Fetch order items
+    // 2. Update selected_supplier_id for this specific order item
+    const { error: itemUpdateError } = await supabase
+      .from('order_items')
+      .update({ selected_supplier_id: selectedSupplierId })
+      .eq('id', orderItemId)
+
+    if (itemUpdateError) {
+      console.error('Error updating order item supplier:', itemUpdateError.message)
+      return { success: false, error: itemUpdateError.message }
+    }
+
+    // 3. Query all order items to see if all have selected suppliers
     const { data: items, error: itemsError } = await supabase
       .from('order_items')
-      .select('item_name, quantity')
-      .eq('order_id', input.orderId)
+      .select('id, item_name, quantity, selected_supplier_id')
+      .eq('order_id', orderId)
 
     if (itemsError) {
-      console.error('Error fetching order items:', itemsError.message)
+      console.error('Error fetching all order items:', itemsError.message)
       return { success: false, error: itemsError.message }
     }
 
-    // 3. Update parent order details & stage to Production
+    const allConfirmed = items && items.length > 0 && items.every((item: any) => item.selected_supplier_id !== null)
+
+    // Find the specific item being confirmed from the list of items
+    const currentItem = items?.find((item: any) => item.id === orderItemId)
+
+    // 4. Handle Cloudflare R2 Upload for signed contract file
+    let contractFileUrl = null
+    if (contractFile && contractFile.size > 0) {
+      const allowedMimeTypes = [
+        'application/pdf',
+        'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+        'image/jpeg',
+        'image/png'
+      ]
+
+      if (!allowedMimeTypes.includes(contractFile.type)) {
+        return { success: false, error: 'Unsupported file format. Please upload PDF, DOCX, or Images.' }
+      }
+
+      if (contractFile.size > 10 * 1024 * 1024) {
+        return { success: false, error: 'Contract file size exceeds 10MB limit' }
+      }
+
+      const buffer = Buffer.from(await contractFile.arrayBuffer())
+      const sanitizedFilename = `${Date.now()}-${contractFile.name.replace(/[^a-zA-Z0-9.-]/g, '_')}`
+      const filenameKey = `contracts/order-${orderId}/${sanitizedFilename}`
+
+      const s3Client = new S3Client({
+        endpoint: process.env.R2_ENDPOINT_URL,
+        credentials: {
+          accessKeyId: process.env.R2_ACCESS_KEY_ID || '',
+          secretAccessKey: process.env.R2_SECRET_ACCESS_KEY || '',
+        },
+        region: 'auto',
+      })
+
+      await s3Client.send(
+        new PutObjectCommand({
+          Bucket: process.env.R2_BUCKET_NAME || 'sourcinghub',
+          Key: filenameKey,
+          Body: buffer,
+          ContentType: contractFile.type,
+        })
+      )
+
+      contractFileUrl = `/api/images?key=${filenameKey}`
+    }
+
+    // 5. Update parent order details, stage, and new fields
     const { error: orderUpdateError } = await supabase
       .from('orders')
       .update({
-        selected_supplier_id: input.selectedSupplierId,
-        contract_value: input.contractValue,
-        stage: 'Production'
+        selected_supplier_id: selectedSupplierId,
+        contract_value: contractValue,
+        stage: allConfirmed ? 'PO ISSUED' : 'PARTIAL PO ISSUED',
+        target_delivery_date: targetDeliveryDate,
+        delivery_address: deliveryAddress,
+        contract_file_url: contractFileUrl
       })
-      .eq('id', input.orderId)
+      .eq('id', orderId)
 
     if (orderUpdateError) {
-      console.error('Error updating order to Production stage:', orderUpdateError.message)
+      console.error('Error updating order details:', orderUpdateError.message)
       return { success: false, error: orderUpdateError.message }
     }
 
-    // 4. Create production jobs for each item
-    if (items && items.length > 0) {
-      // Clear any existing production jobs for this order to prevent duplicates on retry
+    // 6. Create production job for the current confirmed item
+    if (currentItem) {
+      // Clear any existing production job for this item to prevent duplicates
       await supabase
         .from('production_jobs')
         .delete()
-        .eq('order_id', input.orderId)
+        .eq('order_id', orderId)
+        .eq('item_name', currentItem.item_name)
 
-      const jobsToInsert = items.map(item => ({
-        order_id: input.orderId,
-        supplier_id: input.selectedSupplierId,
-        factory_name: supplier.name,
-        item_name: item.item_name,
-        target_qty: item.quantity,
-        output_qty: 0,
-        progress_pct: 0.00,
-        defect_rate: 0.00,
-        status: 'running'
-      }))
-
-      const { error: jobsError } = await supabase
+      const { error: jobInsertError } = await supabase
         .from('production_jobs')
-        .insert(jobsToInsert)
+        .insert({
+          order_id: orderId,
+          supplier_id: selectedSupplierId,
+          factory_name: supplier.name,
+          item_name: currentItem.item_name,
+          target_qty: currentItem.quantity,
+          output_qty: 0,
+          progress_pct: 0.00,
+          defect_rate: 0.00,
+          status: 'running'
+        })
 
-      if (jobsError) {
-        console.error('Error inserting production jobs:', jobsError.message)
+      if (jobInsertError) {
+        console.error('Error inserting production job:', jobInsertError.message)
       }
+    }
+
+    // 7. Send automated email notification via Resend
+    let emailSent = false
+    const resendApiKey = process.env.RESEND_API_KEY
+    if (resendApiKey && supplier.email) {
+      try {
+        const resend = new Resend(resendApiKey)
+        const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'
+        const fullContractUrl = contractFileUrl ? `${appUrl}${contractFileUrl}` : ''
+        
+        // Fetch order code for clean display
+        const { data: orderData } = await supabase
+          .from('orders')
+          .select('order_code')
+          .eq('id', orderId)
+          .single()
+        
+        const displayOrderId = orderData?.order_code || `PO-${orderId.substring(0, 8).toUpperCase()}`
+        const secureToken = generateToken(orderId)
+        const confirmPoActionUrl = `${appUrl}/api/orders/update-progress?token=${secureToken}&action=confirm_po&orderItemId=${orderItemId}`
+        const shipmentActionUrl = `${appUrl}/api/orders/update-progress?token=${secureToken}&action=shipped&orderItemId=${orderItemId}`
+
+        const isPoIssued = true
+        const isPoConfirmed = false
+
+        const emailHtml = `
+          <!DOCTYPE html>
+          <html>
+          <head>
+            <meta charset="utf-8">
+            <title>Purchase Order Confirmation</title>
+            <style>
+              body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; line-height: 1.6; color: #1e293b; background-color: #f8fafc; margin: 0; padding: 20px; }
+              .container { max-width: 600px; margin: 0 auto; background: #ffffff; border-radius: 16px; border: 1px solid #e2e8f0; padding: 40px; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.05); }
+              .header { border-bottom: 2px solid #f1f5f9; padding-bottom: 20px; margin-bottom: 24px; text-align: center; }
+              .logo { font-size: 20px; font-weight: 800; color: #4f46e5; text-transform: uppercase; letter-spacing: 0.05em; }
+              h1 { font-size: 22px; font-weight: 700; color: #0f172a; margin-top: 0; margin-bottom: 12px; text-align: center; }
+              p { font-size: 14px; color: #475569; margin-top: 0; margin-bottom: 16px; }
+              .details-box { background: #f8fafc; border-radius: 12px; border: 1px solid #e2e8f0; padding: 24px; margin-bottom: 24px; }
+              .detail-row { display: flex; justify-content: space-between; font-size: 13px; margin-bottom: 12px; border-bottom: 1px dashed #e2e8f0; padding-bottom: 10px; }
+              .detail-row:last-child { margin-bottom: 0; border-bottom: none; padding-bottom: 0; }
+              .detail-label { color: #64748b; font-weight: 600; }
+              .detail-value { color: #0f172a; font-weight: 700; text-align: right; }
+              .button-group { display: flex; flex-direction: column; gap: 12px; margin-top: 24px; }
+              .btn-emerald { display: block; background-color: #10b981; color: #ffffff !important; font-size: 14px; font-weight: 700; text-decoration: none; padding: 14px 24px; border-radius: 8px; text-align: center; box-shadow: 0 4px 6px -1px rgba(16,185,129,0.2); }
+              .btn-emerald:hover { background-color: #059669; }
+              .btn-indigo { display: block; background-color: #4f46e5; color: #ffffff !important; font-size: 14px; font-weight: 700; text-decoration: none; padding: 14px 24px; border-radius: 8px; text-align: center; box-shadow: 0 4px 6px -1px rgba(79,70,229,0.2); }
+              .btn-indigo:hover { background-color: #4338ca; }
+              .btn-slate { display: block; background-color: #64748b; color: #ffffff !important; font-size: 14px; font-weight: 700; text-decoration: none; padding: 14px 24px; border-radius: 8px; text-align: center; box-shadow: 0 4px 6px -1px rgba(100,116,139,0.2); }
+              .btn-slate:hover { background-color: #475569; }
+              .btn-disabled { display: block; background-color: #f1f5f9; color: #94a3b8 !important; font-size: 14px; font-weight: 700; text-decoration: none; padding: 14px 24px; border-radius: 8px; text-align: center; border: 1px solid #e2e8f0; cursor: not-allowed; }
+              .footer { border-top: 1px solid #f1f5f9; padding-top: 20px; margin-top: 32px; font-size: 11px; color: #94a3b8; text-align: center; }
+            </style>
+          </head>
+          <body>
+            <div class="container">
+              <div class="header">
+                <div class="logo">TR Sourcing Hub</div>
+              </div>
+              <h1>Purchase Order Confirmation</h1>
+              <p>Dear <strong>${supplier.name}</strong> Team,</p>
+              <p>We are pleased to inform you that we have finalized our sourcing selection and officially issued a Purchase Order. Please find the details of the purchase order below:</p>
+              
+              <div class="details-box">
+                <div class="detail-row">
+                  <span class="detail-label">Order ID:</span>
+                  <span class="detail-value">${displayOrderId}</span>
+                </div>
+                <div class="detail-row">
+                  <span class="detail-label">Product Item:</span>
+                  <span class="detail-value">${currentItem?.item_name || 'N/A'}</span>
+                </div>
+                <div class="detail-row">
+                  <span class="detail-label">Contract Value:</span>
+                  <span class="detail-value">$${Number(contractValue).toLocaleString('en-US', { minimumFractionDigits: 2 })} USD</span>
+                </div>
+                <div class="detail-row">
+                  <span class="detail-label">Target Delivery Date:</span>
+                  <span class="detail-value">${targetDeliveryDate}</span>
+                </div>
+                <div class="detail-row">
+                  <span class="detail-label">Delivery Address:</span>
+                  <span class="detail-value">${deliveryAddress}</span>
+                </div>
+              </div>
+              
+              <p style="margin-bottom: 24px;">Please review the contract and perform the required steps for our supply chain workflow by using the options below:</p>
+              
+              <div class="button-group">
+                <!-- Single Table Layout ensuring strict vertical structure in all email clients -->
+                <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="border-collapse: collapse;">
+                  <!-- Row 1: Immediate Action Group -->
+                  <tr>
+                    <td width="48%" valign="top">
+                      ${isPoIssued ? `
+                      <a href="${confirmPoActionUrl}" class="btn-emerald" target="_blank">Confirm & Accept PO</a>
+                      ` : `
+                      <div class="btn-disabled">Confirm & Accept PO</div>
+                      `}
+                    </td>
+                    <td width="4%"></td>
+                    <td width="48%" valign="top">
+                      ${fullContractUrl && isPoIssued ? `
+                      <a href="${fullContractUrl}" class="btn-indigo" target="_blank">View Signed Contract</a>
+                      ` : `
+                      <div class="btn-disabled">View Signed Contract</div>
+                      `}
+                    </td>
+                  </tr>
+                  <!-- Spacer Row -->
+                  <tr>
+                    <td colspan="3" style="height: 16px; font-size: 16px; line-height: 16px;">&nbsp;</td>
+                  </tr>
+                  <!-- Row 2: Delayed Action Group -->
+                  <tr>
+                    <td colspan="3" valign="top">
+                      ${isPoConfirmed ? `
+                      <a href="${shipmentActionUrl}" class="btn-slate" target="_blank">Mark as Shipped</a>
+                      ` : `
+                      <div class="btn-disabled">Mark as Shipped</div>
+                      `}
+                    </td>
+                  </tr>
+                </table>
+              </div>
+              
+              <p style="margin-top: 28px;">Should you have any questions or require further clarification, please do not hesitate to contact our Sourcing team.</p>
+              
+              <div class="footer">
+                This is an automated notification from TR Sourcing Hub. Please do not reply directly to this email.
+              </div>
+            </div>
+          </body>
+          </html>
+        `
+
+        await resend.emails.send({
+          from: 'Sourcing Hub <onboarding@resend.dev>',
+          to: supplier.email,
+          subject: `[TR Sourcing] Purchase Order Issued - Order ID: ${displayOrderId}`,
+          html: emailHtml,
+        })
+        emailSent = true
+        console.log(`PO confirmation email successfully sent to ${supplier.email}`)
+      } catch (emailErr) {
+        console.error('Failed to send PO confirmation email via Resend:', emailErr)
+      }
+    } else {
+      if (!resendApiKey) {
+        console.warn('RESEND_API_KEY is not configured. Simulating successful email send for local testing.')
+      } else {
+        console.warn('Supplier has no contact email. Skipping email notification.')
+      }
+      emailSent = true
     }
 
     revalidatePath('/sourcing')
     revalidatePath('/orders')
     revalidatePath('/production')
-    return { success: true }
+    return { success: true, emailSent, supplierEmail: supplier.email }
   } catch (error: any) {
     console.error('Uncaught error confirming supplier & PO:', error)
     return { success: false, error: error.message || 'An unexpected error occurred' }

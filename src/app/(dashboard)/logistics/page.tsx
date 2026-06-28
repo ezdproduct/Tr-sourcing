@@ -9,14 +9,20 @@ async function LogisticsLoader() {
   // Fetch logistics records from DB
   const { data: records, error } = await supabase
     .from('logistics_records')
-    .select('*')
+    .select('*, orders(order_type, order_items(item_name, item_type))')
     .order('created_at', { ascending: false })
 
-  if (error) {
-    console.error('Error fetching logistics records:', error.message)
+  // Fetch all orders with their items for the Kanban board
+  const { data: orders, error: ordersError } = await supabase
+    .from('orders')
+    .select('*, order_items(*)')
+    .order('created_at', { ascending: false })
+
+  if (ordersError) {
+    console.error('Error fetching orders for logistics:', ordersError.message)
   }
 
-  return <LogisticsClient initialRecords={records || []} />
+  return <LogisticsClient initialRecords={records || []} initialOrders={orders || []} />
 }
 
 export default function LogisticsInboundPage() {

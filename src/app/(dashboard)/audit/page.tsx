@@ -9,7 +9,7 @@ async function AuditLoader() {
   // 1. Fetch shortlisted suppliers from order_suppliers with order links
   const { data: shortlistedBids, error: bidsError } = await supabase
     .from('order_suppliers')
-    .select('order_id, supplier_id, is_shortlisted, suppliers(id, name, phone, address), orders(order_code)')
+    .select('order_id, supplier_id, is_shortlisted, order_items(item_name), suppliers(id, name, phone, address, certifications), orders(order_code)')
     .eq('is_shortlisted', true)
 
   if (bidsError) {
@@ -21,9 +21,12 @@ async function AuditLoader() {
     name: bid.suppliers?.name,
     phone: bid.suppliers?.phone,
     address: bid.suppliers?.address,
+    certifications: bid.suppliers?.certifications || [],
     order_id: bid.order_id,
-    order_code: bid.orders?.order_code
-  })).filter(s => s.id) : []
+    order_code: bid.orders?.order_code,
+    item_name: bid.order_items?.item_name || '—',
+    unique_key: `${bid.order_id}-${bid.suppliers?.id}`
+  })).filter(s => s.id && s.order_id) : []
 
   // 2. Fetch all orders for the sidebar
   const { data: orders, error: ordersError } = await supabase
@@ -41,7 +44,7 @@ async function AuditLoader() {
 
   const { data: auditsData, error: auditsError } = await supabase
     .from('factory_audits')
-    .select('*, suppliers(id, name, phone, address)')
+    .select('*, suppliers(id, name, phone, address, certifications)')
     .order('audit_date', { ascending: false })
 
   if (auditsError) {
