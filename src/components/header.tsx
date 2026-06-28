@@ -117,13 +117,6 @@ export function Header() {
         />
       </div>
 
-      {/* Right Side Options */}
-      <div className="flex items-center gap-4">
-        {/* Environment Badge */}
-        <span className="hidden rounded-full bg-amber-50 px-2.5 py-0.5 text-xs font-semibold text-amber-700 border border-amber-200 dark:bg-amber-950/30 dark:text-amber-400 dark:border-amber-900/40 md:inline-block">
-          Demo Environment
-        </span>
-      </div>
     </header>
   )
 }

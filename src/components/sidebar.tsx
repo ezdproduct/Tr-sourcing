@@ -51,27 +51,27 @@ const navItems: NavItem[] = [
     icon: Package
   },
   {
-    label: 'Supplier Sourcing',
+    label: 'Sourcing Management',
     href: '/sourcing',
     icon: Handshake
   },
   {
-    label: 'Factory Audit',
+    label: 'Quality Control',
     href: '/audit',
     icon: FileCheck2
   },
   {
-    label: 'Port Inspection',
+    label: 'Inspection',
     href: '/inspection',
     icon: Anchor
   },
   {
-    label: 'Logistics & Inbound',
+    label: 'Logistics & Inventory',
     href: '/logistics',
     icon: Truck
   },
   {
-    label: 'Production Run',
+    label: 'Production',
     href: '/production',
     icon: TrendingUp
   },
@@ -131,9 +131,9 @@ export function Sidebar() {
   const subtabParam = searchParams.get('subtab')
   const { userRole, setUserRole, userDepartment, setUserDepartment } = useSourcing()
   const router = useRouter()
-  const [isCollapsed, setIsCollapsed] = useState(false)
   const [isHovered, setIsHovered] = useState(false)
-  const isExpanded = !isCollapsed || isHovered
+  const [isDropdownOpen, setIsDropdownOpen] = useState(false)
+  const shouldExpand = isHovered || isDropdownOpen
   const [counts, setCounts] = useState<Record<string, number>>({})
 
   const [user, setUser] = useState<any>(null)
@@ -199,27 +199,20 @@ export function Sidebar() {
       case 'orders':
         return 'ORDERS DEPT'
       case 'sourcing':
-        return 'SOURCING DEPT'
+        return 'SOURCING MGMT'
       case 'audit':
-        return 'AUDIT DEPT'
+        return 'QUALITY CONTROL'
       case 'inspection':
-        return 'INSPECTION DEPT'
+        return 'INSPECTION'
       case 'logistics':
-        return 'LOGISTICS DEPT'
+        return 'LOGISTICS & INVENTORY'
       case 'production':
-        return 'PRODUCTION DEPT'
+        return 'PRODUCTION'
       default:
         return 'STAFF'
     }
   }
 
-  // Load sidebar state from localStorage on mount
-  useEffect(() => {
-    const saved = localStorage.getItem('sidebar-collapsed')
-    if (saved) {
-      setIsCollapsed(saved === 'true')
-    }
-  }, [])
 
   // Fetch counts from Supabase on mount
   useEffect(() => {
@@ -257,12 +250,6 @@ export function Sidebar() {
     fetchCounts()
   }, [])
 
-  const toggleCollapse = () => {
-    const next = !isCollapsed
-    setIsCollapsed(next)
-    setIsHovered(false)
-    localStorage.setItem('sidebar-collapsed', String(next))
-  }
 
   const filteredNavItems = navItems.filter((item) => {
     if (userRole === 'admin') {
@@ -294,60 +281,40 @@ export function Sidebar() {
   })
 
   return (
-    <div 
-      onMouseEnter={() => isCollapsed && setIsHovered(true)}
+    <aside
+      onMouseEnter={() => setIsHovered(true)}
       onMouseLeave={() => setIsHovered(false)}
-      className={`relative hidden md:block flex-shrink-0 transition-all duration-300 select-none ${
-        isCollapsed ? 'w-20' : 'w-[260px]'
+      className={`hidden md:flex flex-col border-r border-slate-200/80 bg-white text-slate-800 dark:border-slate-800/80 dark:bg-slate-955 dark:text-slate-200 transition-all duration-300 ease-in-out h-full flex-shrink-0 select-none ${
+        shouldExpand ? 'w-[280px]' : 'w-[70px]'
       }`}
     >
-      <aside
-        className={`flex flex-col border-r border-slate-200/80 bg-white text-slate-800 dark:border-slate-800/80 dark:bg-slate-950 dark:text-slate-200 md:flex transition-all duration-300 ease-in-out h-full ${
-          isExpanded ? 'w-[260px]' : 'w-20'
-        } ${
-          isCollapsed && isHovered ? 'absolute top-0 left-0 z-50 shadow-2xl h-screen' : 'relative'
-        }`}
-      >
         {/* Brand Header */}
         <div className="flex h-16 items-center gap-3 px-4 border-b border-slate-200/60 dark:border-slate-800/80 overflow-hidden">
-          {/* Concentric Circle Brand Logo */}
-          <div className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-xl bg-slate-900 text-white shadow-sm dark:bg-white dark:text-slate-955">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" className="w-5 h-5 text-white dark:text-slate-950">
-              <circle cx="12" cy="12" r="8" />
-              <circle cx="12" cy="12" r="3" fill="currentColor" />
-            </svg>
+          {/* Brand Logo Image */}
+          <div className="flex h-10 w-10 flex-shrink-0 items-center justify-center overflow-hidden bg-white text-slate-955 shadow-sm border border-slate-200/50 dark:border-slate-800">
+            <img 
+              src="/logo.jpg" 
+              alt="Transformer Robotics Logo" 
+              className="w-full h-full object-contain" 
+            />
           </div>
           
           {/* Logo text next to it */}
           <div className={`flex flex-col whitespace-nowrap transition-all duration-300 ${
-            !isExpanded ? 'opacity-0 w-0 overflow-hidden -translate-x-4' : 'opacity-100 translate-x-0'
+            !shouldExpand ? 'opacity-0 w-0 overflow-hidden -translate-x-4' : 'opacity-100 translate-x-0'
           }`}>
             <span className="text-sm font-bold text-slate-955 dark:text-white leading-tight">Sourcing Hub</span>
             <span className="text-[10px] font-semibold text-slate-400">Enterprise Panel</span>
           </div>
         </div>
 
-        {/* Manual Collapse Toggle Button */}
-        <button
-          onClick={toggleCollapse}
-          className="absolute top-5 -right-3.5 z-40 h-7 w-7 rounded-full border border-slate-200/80 bg-white flex items-center justify-center text-slate-400 hover:text-slate-700 shadow-sm cursor-pointer hover:scale-105 transition-all dark:border-slate-800 dark:bg-slate-955 dark:text-slate-500 dark:hover:text-slate-300"
-        >
-          {isCollapsed ? <ChevronRight size={13} /> : <ChevronLeft size={13} />}
-        </button>
 
         {/* Navigation Menus */}
         <nav className="flex-1 space-y-1.5 px-3 py-6 overflow-y-auto">
           {filteredNavItems.map((item) => {
             const isActive = pathname === item.href || (item.href !== '/' && pathname.startsWith(item.href))
             const Icon = item.icon
-            const hasSubtabs = [
-              '/orders',
-              '/sourcing',
-              '/audit',
-              '/inspection',
-              '/logistics',
-              '/production'
-            ].includes(item.href)
+            const hasSubtabs = ['/orders', '/sourcing', '/audit', '/inspection', '/logistics', '/production'].includes(item.href)
 
             return (
               <div key={item.href} className="space-y-1">
@@ -364,26 +331,16 @@ export function Sidebar() {
                   </div>
                   
                   <span className={`whitespace-nowrap transition-all duration-300 ${
-                    !isExpanded ? 'opacity-0 w-0 overflow-hidden -translate-x-4' : 'opacity-100 translate-x-0'
+                    !shouldExpand ? 'opacity-0 w-0 overflow-hidden -translate-x-4' : 'opacity-100 translate-x-0'
                   }`}>
                     {item.label}
                   </span>
 
-                  {/* Badge indicator & Chevrons */}
-                  {isExpanded && (
-                    <div className="ml-auto flex items-center gap-1.5">
-                      {counts[item.href] !== undefined && (
-                        <BadgeIndicator count={counts[item.href]} href={item.href} />
-                      )}
-                      {hasSubtabs && (
-                        isActive ? <ChevronUp size={14} className="text-slate-400" /> : <ChevronDown size={14} className="text-slate-400" />
-                      )}
-                    </div>
-                  )}
+
                 </Link>
 
                 {/* Subtabs tree branches structure */}
-                {isActive && hasSubtabs && isExpanded && (
+                {isActive && hasSubtabs && shouldExpand && (
                   <div className="pl-9 pr-2 py-1 space-y-1 animate-in slide-in-from-top-2 duration-200">
                     {[
                       { label: 'Overview', subtabVal: 'overview' },
@@ -418,16 +375,16 @@ export function Sidebar() {
         {/* Footer / Controls Section */}
         <div className="border-t border-slate-200/60 dark:border-slate-800/80 p-3 space-y-3 flex-shrink-0 bg-slate-50/50 dark:bg-slate-900/10">
           {/* Theme and Role Switching Row */}
-          <div className={`flex items-center gap-2 ${!isExpanded ? 'flex-col justify-center' : 'justify-between'}`}>
+          <div className={`flex items-center gap-2 ${!shouldExpand ? 'flex-col justify-center' : 'justify-between'}`}>
             <div className="flex-shrink-0 flex items-center justify-center">
-              <ThemeSwitcher />
+              <ThemeSwitcher onOpenChange={setIsDropdownOpen} />
             </div>
 
-            {isExpanded && (
+            {shouldExpand && (
               <div className="flex-1 min-w-0">
                 {/* Role Context Selector Dropdown */}
                 {!user || dbProfile?.role === 'admin' ? (
-                  <DropdownMenu>
+                  <DropdownMenu onOpenChange={setIsDropdownOpen}>
                     <DropdownMenuTrigger asChild>
                       <Button variant="outline" size="sm" className="h-8 w-full gap-1.5 text-[11px] border-slate-200 dark:border-slate-850 bg-white dark:bg-slate-950 px-2 flex items-center justify-between">
                         <div className="flex items-center gap-1 min-w-0">
@@ -454,19 +411,19 @@ export function Sidebar() {
                         Orders Department
                       </DropdownMenuItem>
                       <DropdownMenuItem onClick={() => handleSwitchContext('staff', 'sourcing', '/sourcing')} className="text-xs cursor-pointer font-medium">
-                        Sourcing Department
+                        Sourcing Management
                       </DropdownMenuItem>
                       <DropdownMenuItem onClick={() => handleSwitchContext('staff', 'audit', '/audit')} className="text-xs cursor-pointer font-medium">
-                        Factory Audit Dept
+                        Quality Control
                       </DropdownMenuItem>
                       <DropdownMenuItem onClick={() => handleSwitchContext('staff', 'inspection', '/inspection')} className="text-xs cursor-pointer font-medium">
-                        Port Inspection Dept
+                        Inspection
                       </DropdownMenuItem>
                       <DropdownMenuItem onClick={() => handleSwitchContext('staff', 'logistics', '/logistics')} className="text-xs cursor-pointer font-medium">
-                        Logistics & Inbound
+                        Logistics & Inventory
                       </DropdownMenuItem>
                       <DropdownMenuItem onClick={() => handleSwitchContext('staff', 'production', '/production')} className="text-xs cursor-pointer font-medium">
-                        Production Run Dept
+                        Production
                       </DropdownMenuItem>
                     </DropdownMenuContent>
                   </DropdownMenu>
@@ -482,13 +439,13 @@ export function Sidebar() {
 
           {/* Profile Card and Dropdown */}
           <div className="pt-2 border-t border-slate-200/50 dark:border-slate-800/50">
-            <DropdownMenu>
+            <DropdownMenu onOpenChange={setIsDropdownOpen}>
               <DropdownMenuTrigger asChild>
                 <Button variant="ghost" size="sm" className={`h-10 w-full gap-2 hover:bg-slate-100 dark:hover:bg-slate-900/60 p-1 justify-start rounded-xl`}>
-                  <div className="flex h-7.5 w-7.5 items-center justify-center rounded-lg bg-indigo-50 dark:bg-indigo-950/40 border border-indigo-100/50 dark:border-indigo-955 flex-shrink-0">
+                  <div className="flex h-7.5 w-7.5 items-center justify-center rounded-lg bg-indigo-50 dark:bg-indigo-955 border border-indigo-100/50 dark:border-indigo-955 flex-shrink-0">
                     <User size={13} className="text-indigo-600 dark:text-indigo-400" />
                   </div>
-                  {isExpanded && (
+                  {shouldExpand && (
                     <div className="flex flex-col items-start text-left min-w-0 flex-1">
                       <span className="text-[11px] font-bold text-slate-800 dark:text-slate-200 truncate w-full">
                         {user ? user.email.split('@')[0] : 'Mock User'}
@@ -528,6 +485,5 @@ export function Sidebar() {
           </div>
         </div>
       </aside>
-    </div>
   )
 }

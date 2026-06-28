@@ -5,7 +5,19 @@ import { useSearchParams } from 'next/navigation'
 import { useSourcing } from '@/providers/sourcing-provider'
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
 import { DataTable } from '@/components/ui/data-table'
-import { createOrderAction, updateOrderAction, deleteOrderAction, updateOrderStageAction } from './actions'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu'
+import { 
+  createOrderAction, 
+  updateOrderAction, 
+  deleteOrderAction, 
+  deleteOrdersBatchAction, 
+  updateOrderStageAction 
+} from './actions'
 import { KanbanBoard } from './kanban-board'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -25,7 +37,11 @@ import {
   Edit3,
   TrendingUp,
   CheckCircle2,
-  Clock
+  Clock,
+  ChevronDown,
+  SlidersHorizontal,
+  Search,
+  ChevronRight
 } from 'lucide-react'
 
 export interface DatabaseOrderItem {
@@ -137,16 +153,19 @@ export function OrdersClient({ initialOrders }: OrdersClientProps) {
   const [subtab, setSubtab] = useState<'overview' | 'workplace'>(initialSubtab)
   const [viewMode, setViewMode] = useState<'analytics' | 'kanban'>('analytics')
 
+  const subtabParam = searchParams.get('subtab')
+
   useEffect(() => {
-    const tab = searchParams.get('subtab')
-    if (tab === 'overview' || tab === 'workplace') {
-      // eslint-disable-next-line react-hooks/set-state-in-effect
-      setSubtab(tab)
+    if (subtabParam === 'overview' || subtabParam === 'workplace') {
+      setSubtab(subtabParam)
+    } else {
+      setSubtab('overview')
     }
-  }, [searchParams])
+  }, [subtabParam])
 
   const handleTabChange = (val: 'overview' | 'workplace') => {
     setSubtab(val)
+    setSelectedOrderIds([])
     if (typeof window !== 'undefined') {
       const newUrl = `${window.location.pathname}?subtab=${val}`
       window.history.pushState({ ...window.history.state, as: newUrl, url: newUrl }, '', newUrl)
@@ -168,10 +187,14 @@ export function OrdersClient({ initialOrders }: OrdersClientProps) {
   const [selectedOrder, setSelectedOrder] = useState<DatabaseOrder | null>(null)
   const [editingOrder, setEditingOrder] = useState<DatabaseOrder | null>(null)
   const [deletingOrder, setDeletingOrder] = useState<DatabaseOrder | null>(null)
+  const [selectedOrderIds, setSelectedOrderIds] = useState<string[]>([])
+  const [isBulkDeleting, setIsBulkDeleting] = useState(false)
+  const [isBulkDeleteConfirmOpen, setIsBulkDeleteConfirmOpen] = useState(false)
 
   // Submit and delete loader states
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [isDeleting, setIsDeleting] = useState(false)
+  const [sidebarOrderSearch, setSidebarOrderSearch] = useState('')
 
   // Error messaging states
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
@@ -215,9 +238,9 @@ export function OrdersClient({ initialOrders }: OrdersClientProps) {
     const end = new Date(endDateStr).getTime()
     if (isNaN(start) || isNaN(end) || end < start) return []
     
-    const stageNames = ['Order', 'Sourcing', 'QC', 'Inspection', 'Logistic', 'Production']
+    const stageNames = ['Order', 'Sourcing', 'QC', 'Create PO', 'Inspection', 'Logistic', 'Production', 'Order Done']
     const totalMs = end - start
-    const chunkMs = totalMs / 6
+    const chunkMs = totalMs / 8
     
     return stageNames.map((name, idx) => {
       const sTime = start + chunkMs * idx
@@ -411,7 +434,7 @@ export function OrdersClient({ initialOrders }: OrdersClientProps) {
           estimatedEndDate: t.estimated_end_date ? new Date(t.estimated_end_date).toISOString().split('T')[0] : ''
         }
       })
-      const stageOrder = ['Order', 'Sourcing', 'QC', 'Inspection', 'Logistic', 'Production']
+      const stageOrder = ['Order', 'Sourcing', 'QC', 'Create PO', 'Inspection', 'Logistic', 'Production', 'Order Done']
       formatted.sort((a, b) => stageOrder.indexOf(a.stageName) - stageOrder.indexOf(b.stageName))
       setEditStageTimelines(formatted)
     } else {
@@ -530,6 +553,17 @@ export function OrdersClient({ initialOrders }: OrdersClientProps) {
     )
   })
 
+  // Filter orders based on sidebar search query
+  const sidebarFilteredOrders = initialOrders.filter((order) => {
+    const computedType = getOrderTypeFromItems(order.order_items)
+    return (
+      order.order_code.toLowerCase().includes(sidebarOrderSearch.toLowerCase()) ||
+      computedType.toLowerCase().includes(sidebarOrderSearch.toLowerCase()) ||
+      order.stage.toLowerCase().includes(sidebarOrderSearch.toLowerCase()) ||
+      (order.order_items && order.order_items.some(item => item.item_name.toLowerCase().includes(sidebarOrderSearch.toLowerCase())))
+    )
+  })
+
   const getStageBadgeColor = (stage: string) => {
     switch (stage.toLowerCase()) {
       case 'sourcing':
@@ -547,13 +581,35 @@ export function OrdersClient({ initialOrders }: OrdersClientProps) {
 
   return (
     <div className="space-y-6">
-      {/* Page Header */}
-      {isStaffOrAdmin && (
-        <div className="flex justify-end">
-          <Button onClick={() => setIsOpen(true)} className="gap-2 bg-[#5c59e9] hover:bg-[#4a47d2] cursor-pointer">
-            <PlusCircle size={16} />
-            <span>Create Order</span>
-          </Button>
+      {/* Controls Row */}
+      {subtab === 'overview' && (
+        <div className="flex justify-end items-center gap-4">
+          <div className="flex items-center gap-1 bg-slate-100/80 dark:bg-slate-900/60 p-1 rounded-xl border border-slate-200/50 dark:border-slate-800/80">
+            <Button
+              variant={viewMode === 'analytics' ? 'secondary' : 'ghost'}
+              size="sm"
+              onClick={() => setViewMode('analytics')}
+              className={`text-xs font-semibold px-4 py-1.5 h-8 rounded-lg cursor-pointer transition-all ${
+                viewMode === 'analytics'
+                  ? 'bg-white text-[#5c59e9] shadow-sm dark:bg-slate-800 dark:text-slate-900'
+                  : 'text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white'
+              }`}
+            >
+              <span>Analytics View</span>
+            </Button>
+            <Button
+              variant={viewMode === 'kanban' ? 'secondary' : 'ghost'}
+              size="sm"
+              onClick={() => setViewMode('kanban')}
+              className={`text-xs font-semibold px-4 py-1.5 h-8 rounded-lg cursor-pointer transition-all ${
+                viewMode === 'kanban'
+                  ? 'bg-white text-[#5c59e9] shadow-sm dark:bg-slate-800 dark:text-slate-900'
+                  : 'text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white'
+              }`}
+            >
+              <span>Kanban Board</span>
+            </Button>
+          </div>
         </div>
       )}
 
@@ -561,34 +617,6 @@ export function OrdersClient({ initialOrders }: OrdersClientProps) {
       <Tabs value={subtab} className="w-full space-y-6">
 
         <TabsContent value="overview" className="space-y-6 mt-0 border-none p-0 focus-visible:ring-0 focus-visible:ring-offset-0">
-          <div className="flex justify-end">
-            <div className="flex items-center gap-1 bg-slate-100 dark:bg-slate-950 p-1 rounded-xl border border-slate-200/50 dark:border-slate-800/80">
-              <Button
-                variant={viewMode === 'analytics' ? 'secondary' : 'ghost'}
-                size="sm"
-                onClick={() => setViewMode('analytics')}
-                className={`text-xs font-semibold px-4 py-1.5 h-8 rounded-lg cursor-pointer transition-all ${
-                  viewMode === 'analytics'
-                    ? 'bg-white text-[#5c59e9] shadow-sm dark:bg-slate-900 dark:text-white'
-                    : 'text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white'
-                }`}
-              >
-                <span>Analytics View</span>
-              </Button>
-              <Button
-                variant={viewMode === 'kanban' ? 'secondary' : 'ghost'}
-                size="sm"
-                onClick={() => setViewMode('kanban')}
-                className={`text-xs font-semibold px-4 py-1.5 h-8 rounded-lg cursor-pointer transition-all ${
-                  viewMode === 'kanban'
-                    ? 'bg-white text-[#5c59e9] shadow-sm dark:bg-slate-900 dark:text-white'
-                    : 'text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white'
-                }`}
-              >
-                <span>Kanban Board</span>
-              </Button>
-            </div>
-          </div>
 
           {viewMode === 'analytics' ? (
             <div className="space-y-6 animate-in fade-in duration-300">
@@ -695,7 +723,10 @@ export function OrdersClient({ initialOrders }: OrdersClientProps) {
                       initialOrders.slice(0, 3).map((order, idx) => (
                         <div key={idx} className="flex items-start gap-4 border-b border-slate-100 pb-3 last:border-0 last:pb-0 dark:border-slate-900">
                           <button
-                            onClick={() => setSelectedOrder(order)}
+                            onClick={() => {
+                              setSelectedOrder(order)
+                              setSubtab('workplace')
+                            }}
                             className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-indigo-100 text-indigo-800 dark:bg-indigo-950/40 dark:text-indigo-400 hover:underline cursor-pointer"
                           >
                             {order.order_code}
@@ -718,108 +749,392 @@ export function OrdersClient({ initialOrders }: OrdersClientProps) {
               <KanbanBoard
                 orders={filteredOrders}
                 isStaffOrAdmin={isStaffOrAdmin}
-                onCardClick={setSelectedOrder}
+                onCardClick={(order) => {
+                  setSelectedOrder(order)
+                  setSubtab('workplace')
+                }}
                 onStageChange={handleStageChange}
               />
             </div>
           )}
         </TabsContent>
 
-      <TabsContent value="workplace" className="space-y-6 mt-0 border-none p-0 focus-visible:ring-0 focus-visible:ring-offset-0">
-        <Card className="border-slate-200/60 dark:border-slate-800">
-          <CardHeader className="pb-3 border-b border-slate-100 dark:border-slate-800 flex flex-row items-center justify-between">
-            <div>
-              <CardTitle className="text-base font-bold">Active Purchase Orders</CardTitle>
-              <CardDescription className="text-xs">
-                Click anywhere on a row to view complete order details & documents.
-              </CardDescription>
+      <TabsContent value="workplace" className="space-y-6 mt-0 border-none p-0 focus-visible:ring-0 focus-visible:ring-offset-0 animate-in fade-in duration-300">
+        <div className="grid lg:grid-cols-[280px_1fr] -mx-8 -mt-8 -mb-8 h-[calc(100vh-4rem)] overflow-hidden">
+          {/* Left column: Purchase Orders sidebar */}
+          <div className="border-r border-slate-200/60 dark:border-slate-800 bg-white dark:bg-slate-955 flex flex-col h-full overflow-hidden">
+            <div className="p-3 border-b border-slate-100 dark:border-slate-800 flex-shrink-0 space-y-2 bg-slate-50/50 dark:bg-slate-900/10">
+              {/* Row 1: Title & Create Button */}
+              <div className="flex items-center justify-between">
+                <h3 className="text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider">Purchase Orders</h3>
+                {isStaffOrAdmin && (
+                  <Button 
+                    onClick={() => setIsOpen(true)} 
+                    size="sm"
+                    className="h-7 px-2 bg-[#5c59e9] hover:bg-[#4a47d2] text-[10px] font-bold rounded-lg cursor-pointer flex items-center gap-1 text-white"
+                  >
+                    <PlusCircle size={11} />
+                    <span>Create Order</span>
+                  </Button>
+                )}
+              </div>
+
+              {/* Row 2: Search Input */}
+              <div className="relative">
+                <Search size={12} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" />
+                <input
+                  type="text"
+                  placeholder="Search orders..."
+                  value={sidebarOrderSearch}
+                  onChange={(e) => setSidebarOrderSearch(e.target.value)}
+                  className="w-full pl-7.5 pr-2.5 py-1 text-xs rounded-lg border border-slate-200 focus:outline-none focus:ring-1 focus:ring-indigo-500 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-100"
+                />
+              </div>
+
+              {/* Row 3: Select All & Delete Action */}
+              <div className="flex items-center justify-between pt-0.5">
+                {sidebarFilteredOrders.length > 0 && (
+                  <label className="flex items-center gap-1.5 cursor-pointer select-none">
+                    <input 
+                      type="checkbox"
+                      checked={sidebarFilteredOrders.length > 0 && sidebarFilteredOrders.every(o => selectedOrderIds.includes(o.id))}
+                      onChange={(e) => {
+                        if (e.target.checked) {
+                          setSelectedOrderIds(prev => {
+                            const newIds = [...prev]
+                            sidebarFilteredOrders.forEach(o => {
+                              if (!newIds.includes(o.id)) newIds.push(o.id)
+                            })
+                            return newIds
+                          })
+                        } else {
+                          setSelectedOrderIds(prev => prev.filter(id => !sidebarFilteredOrders.some(o => o.id === id)))
+                        }
+                      }}
+                      className="rounded text-[#5c59e9] focus:ring-[#5c59e9] h-3.5 w-3.5 cursor-pointer bg-white dark:bg-slate-900 border-slate-300 dark:border-slate-700"
+                    />
+                    <span className="text-[10px] font-bold text-slate-400 dark:text-slate-500">Select All</span>
+                  </label>
+                )}
+
+                {selectedOrderIds.length > 0 && isStaffOrAdmin && (
+                  <button 
+                    onClick={() => setIsBulkDeleteConfirmOpen(true)}
+                    className="text-red-500 hover:text-red-600 dark:text-red-400 dark:hover:text-red-300 font-bold text-[10px] transition-colors cursor-pointer flex items-center gap-1"
+                  >
+                    <Trash2 size={11} />
+                    <span>Delete ({selectedOrderIds.length})</span>
+                  </button>
+                )}
+              </div>
             </div>
-          </CardHeader>
-          <CardContent className="p-0">
-            <DataTable
-              headers={[
-                <div key="code" className="text-left">Order Code</div>,
-                <div key="type" className="text-center">Order Type</div>,
-                <div key="stage" className="text-center">Stage</div>,
-                <div key="items" className="text-center">Product Items</div>,
-                <div key="date" className="text-center">Order Date</div>,
-                <div key="est" className="text-center">Est. Delivery</div>,
-                <div key="act" className="text-right pr-8">Actions</div>
-              ]}
-              items={filteredOrders}
-              emptyMessage={searchQuery ? 'No orders found. Try adjusting your search query.' : 'Click Create Order to add one.'}
-              renderRow={(order) => (
-                <tr
-                  key={order.id}
-                  onClick={() => setSelectedOrder(order)}
-                  className="hover:bg-slate-50/50 dark:hover:bg-slate-900/20 cursor-pointer transition-colors"
-                >
-                  <td className="px-6 py-4 font-bold text-indigo-600 dark:text-indigo-400 hover:underline text-left">
-                    {order.order_code}
-                  </td>
-                  <td className="px-6 py-4 text-center">
-                    <Badge variant="outline" className="text-xs font-semibold capitalize bg-slate-50 dark:bg-slate-900">
-                      {formatOrderType(getOrderTypeFromItems(order.order_items))}
-                    </Badge>
-                  </td>
-                  <td className="px-6 py-4 text-center">
-                    <Badge variant="outline" className={getStageBadgeColor(order.stage)}>
-                      {order.stage}
-                    </Badge>
-                  </td>
-                  <td className="px-6 py-4">
-                    <div className="flex items-center justify-center gap-1.5">
-                      <Layers size={13} className="text-slate-400" />
-                      <span className="font-semibold text-slate-700 dark:text-slate-300">
-                        {order.order_items?.length || 0} items
+            <div className="flex-1 overflow-y-auto">
+              {sidebarFilteredOrders.length === 0 ? (
+                <div className="p-3 text-center text-xs text-slate-400">
+                  No orders found.
+                </div>
+              ) : (
+                <ul className="divide-y divide-slate-100 dark:divide-slate-800/60">
+                  {sidebarFilteredOrders.map(order => (
+                    <li key={order.id}>
+                      <button
+                        onClick={() => {
+                          if (selectedOrder?.id === order.id) {
+                            setSelectedOrder(null)
+                          } else {
+                            setSelectedOrder(order)
+                          }
+                        }}
+                        className={`w-full text-left px-3 py-3 flex items-center justify-between gap-1.5 transition-all cursor-pointer ${
+                          selectedOrder?.id === order.id
+                            ? 'bg-indigo-50/50 dark:bg-indigo-950/20'
+                            : 'hover:bg-slate-50/60 dark:hover:bg-slate-900/10'
+                        }`}
+                      >
+                        <div className="flex items-center gap-2.5 min-w-0">
+                          <div onClick={(e) => e.stopPropagation()} className="flex items-center">
+                            <input 
+                              type="checkbox"
+                              checked={selectedOrderIds.includes(order.id)}
+                              onChange={(e) => {
+                                if (e.target.checked) {
+                                  setSelectedOrderIds(prev => [...prev, order.id])
+                                } else {
+                                  setSelectedOrderIds(prev => prev.filter(id => id !== order.id))
+                                }
+                              }}
+                              className="rounded text-[#5c59e9] focus:ring-[#5c59e9] h-3.5 w-3.5 cursor-pointer bg-white dark:bg-slate-900 border-slate-300 dark:border-slate-700"
+                            />
+                          </div>
+                          <FileText size={13} className={selectedOrder?.id === order.id ? 'text-[#5c59e9] dark:text-indigo-400' : 'text-slate-400 dark:text-slate-500'} />
+                          <span className={`text-xs font-bold truncate ${
+                            selectedOrder?.id === order.id
+                              ? 'text-[#5c59e9] dark:text-indigo-400'
+                              : 'text-slate-800 dark:text-slate-200'
+                          }`}>
+                            {order.order_code}
+                          </span>
+                        </div>
+                        <ChevronRight size={12} className={selectedOrder?.id === order.id ? 'text-[#5c59e9] dark:text-indigo-400' : 'text-slate-350'} />
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          </div>
+
+          {/* Right column: main workplace card */}
+          <div className="flex flex-col h-full overflow-y-auto p-4 bg-slate-50/30 dark:bg-slate-955/10">
+            {!selectedOrder ? (
+              <Card className="border-slate-200/60 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-sm rounded-xl">
+                <CardContent className="p-12 flex flex-col items-center justify-center gap-3 text-center">
+                  <Package size={36} className="text-slate-200 dark:text-slate-700 animate-pulse" />
+                  <p className="text-sm text-slate-450 dark:text-slate-500 font-semibold">Select an order from the sidebar to begin</p>
+                </CardContent>
+              </Card>
+            ) : (
+              <Card className="border-slate-200/60 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-sm rounded-xl p-6">
+                {/* Header */}
+                <div className="flex items-center justify-between pb-4 border-b border-slate-100 dark:border-slate-800 mb-5">
+                  <div className="flex items-center gap-2">
+                    <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-indigo-50 dark:bg-indigo-950/40 text-indigo-600 dark:text-indigo-400">
+                      <Package size={14} />
+                    </span>
+                    <h2 className="text-base font-bold text-slate-900 dark:text-white">
+                      Purchase Order Details
+                    </h2>
+                  </div>
+                  {isStaffOrAdmin && (() => {
+                    const isClassified = selectedOrder.stage !== 'Order' && 
+                                         selectedOrder.stage !== 'Order Intake' && 
+                                         selectedOrder.stage !== 'Pending Classification'
+                    return (
+                      <Button 
+                        size="sm" 
+                        onClick={() => handleStartEdit(selectedOrder)} 
+                        disabled={isClassified}
+                        title={isClassified ? "Classified orders cannot be edited" : undefined}
+                        className="bg-indigo-600 hover:bg-indigo-700 text-white cursor-pointer h-8 text-xs font-semibold px-4 rounded-lg disabled:opacity-50 disabled:cursor-not-allowed"
+                      >
+                        Edit Order
+                      </Button>
+                    )
+                  })()}
+                </div>
+
+                <div className="space-y-6">
+                  {/* Order Meta Info */}
+                  <div className="grid grid-cols-2 gap-5 border-b border-slate-100 dark:border-slate-800 pb-5 text-xs sm:text-sm">
+                    <div>
+                      <span className="text-slate-400 block mb-0.5 font-medium">Order Code</span>
+                      <span className="font-bold text-slate-900 dark:text-white text-sm sm:text-base">{selectedOrder.order_code}</span>
+                    </div>
+                    <div>
+                      <span className="text-slate-400 block mb-0.5 font-medium">Order Type</span>
+                      <span className="font-bold text-slate-800 dark:text-slate-200 text-sm sm:text-base">{formatOrderType(getOrderTypeFromItems(selectedOrder.order_items))}</span>
+                    </div>
+                    <div>
+                      <span className="text-slate-400 block mb-0.5 font-medium">Order Date</span>
+                      <span className="font-semibold text-slate-700 dark:text-slate-300 text-sm sm:text-base">
+                        {selectedOrder.order_date ? new Date(selectedOrder.order_date).toLocaleDateString('en-US', {
+                          year: 'numeric',
+                          month: 'short',
+                          day: 'numeric'
+                        }) : '-'}
                       </span>
                     </div>
-                  </td>
-                  <td className="px-6 py-4 text-slate-500 text-center">
-                    {order.order_date ? new Date(order.order_date).toLocaleDateString('en-US', {
-                      year: 'numeric',
-                      month: 'short',
-                      day: 'numeric'
-                    }) : '-'}
-                  </td>
-                  <td className="px-6 py-4 text-slate-500 font-medium text-center">
-                    {order.estimated_delivery_date ? new Date(order.estimated_delivery_date).toLocaleDateString('en-US', {
-                      year: 'numeric',
-                      month: 'short',
-                      day: 'numeric'
-                    }) : '-'}
-                  </td>
-                  <td className="px-6 py-4 text-right pr-8" onClick={(e) => e.stopPropagation()}>
-                    <div className="flex justify-end gap-1.5">
-                      {isStaffOrAdmin && (
-                        <>
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            onClick={() => handleStartEdit(order)}
-                            className="h-8 w-8 p-0 text-indigo-600 dark:text-indigo-400 hover:text-indigo-700 hover:bg-indigo-50 border-indigo-100 dark:border-indigo-900/40 cursor-pointer rounded-lg"
-                            title="Update Order"
+                    <div>
+                      <span className="text-slate-400 block mb-0.5 font-medium">Est. Delivery Date</span>
+                      <span className="font-semibold text-slate-700 dark:text-slate-300 text-sm sm:text-base">
+                        {selectedOrder.estimated_delivery_date ? new Date(selectedOrder.estimated_delivery_date).toLocaleDateString('en-US', {
+                          year: 'numeric',
+                          month: 'short',
+                          day: 'numeric'
+                        }) : '-'}
+                      </span>
+                    </div>
+                    <div>
+                      <span className="text-slate-400 block mb-0.5 font-medium">Status Stage</span>
+                      <Badge variant="outline" className={`mt-0.5 text-xs px-2.5 py-0.5 ${getStageBadgeColor(selectedOrder.stage)}`}>
+                        {selectedOrder.stage}
+                      </Badge>
+                    </div>
+                  </div>
+
+                  {/* Delivery & Stage Timeline */}
+                  <div className="border-b border-slate-100 dark:border-slate-800 pb-6 overflow-x-auto no-scrollbar">
+                    <span className="text-slate-400 block mb-3 font-bold text-[10px] uppercase tracking-wider">Order Sourcing & Delivery Timeline</span>
+                    {(() => {
+                      const start = selectedOrder.order_date ? new Date(selectedOrder.order_date).getTime() : 0
+                      const end = selectedOrder.estimated_delivery_date ? new Date(selectedOrder.estimated_delivery_date).getTime() : 0
+                      const now = new Date().getTime()
+                      
+                      if (!start || !end) return <span className="text-xs text-slate-400">Timeline not available</span>
+                      
+                      const total = end - start
+                      if (total <= 0) return <span className="text-xs text-slate-400">Invalid dates</span>
+                      
+                      let progressPct = ((now - start) / total) * 100
+                      progressPct = Math.max(0, Math.min(100, progressPct))
+                      
+                      const daysLeft = Math.ceil((end - now) / (1000 * 60 * 60 * 24))
+                      const daysElapsed = Math.floor((now - start) / (1000 * 60 * 60 * 24))
+                      const stages = [
+                        { name: 'Order' },
+                        { name: 'Sourcing' },
+                        { name: 'QC' },
+                        { name: 'Create PO' },
+                        { name: 'Inspection' },
+                        { name: 'Logistic' },
+                        { name: 'Production' },
+                        { name: 'Order Done' }
+                      ]
+                      
+                      const getStageIndex = (stg: string) => {
+                        const s = stg ? stg.toLowerCase() : ''
+                        if (s.includes('definition') || s.includes('draft') || s.includes('order')) return 0
+                        if (s.includes('sourcing')) return 1
+                        if (s.includes('audit') || s.includes('qc')) return 2
+                        if (s.includes('ready') || s.includes('po')) return 3
+                        if (s.includes('inspection passed') || s.includes('inspection_passed')) return 5
+                        if (s.includes('inspection') || s.includes('port')) return 4
+                        if (s.includes('logistics') || s.includes('inbound') || s.includes('logistic')) return 5
+                        if (s.includes('production') || s.includes('run') || s.includes('stock') || s.includes('assemble')) return 6
+                        if (s.includes('closed') || s.includes('completed') || s.includes('done')) return 7
+                        return 1
+                      }
+                      
+                      const activeIdx = getStageIndex(selectedOrder.stage)
+                      const stageProgressPct = (activeIdx / (stages.length - 1)) * 100
+                      
+                      return (
+                        <div className="space-y-4 py-2 px-1 min-w-[700px]">
+                          <div className="relative flex items-center justify-between w-full h-14">
+                            <div className="absolute left-[40px] right-[40px] top-7 h-1 bg-slate-100 dark:bg-slate-800 z-0 rounded-full border border-slate-200/20" />
+                            <div 
+                              className="absolute left-[40px] top-7 h-1 bg-[#5c59e9] transition-all duration-500 z-0 rounded-full"
+                              style={{ width: `calc((100% - 80px) * (${stageProgressPct} / 100))` }}
+                            />
+                            
+                            {stages.map((stage, idx) => {
+                              const isCompleted = idx < activeIdx
+                              const isActive = idx === activeIdx
+                              
+                              return (
+                                <div key={idx} className="relative flex flex-col items-center z-10 w-20">
+                                  <div 
+                                    className={`h-7 w-7 rounded-full flex items-center justify-center text-[10px] font-bold border transition-all duration-300 ${
+                                      isCompleted 
+                                        ? 'bg-[#5c59e9] border-[#5c59e9] text-white shadow-sm'
+                                        : isActive
+                                        ? 'bg-[#5c59e9] border-2 border-white text-white dark:border-slate-900 shadow-md ring-4 ring-indigo-100 dark:ring-indigo-950/40 scale-105'
+                                        : 'bg-white border-2 border-slate-200 text-slate-400 dark:bg-slate-900 dark:border-slate-800'
+                                    }`}
+                                  >
+                                    {isCompleted ? (
+                                      <svg xmlns="http://www.w3.org/2000/svg" className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3.5}>
+                                        <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                                      </svg>
+                                    ) : isActive ? (
+                                      <span>{idx + 1}</span>
+                                    ) : (
+                                      <span className="opacity-40">{idx + 1}</span>
+                                    )}
+                                  </div>
+                                  <div className="absolute top-9 text-center w-24">
+                                    <span 
+                                      className={`block text-[10px] font-bold tracking-tight transition-colors duration-300 ${
+                                        isActive 
+                                          ? 'text-[#5c59e9]' 
+                                          : isCompleted 
+                                          ? 'text-slate-800 dark:text-slate-200 font-bold' 
+                                          : 'text-slate-400'
+                                      }`}
+                                    >
+                                      {stage.name}
+                                    </span>
+                                  </div>
+                                </div>
+                              )
+                            })}
+                          </div>
+                          <div className="flex items-center justify-between text-[11px] text-slate-500 font-semibold pt-3 px-1 border-t border-slate-100 dark:border-slate-800/60 mt-2">
+                            <span>Started: {selectedOrder.order_date ? new Date(selectedOrder.order_date).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' }) : '-'} ({daysElapsed}d elapsed)</span>
+                            <span className="text-[#5c59e9] font-bold">
+                              {daysLeft > 0 ? `${daysLeft} days remaining` : `Target Date Reached / Passed`}
+                            </span>
+                            <span>Delivery: {selectedOrder.estimated_delivery_date ? new Date(selectedOrder.estimated_delivery_date).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' }) : '-'}</span>
+                          </div>
+                        </div>
+                      )
+                    })()}
+                  </div>
+
+                  {/* Products Included */}
+                  <div className="space-y-3">
+                    <span className="text-xs font-bold text-slate-400 uppercase tracking-wider block">
+                      Products Included ({selectedOrder.order_items?.length || 0})
+                    </span>
+                    <div className="space-y-3 max-h-[300px] overflow-y-auto pr-1">
+                      {!selectedOrder.order_items || selectedOrder.order_items.length === 0 ? (
+                        <p className="text-sm text-slate-400 text-center py-6 italic">No items listed for this order.</p>
+                      ) : (
+                        selectedOrder.order_items.map((item) => (
+                          <div
+                            key={item.id}
+                            className="p-4 bg-slate-50 dark:bg-slate-900/40 rounded-xl border border-slate-100 dark:border-slate-800/80 grid grid-cols-3 items-center gap-4 text-sm"
                           >
-                            <Edit3 size={14} />
-                          </Button>
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            onClick={() => setDeletingOrder(order)}
-                            className="h-8 w-8 p-0 text-red-600 dark:text-red-400 hover:text-red-700 hover:bg-red-50 border-red-100 dark:border-red-900/40 cursor-pointer rounded-lg"
-                            title="Delete Order"
-                          >
-                            <Trash2 size={14} />
-                          </Button>
-                        </>
+                            <div className="space-y-1">
+                              <span className="text-[10px] text-slate-400 font-semibold block uppercase tracking-wider">Product Item</span>
+                              <p className="font-bold text-slate-900 dark:text-white text-base">
+                                {item.item_name}
+                              </p>
+                              {item.spec_file_url && (
+                                <div className="flex flex-col gap-1.5 mt-1" onClick={(e) => e.stopPropagation()}>
+                                  {parseSpecFileUrls(item.spec_file_url).map((url, urlIdx) => (
+                                    <a
+                                      key={urlIdx}
+                                      href={url}
+                                      target="_blank"
+                                      rel="noopener noreferrer"
+                                      className="flex items-center gap-1.5 text-xs text-indigo-600 hover:text-indigo-800 dark:text-indigo-400 dark:hover:text-indigo-300 hover:underline font-medium"
+                                    >
+                                      <FileText size={13} className="text-indigo-400 shrink-0" />
+                                      <span className="truncate max-w-[100px] sm:max-w-[140px]">{getFilenameFromUrl(url)}</span>
+                                    </a>
+                                  ))}
+                                </div>
+                              )}
+                            </div>
+                            <div className="flex flex-col items-center justify-center text-center">
+                              <span className="text-[10px] text-slate-400 font-semibold block uppercase tracking-wider mb-1">Item Type</span>
+                              <Badge variant="outline" className={`text-[10px] font-bold px-2.5 py-0.5 uppercase tracking-wide ${
+                                item.item_type === 'MATERIAL'
+                                  ? 'bg-sky-50 text-sky-700 border-sky-200 dark:bg-sky-950/20 dark:text-sky-400 dark:border-sky-900'
+                                  : (item.item_type === 'FINISHED_GOODS' || item.item_type === 'PRODUCT')
+                                  ? 'bg-violet-50 text-violet-700 border-violet-200 dark:bg-violet-950/20 dark:text-violet-400 dark:border-violet-900'
+                                  : 'bg-amber-50 text-amber-700 border-amber-200 dark:bg-amber-950/20 dark:text-amber-400 dark:border-amber-900'
+                              }`}>
+                                {item.item_type === 'MATERIAL' ? 'Material' : (item.item_type === 'FINISHED_GOODS' || item.item_type === 'PRODUCT') ? 'Product' : 'Pending'}
+                              </Badge>
+                            </div>
+                            <div className="text-right">
+                              <span className="text-[10px] text-slate-400 font-semibold block uppercase tracking-wider mb-0.5">Quantity</span>
+                              <span className="font-extrabold text-slate-900 dark:text-white text-base sm:text-lg">
+                                {item.quantity} <span className="text-xs font-semibold text-slate-500 dark:text-slate-400">{item.uom || 'pcs'}</span>
+                              </span>
+                            </div>
+                          </div>
+                        ))
                       )}
                     </div>
-                  </td>
-                </tr>
-              )}
-            />
-          </CardContent>
-        </Card>
+                  </div>
+                </div>
+              </Card>
+            )}
+          </div>
+        </div>
       </TabsContent>
       </Tabs>
 
@@ -1172,9 +1487,11 @@ export function OrdersClient({ initialOrders }: OrdersClientProps) {
                   <option value="Order">Order</option>
                   <option value="Sourcing">Sourcing</option>
                   <option value="QC">QC</option>
+                  <option value="Ready for PO">Ready for PO</option>
                   <option value="Inspection">Inspection</option>
                   <option value="Logistic">Logistic</option>
                   <option value="Production">Production</option>
+                  <option value="Closed">Order Done</option>
                 </select>
               </div>
 
@@ -1478,273 +1795,47 @@ export function OrdersClient({ initialOrders }: OrdersClientProps) {
         </div>
       )}
 
-      {/* DETAILS VIEW Dialog Modal */}
-      {selectedOrder && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-xs p-4 overflow-y-auto">
-          <div className="w-full max-w-4xl bg-white dark:bg-slate-900 rounded-xl p-6 shadow-xl border border-slate-200 dark:border-slate-800 animate-in zoom-in-95 duration-150 relative">
-            <button
-              onClick={() => setSelectedOrder(null)}
-              className="absolute top-4 right-4 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 cursor-pointer"
-            >
-              <X size={18} />
-            </button>
+      {/* BULK DELETE CONFIRMATION Dialog Overlay */}
+      {isBulkDeleteConfirmOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-xs p-4">
+          <div className="w-full max-w-md bg-white dark:bg-slate-900 rounded-xl p-6 shadow-xl border border-slate-200 dark:border-slate-800 animate-in fade-in zoom-in-95 duration-150 relative">
+            <h3 className="text-base font-bold text-slate-900 dark:text-white mb-2 flex items-center gap-2">
+              <AlertCircle className="text-rose-500 shrink-0" size={20} />
+              <span>Delete {selectedOrderIds.length} Purchase Orders</span>
+            </h3>
 
-            <div className="flex items-center gap-2 mb-3">
-              <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-indigo-50 dark:bg-indigo-950/40 text-indigo-600 dark:text-indigo-400">
-                <Package size={14} />
-              </span>
-              <h2 className="text-base font-bold text-slate-900 dark:text-white">
-                Purchase Order Details
-              </h2>
-            </div>
+            <p className="text-xs text-slate-500 dark:text-slate-400 leading-relaxed mb-4">
+              Are you sure you want to delete the <span className="font-bold text-slate-900 dark:text-white">{selectedOrderIds.length} selected purchase orders</span>? 
+              This will permanently delete all selected purchase orders and all of their related product item specs from the database. This action cannot be undone.
+            </p>
 
-            {/* Order Meta Info */}
-            <div className="grid grid-cols-2 gap-5 border-b border-slate-100 dark:border-slate-800 pb-5 mb-5 text-xs sm:text-sm">
-              <div>
-                <span className="text-slate-400 block mb-0.5 font-medium">Order Code</span>
-                <span className="font-bold text-slate-900 dark:text-white text-sm sm:text-base">{selectedOrder.order_code}</span>
-              </div>
-              <div>
-                <span className="text-slate-400 block mb-0.5 font-medium">Order Type</span>
-                <span className="font-bold text-slate-800 dark:text-slate-200 text-sm sm:text-base">{formatOrderType(getOrderTypeFromItems(selectedOrder.order_items))}</span>
-              </div>
-              <div>
-                <span className="text-slate-400 block mb-0.5 font-medium">Order Date</span>
-                <span className="font-semibold text-slate-700 dark:text-slate-300 text-sm sm:text-base">
-                  {selectedOrder.order_date ? new Date(selectedOrder.order_date).toLocaleDateString('en-US', {
-                    year: 'numeric',
-                    month: 'short',
-                    day: 'numeric'
-                  }) : '-'}
-                </span>
-              </div>
-              <div>
-                <span className="text-slate-400 block mb-0.5 font-medium">Est. Delivery Date</span>
-                <span className="font-semibold text-slate-700 dark:text-slate-300 text-sm sm:text-base">
-                  {selectedOrder.estimated_delivery_date ? new Date(selectedOrder.estimated_delivery_date).toLocaleDateString('en-US', {
-                    year: 'numeric',
-                    month: 'short',
-                    day: 'numeric'
-                  }) : '-'}
-                </span>
-              </div>
-              <div>
-                <span className="text-slate-400 block mb-0.5 font-medium">Status Stage</span>
-                <Badge variant="outline" className={`mt-0.5 text-xs px-2.5 py-0.5 ${getStageBadgeColor(selectedOrder.stage)}`}>
-                  {selectedOrder.stage}
-                </Badge>
-              </div>
-              {/* Unified Delivery & Stage Timeline (Timeline for Accord style) */}
-              <div className="col-span-2 pt-5 border-t border-slate-100 dark:border-slate-800/80 overflow-x-auto no-scrollbar">
-                <span className="text-slate-400 block mb-3 font-bold text-[10px] uppercase tracking-wider">Order Sourcing & Delivery Timeline</span>
-                {(() => {
-                  const start = selectedOrder.order_date ? new Date(selectedOrder.order_date).getTime() : 0
-                  const end = selectedOrder.estimated_delivery_date ? new Date(selectedOrder.estimated_delivery_date).getTime() : 0
-                  const now = new Date().getTime()
-                  
-                  if (!start || !end) return <span className="text-xs text-slate-400">Timeline not available</span>
-                  
-                  const total = end - start
-                  if (total <= 0) return <span className="text-xs text-slate-400">Invalid dates</span>
-                  
-                  let progressPct = ((now - start) / total) * 100
-                  progressPct = Math.max(0, Math.min(100, progressPct))
-                  
-                  const daysLeft = Math.ceil((end - now) / (1000 * 60 * 60 * 24))
-                  const daysElapsed = Math.floor((now - start) / (1000 * 60 * 60 * 24))
-                                 const stages = [
-                    { name: 'Order' },
-                    { name: 'Sourcing' },
-                    { name: 'QC' },
-                    { name: 'Inspection' },
-                    { name: 'Logistic' },
-                    { name: 'Production' }
-                  ]
-                  
-                  const getStageIndex = (stg: string) => {
-                    const s = stg ? stg.toLowerCase() : ''
-                    if (s.includes('definition') || s.includes('draft') || s.includes('order')) return 0
-                    if (s.includes('sourcing')) return 1
-                    if (s.includes('audit') || s.includes('qc')) return 2
-                    if (s.includes('inspection') || s.includes('port')) return 3
-                    if (s.includes('logistics') || s.includes('inbound') || s.includes('logistic')) return 4
-                    if (s.includes('production') || s.includes('run') || s.includes('completed')) return 5
-                    return 1 // default Sourcing
+            <div className="flex justify-end gap-2 pt-3 border-t border-slate-100 dark:border-slate-800">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setIsBulkDeleteConfirmOpen(false)}
+                disabled={isBulkDeleting}
+                className="cursor-pointer"
+              >
+                Cancel
+              </Button>
+              <Button
+                size="sm"
+                onClick={async () => {
+                  setIsBulkDeleting(true)
+                  const result = await deleteOrdersBatchAction(selectedOrderIds)
+                  setIsBulkDeleting(false)
+                  if (result.success) {
+                    setSelectedOrderIds([])
+                    setIsBulkDeleteConfirmOpen(false)
+                  } else {
+                    alert(result.error || 'Failed to delete selected orders.')
                   }
-                  
-                  const activeIdx = getStageIndex(selectedOrder.stage)
-                  const stageProgressPct = (activeIdx / (stages.length - 1)) * 100
-                  
-                  const getStageDate = (idx: number) => {
-                    const stageName = stages[idx].name.toLowerCase()
-                    const timelineRecord = selectedOrder.order_stage_timelines?.find(
-                      t => t.stage_name.toLowerCase() === stageName
-                    )
-                    
-                    if (timelineRecord && timelineRecord.estimated_end_date) {
-                      return new Date(timelineRecord.estimated_end_date).toLocaleDateString('en-US', {
-                        month: 'short',
-                        day: 'numeric'
-                      })
-                    }
-                    
-                    // Fallback to old interpolated logic
-                    const time = start + (end - start) * (idx / 5)
-                    return new Date(time).toLocaleDateString('en-US', {
-                      month: 'short',
-                      day: 'numeric'
-                    })
-                  }
-                  
-                  return (
-                    <div className="space-y-4 py-2 px-1 min-w-[700px]">
-                      {/* Timeline graphic container */}
-                      <div className="relative flex items-center justify-between w-full h-16">
-                        {/* Connecting Line Track (Background) */}
-                        <div className="absolute left-5 right-5 top-7 h-1 bg-slate-100 dark:bg-slate-800 z-0 rounded-full border border-slate-200/20" />
-                        
-                        {/* Active Connecting Line Highlight */}
-                        <div 
-                          className="absolute left-5 top-7 h-1 bg-[#5c59e9] transition-all duration-500 z-0 rounded-full"
-                          style={{ width: `calc((100% - 40px) * (${stageProgressPct} / 100))` }}
-                        />
-                        
-                        {stages.map((stage, idx) => {
-                          const isCompleted = idx < activeIdx
-                          const isActive = idx === activeIdx
-                          
-                          return (
-                            <div key={idx} className="relative flex flex-col items-center z-10 w-20">
-                              {/* Top Row: Date Label */}
-                              <div className="absolute -top-5 text-center">
-                                <span className={`text-[9px] font-bold ${isActive ? 'text-[#5c59e9] font-black' : 'text-slate-500'}`}>
-                                  {getStageDate(idx)}
-                                </span>
-                              </div>
- 
-                              {/* Middle Row: Circle Node */}
-                              <div 
-                                className={`h-7 w-7 rounded-full flex items-center justify-center text-[10px] font-bold border transition-all duration-300 ${
-                                  isCompleted 
-                                    ? 'bg-[#5c59e9] border-[#5c59e9] text-white shadow-sm'
-                                    : isActive
-                                    ? 'bg-[#5c59e9] border-2 border-white text-white dark:border-slate-900 shadow-md ring-4 ring-indigo-100 dark:ring-indigo-950/40 scale-105'
-                                    : 'bg-white border-2 border-slate-200 text-slate-400 dark:bg-slate-900 dark:border-slate-800'
-                                }`}
-                              >
-                                {isCompleted ? (
-                                  <svg xmlns="http://www.w3.org/2000/svg" className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3.5}>
-                                    <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
-                                  </svg>
-                                ) : isActive ? (
-                                  <span>{idx + 1}</span>
-                                ) : (
-                                  <span className="opacity-40">{idx + 1}</span>
-                                )}
-                              </div>
-
-                              {/* Bottom Row: Stage Details */}
-                              <div className="absolute top-9 text-center w-24">
-                                <span 
-                                  className={`block text-[10px] font-bold tracking-tight transition-colors duration-300 ${
-                                    isActive 
-                                      ? 'text-[#5c59e9]' 
-                                      : isCompleted 
-                                      ? 'text-slate-800 dark:text-slate-200 font-bold' 
-                                      : 'text-slate-400'
-                                  }`}
-                                >
-                                  {stage.name}
-                                </span>
-                              </div>
-                            </div>
-                          )
-                        })}
-                      </div>
-                      
-                      {/* Summary Text Info below the graphic */}
-                      <div className="flex items-center justify-between text-[11px] text-slate-500 font-semibold pt-3 px-1 border-t border-slate-100 dark:border-slate-800/60 mt-2">
-                        <span>Started: {selectedOrder.order_date ? new Date(selectedOrder.order_date).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' }) : '-'} ({daysElapsed}d elapsed)</span>
-                        <span className="text-[#5c59e9] font-bold">
-                          {daysLeft > 0 ? `${daysLeft} days remaining` : `Target Date Reached / Passed`}
-                        </span>
-                        <span>Delivery: {selectedOrder.estimated_delivery_date ? new Date(selectedOrder.estimated_delivery_date).toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' }) : '-'}</span>
-                      </div>
-                    </div>
-                  )
-                })()}
-              </div>
-            </div>
-
-            {/* Items List */}
-            <div className="space-y-3">
-              <span className="text-xs font-bold text-slate-400 uppercase tracking-wider block">
-                Products Included ({selectedOrder.order_items?.length || 0})
-              </span>
-
-              <div className="space-y-3 max-h-[300px] overflow-y-auto pr-1">
-                {!selectedOrder.order_items || selectedOrder.order_items.length === 0 ? (
-                  <p className="text-sm text-slate-400 text-center py-6 italic">No items listed for this order.</p>
-                ) : (
-                  selectedOrder.order_items.map((item) => (
-                    <div
-                      key={item.id}
-                      className="p-4 bg-slate-50 dark:bg-slate-900/40 rounded-xl border border-slate-100 dark:border-slate-800/80 grid grid-cols-3 items-center gap-4 text-sm"
-                    >
-                      {/* Column 1: Product Item Name & Specs */}
-                      <div className="space-y-1">
-                        <span className="text-[10px] text-slate-400 font-semibold block uppercase tracking-wider">Product Item</span>
-                        <p className="font-bold text-slate-900 dark:text-white text-base">
-                          {item.item_name}
-                        </p>
-                        {item.spec_file_url && (
-                          <div className="flex flex-col gap-1.5 mt-1" onClick={(e) => e.stopPropagation()}>
-                            {parseSpecFileUrls(item.spec_file_url).map((url, urlIdx) => (
-                              <a
-                                key={urlIdx}
-                                href={url}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                className="flex items-center gap-1.5 text-xs text-indigo-600 hover:text-indigo-800 dark:text-indigo-400 dark:hover:text-indigo-300 hover:underline font-medium"
-                              >
-                                <FileText size={13} className="text-indigo-400 shrink-0" />
-                                <span className="truncate max-w-[100px] sm:max-w-[140px]">{getFilenameFromUrl(url)}</span>
-                              </a>
-                            ))}
-                          </div>
-                        )}
-                      </div>
-
-                      {/* Column 2: Classification Type */}
-                      <div className="flex flex-col items-center justify-center text-center">
-                        <span className="text-[10px] text-slate-400 font-semibold block uppercase tracking-wider mb-1">Item Type</span>
-                        <Badge variant="outline" className={`text-[10px] font-bold px-2.5 py-0.5 uppercase tracking-wide ${
-                          item.item_type === 'MATERIAL'
-                            ? 'bg-sky-50 text-sky-700 border-sky-200 dark:bg-sky-950/20 dark:text-sky-400 dark:border-sky-900'
-                            : (item.item_type === 'FINISHED_GOODS' || item.item_type === 'PRODUCT')
-                            ? 'bg-violet-50 text-violet-700 border-violet-200 dark:bg-violet-950/20 dark:text-violet-400 dark:border-violet-900'
-                            : 'bg-amber-50 text-amber-700 border-amber-200 dark:bg-amber-950/20 dark:text-amber-400 dark:border-amber-900'
-                        }`}>
-                          {item.item_type === 'MATERIAL' ? 'Material' : (item.item_type === 'FINISHED_GOODS' || item.item_type === 'PRODUCT') ? 'Product' : 'Pending'}
-                        </Badge>
-                      </div>
-
-                      {/* Column 3: Quantity */}
-                      <div className="text-right">
-                        <span className="text-[10px] text-slate-400 font-semibold block uppercase tracking-wider mb-0.5">Quantity</span>
-                        <span className="font-extrabold text-slate-900 dark:text-white text-base sm:text-lg">
-                          {item.quantity} <span className="text-xs font-semibold text-slate-500 dark:text-slate-400">{item.uom || 'pcs'}</span>
-                        </span>
-                      </div>
-                    </div>
-                  ))
-                )}
-              </div>
-            </div>
-
-            <div className="flex justify-end pt-4 border-t border-slate-100 dark:border-slate-800 mt-4">
-              <Button size="sm" onClick={() => setSelectedOrder(null)} className="w-full bg-slate-900 hover:bg-slate-800 dark:bg-slate-800 dark:hover:bg-slate-700">
-                Close
+                }}
+                className="bg-rose-600 hover:bg-rose-700 text-white border-rose-600 cursor-pointer"
+                disabled={isBulkDeleting}
+              >
+                {isBulkDeleting ? 'Deleting...' : 'Yes, Delete Selected'}
               </Button>
             </div>
           </div>

@@ -12,14 +12,14 @@ export default function DashboardLayout({ children }: DashboardLayoutProps) {
   return (
     <SourcingProvider>
       <AuthGuard>
-        <div className="flex h-screen w-screen overflow-hidden bg-slate-50 dark:bg-slate-950">
+        <div className="flex h-screen w-full overflow-hidden bg-slate-50 dark:bg-slate-955">
           {/* Sidebar (Left Sidebar Panel) */}
-          <Suspense fallback={<aside className="hidden w-72 bg-[#100e2b] md:flex border-r border-[#1e1b4b]" />}>
+          <Suspense fallback={<aside className="hidden w-[70px] bg-white dark:bg-slate-955 md:flex border-r border-slate-200/80 dark:border-slate-800/80" />}>
             <Sidebar />
           </Suspense>
 
           {/* Content Area (Right Area wrapper) */}
-          <div className="flex flex-1 flex-col overflow-hidden">
+          <div className="flex flex-1 flex-col h-full overflow-hidden bg-slate-50 dark:bg-slate-950">
             {/* Header (Top Navbar) */}
             <Header />
 

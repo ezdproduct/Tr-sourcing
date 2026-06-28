@@ -188,6 +188,16 @@ export async function deleteOrderAction(orderId: string) {
   try {
     const supabase = await createClient()
 
+    // Unassign related supplier bids first so they are preserved
+    const { error: unassignError } = await supabase
+      .from('order_suppliers')
+      .update({ order_id: null, order_item_id: null })
+      .eq('order_id', orderId)
+
+    if (unassignError) {
+      console.warn('Could not unassign some supplier bids:', unassignError.message)
+    }
+
     const { error } = await supabase
       .from('orders')
       .delete()
@@ -205,6 +215,39 @@ export async function deleteOrderAction(orderId: string) {
     return { success: true }
   } catch (error: any) {
     console.error('Server Action delete uncaught error:', error)
+    return { success: false, error: error.message || 'An unexpected error occurred' }
+  }
+}
+
+export async function deleteOrdersBatchAction(orderIds: string[]) {
+  try {
+    const supabase = await createClient()
+
+    // Unassign related supplier bids first so they are preserved
+    const { error: unassignError } = await supabase
+      .from('order_suppliers')
+      .update({ order_id: null, order_item_id: null })
+      .in('order_id', orderIds)
+
+    if (unassignError) {
+      console.warn('Could not unassign some supplier bids batch:', unassignError.message)
+    }
+
+    const { error } = await supabase
+      .from('orders')
+      .delete()
+      .in('id', orderIds)
+
+    if (error) {
+      console.error('Database batch delete error:', error.message)
+      return { success: false, error: error.message }
+    }
+
+    revalidatePath('/orders')
+    revalidatePath('/sourcing')
+    return { success: true }
+  } catch (error: any) {
+    console.error('Server Action batch delete uncaught error:', error)
     return { success: false, error: error.message || 'An unexpected error occurred' }
   }
 }

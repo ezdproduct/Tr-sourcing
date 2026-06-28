@@ -133,13 +133,15 @@ export function AuditClient({
   const [subtab, setSubtab] = useState<'overview' | 'workplace'>(initialSubtab)
   const [overviewMode, setOverviewMode] = useState<'analytics' | 'kanban'>('analytics')
 
+  const subtabParam = searchParams.get('subtab')
+
   useEffect(() => {
-    const tab = searchParams.get('subtab')
-    if (tab === 'overview' || tab === 'workplace') {
-      // eslint-disable-next-line react-hooks/set-state-in-effect
-      setSubtab(tab)
+    if (subtabParam === 'overview' || subtabParam === 'workplace') {
+      setSubtab(subtabParam)
+    } else {
+      setSubtab('overview')
     }
-  }, [searchParams])
+  }, [subtabParam])
 
   const handleTabChange = (val: 'overview' | 'workplace') => {
     setSubtab(val)
@@ -379,45 +381,42 @@ export function AuditClient({
 
   return (
     <div className="space-y-6">
+      {/* Controls Row */}
+      {subtab === 'overview' && (
+        <div className="flex justify-end items-center gap-4">
+          <div className="flex items-center gap-1 bg-slate-100/80 dark:bg-slate-900/60 p-1 rounded-xl border border-slate-200/50 dark:border-slate-800/80">
+            <Button
+              variant={overviewMode === 'analytics' ? 'secondary' : 'ghost'}
+              size="sm"
+              onClick={() => setOverviewMode('analytics')}
+              className={`text-xs font-semibold px-4 py-1.5 h-8 rounded-lg cursor-pointer transition-all ${
+                overviewMode === 'analytics'
+                  ? 'bg-white text-[#5c59e9] shadow-sm dark:bg-slate-800 dark:text-slate-900'
+                  : 'text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white'
+              }`}
+            >
+              <span>Analytics View</span>
+            </Button>
+            <Button
+              variant={overviewMode === 'kanban' ? 'secondary' : 'ghost'}
+              size="sm"
+              onClick={() => setOverviewMode('kanban')}
+              className={`text-xs font-semibold px-4 py-1.5 h-8 rounded-lg cursor-pointer transition-all ${
+                overviewMode === 'kanban'
+                  ? 'bg-white text-[#5c59e9] shadow-sm dark:bg-slate-800 dark:text-slate-900'
+                  : 'text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white'
+              }`}
+            >
+              <span>Kanban Board</span>
+            </Button>
+          </div>
+        </div>
+      )}
 
       {/* Subtab Switcher */}
       <Tabs value={subtab} className="w-full space-y-6">
 
         <TabsContent value="overview" className="space-y-6 mt-0 border-none p-0 focus-visible:ring-0 focus-visible:ring-offset-0">
-          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 bg-slate-50/50 dark:bg-slate-900/10 p-4 rounded-2xl border border-slate-100 dark:border-slate-800/60">
-            <div className="space-y-0.5">
-              <h2 className="text-sm font-bold text-slate-950 dark:text-slate-50">Audit Overview</h2>
-              <p className="text-xs text-slate-400 dark:text-slate-500 font-medium">
-                Monitor key metrics and track purchase order lifecycle stages in real-time.
-              </p>
-            </div>
-            <div className="flex items-center gap-1 bg-slate-100 dark:bg-slate-955 p-1 rounded-xl self-start sm:self-auto border border-slate-200/50 dark:border-slate-800/80">
-              <Button
-                variant={overviewMode === 'analytics' ? 'secondary' : 'ghost'}
-                size="sm"
-                onClick={() => setOverviewMode('analytics')}
-                className={`text-xs font-semibold px-4 py-1.5 h-8 rounded-lg cursor-pointer transition-all ${
-                  overviewMode === 'analytics'
-                    ? 'bg-white text-[#5c59e9] shadow-sm dark:bg-slate-900 dark:text-white'
-                    : 'text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white'
-                }`}
-              >
-                <span>Analytics View</span>
-              </Button>
-              <Button
-                variant={overviewMode === 'kanban' ? 'secondary' : 'ghost'}
-                size="sm"
-                onClick={() => setOverviewMode('kanban')}
-                className={`text-xs font-semibold px-4 py-1.5 h-8 rounded-lg cursor-pointer transition-all ${
-                  overviewMode === 'kanban'
-                    ? 'bg-white text-[#5c59e9] shadow-sm dark:bg-slate-900 dark:text-white'
-                    : 'text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white'
-                }`}
-              >
-                <span>Kanban Board</span>
-              </Button>
-            </div>
-          </div>
 
           {overviewMode === 'analytics' ? (
             <div className="space-y-6 animate-in fade-in duration-300">
@@ -724,7 +723,7 @@ export function AuditClient({
                 <span key="actions" className="sr-only">Actions</span>
               ]}
               items={filteredSuppliers}
-              emptyMessage="No shortlisted suppliers found. Go to the Supplier Sourcing page and add suppliers to your shortlist in Phase 2."
+              emptyMessage="No shortlisted suppliers found. Go to the Sourcing Management page and add suppliers to your shortlist in Phase 2."
               renderRow={(supplier) => {
                 const activeAudit = auditByOrderAndSupplier.get(`${supplier.order_id}-${supplier.id}`)
                 const status = activeAudit ? activeAudit.audit_status : 'Not Requested'
@@ -783,8 +782,10 @@ export function AuditClient({
                             setSelectedSupplier(supplier)
                             setIsScheduleModalOpen(true)
                           }}
+                          disabled={status === 'Not Requested'}
+                          title={status === 'Not Requested' ? "Shortlist not sent to QC yet" : undefined}
                           size="sm"
-                          className="bg-[#5c59e9] hover:bg-[#4a47d2] font-semibold text-xs py-1.5 h-8 rounded-lg cursor-pointer"
+                          className="bg-[#5c59e9] hover:bg-[#4a47d2] font-semibold text-xs py-1.5 h-8 rounded-lg cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
                         >
                           {status === 'Pending QC Assignment' ? 'Assign & Schedule' : 'Schedule Audit'}
                         </Button>

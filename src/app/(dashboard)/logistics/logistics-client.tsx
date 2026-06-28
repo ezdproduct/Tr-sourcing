@@ -20,7 +20,11 @@ import {
   RefreshCw,
   AlertCircle,
   Loader2,
-  CheckCircle2
+  CheckCircle2,
+  Package,
+  Search,
+  ChevronRight,
+  FileText
 } from 'lucide-react'
 import { executeAllThreeWayMatchesAction, matchLogisticsRecordAction } from './actions'
 
@@ -59,14 +63,26 @@ export function LogisticsClient({ initialRecords, initialOrders }: LogisticsClie
   const [overviewMode, setOverviewMode] = useState<'analytics' | 'kanban'>('analytics')
   const [isPending, startTransition] = useTransition()
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
+  const [selectedOrder, setSelectedOrder] = useState<any | null>(null)
+  const [sidebarOrderSearch, setSidebarOrderSearch] = useState('')
 
-  // Sync subtab when URL searchParams change (e.g., sidebar link click without unmount)
+  // Filter orders based on sidebar search query
+  const sidebarFilteredOrders = initialOrders.filter((order) => {
+    return (
+      order.order_code.toLowerCase().includes(sidebarOrderSearch.toLowerCase()) ||
+      (order.order_items && order.order_items.some((item: any) => item.item_name.toLowerCase().includes(sidebarOrderSearch.toLowerCase())))
+    )
+  })
+
+  const subtabParam = searchParams.get('subtab')
+
   useEffect(() => {
-    const tab = searchParams.get('subtab')
-    if (tab === 'overview' || tab === 'workplace') {
-      setSubtab(tab)
+    if (subtabParam === 'overview' || subtabParam === 'workplace') {
+      setSubtab(subtabParam)
+    } else {
+      setSubtab('overview')
     }
-  }, [searchParams])
+  }, [subtabParam])
 
   const handleTabChange = (val: 'overview' | 'workplace') => {
     setSubtab(val)
@@ -125,44 +141,42 @@ export function LogisticsClient({ initialRecords, initialOrders }: LogisticsClie
         </div>
       )}
 
+      {/* Controls Row */}
+      {subtab === 'overview' && (
+        <div className="flex justify-end items-center gap-4">
+          <div className="flex items-center gap-1 bg-slate-100/80 dark:bg-slate-900/60 p-1 rounded-xl border border-slate-200/50 dark:border-slate-800/80">
+            <Button
+              variant={overviewMode === 'analytics' ? 'secondary' : 'ghost'}
+              size="sm"
+              onClick={() => setOverviewMode('analytics')}
+              className={`text-xs font-semibold px-4 py-1.5 h-8 rounded-lg cursor-pointer transition-all ${
+                overviewMode === 'analytics'
+                  ? 'bg-white text-[#5c59e9] shadow-sm dark:bg-slate-800 dark:text-slate-900'
+                  : 'text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white'
+              }`}
+            >
+              <span>Analytics View</span>
+            </Button>
+            <Button
+              variant={overviewMode === 'kanban' ? 'secondary' : 'ghost'}
+              size="sm"
+              onClick={() => setOverviewMode('kanban')}
+              className={`text-xs font-semibold px-4 py-1.5 h-8 rounded-lg cursor-pointer transition-all ${
+                overviewMode === 'kanban'
+                  ? 'bg-white text-[#5c59e9] shadow-sm dark:bg-slate-800 dark:text-slate-900'
+                  : 'text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white'
+              }`}
+            >
+              <span>Kanban Board</span>
+            </Button>
+          </div>
+        </div>
+      )}
+
       {/* Subtab Switcher */}
-      <Tabs value={subtab} onValueChange={(v) => handleTabChange(v as 'overview' | 'workplace')} className="w-full space-y-6">
+      <Tabs value={subtab} className="w-full space-y-6">
 
         <TabsContent value="overview" className="space-y-6 mt-0 border-none p-0 focus-visible:ring-0 focus-visible:ring-offset-0">
-          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 bg-slate-50/50 dark:bg-slate-900/10 p-4 rounded-2xl border border-slate-100 dark:border-slate-800/60">
-            <div className="space-y-0.5">
-              <h2 className="text-sm font-bold text-slate-950 dark:text-slate-50">Logistics Overview</h2>
-              <p className="text-xs text-slate-400 dark:text-slate-500 font-medium">
-                Monitor key metrics and track purchase order lifecycle stages in real-time.
-              </p>
-            </div>
-            <div className="flex items-center gap-1 bg-slate-100 dark:bg-slate-955 p-1 rounded-xl self-start sm:self-auto border border-slate-200/50 dark:border-slate-800/80">
-              <Button
-                variant={overviewMode === 'analytics' ? 'secondary' : 'ghost'}
-                size="sm"
-                onClick={() => setOverviewMode('analytics')}
-                className={`text-xs font-semibold px-4 py-1.5 h-8 rounded-lg cursor-pointer transition-all ${
-                  overviewMode === 'analytics'
-                    ? 'bg-white text-[#5c59e9] shadow-sm dark:bg-slate-900 dark:text-white'
-                    : 'text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white'
-                }`}
-              >
-                <span>Analytics View</span>
-              </Button>
-              <Button
-                variant={overviewMode === 'kanban' ? 'secondary' : 'ghost'}
-                size="sm"
-                onClick={() => setOverviewMode('kanban')}
-                className={`text-xs font-semibold px-4 py-1.5 h-8 rounded-lg cursor-pointer transition-all ${
-                  overviewMode === 'kanban'
-                    ? 'bg-white text-[#5c59e9] shadow-sm dark:bg-slate-900 dark:text-white'
-                    : 'text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white'
-                }`}
-              >
-                <span>Kanban Board</span>
-              </Button>
-            </div>
-          </div>
 
           {overviewMode === 'analytics' ? (
             <div className="space-y-6 animate-in fade-in duration-300">
@@ -289,7 +303,7 @@ export function LogisticsClient({ initialRecords, initialOrders }: LogisticsClie
                 orders={initialOrders}
                 isStaffOrAdmin={isStaffOrAdmin}
                 onCardClick={(order) => {
-                  // In Logistics, select order in workplace if possible
+                  setSelectedOrder(order)
                   setSubtab('workplace')
                 }}
                 onStageChange={handleStageChange}
@@ -298,122 +312,215 @@ export function LogisticsClient({ initialRecords, initialOrders }: LogisticsClie
           )}
         </TabsContent>
 
-        <TabsContent value="workplace" className="mt-0 border-none p-0 focus-visible:ring-0 focus-visible:ring-offset-0">
-          <div className="-mx-8 -mt-8 -mb-8 h-[calc(100vh-4rem)] overflow-hidden p-3">
-            <Card className="border-slate-200/60 dark:border-slate-800 h-full flex flex-col overflow-hidden">
-              <CardHeader className="pb-3 border-b border-slate-100 dark:border-slate-800 flex-shrink-0">
-                <CardTitle className="text-base font-bold">3-Way Match Verification Grid</CardTitle>
-                <CardDescription className="text-xs">
-                  Matches Purchase Order (PO), Goods Receipt (GR), and Vendor Invoice. Quantities must match within 2% tolerance.
-                </CardDescription>
-              </CardHeader>
-              <CardContent className="p-0 flex-1 overflow-y-auto">
-              {initialRecords.length === 0 ? (
-                <div className="p-12 text-center text-slate-400">No logistics records currently waiting for match.</div>
-              ) : (
-                <DataTable
-                  headers={[
-                    'Linked Documents',
-                    'Material Name',
-                    'Quantity Match (PO vs GR)',
-                    'Price Match (PO vs INV)',
-                    'Match Status',
-                    <span key="inbound" className="sr-only">Actions</span>
-                  ]}
-                  items={initialRecords}
-                  renderRow={(r) => (
-                    <tr key={r.id} className="hover:bg-slate-50/50 dark:hover:bg-slate-900/20">
-                      <td className="px-6 py-4">
-                        <div className="flex flex-col gap-1 font-mono text-[10px]">
-                          <span className="text-indigo-600 dark:text-indigo-400 font-bold">{r.po_number}</span>
-                          <span className="text-slate-500">{r.gr_number}</span>
-                          <span className="text-slate-400">{r.invoice_number}</span>
-                        </div>
-                      </td>
-                      <td className="px-6 py-4 font-semibold text-slate-800 dark:text-slate-200">
-                        {r.product_name}
-                      </td>
-                      <td className="px-6 py-4">
-                        <div className="flex items-center gap-1.5 font-medium">
-                          <span>{Number(r.po_qty).toLocaleString()}</span>
-                          <ArrowRight size={12} className="text-slate-400" />
-                          <span>{Number(r.gr_qty).toLocaleString()}</span>
-                        </div>
-                        <div className="text-[10px] text-slate-400">
-                          Diff: {Math.abs(r.po_qty - r.gr_qty)} units ({(((r.po_qty - r.gr_qty) / r.po_qty) * 100).toFixed(1)}%)
-                        </div>
-                      </td>
-                      <td className="px-6 py-4">
-                        <div className="flex items-center gap-1.5 font-medium">
-                          <span>${Number(r.po_price).toFixed(2)}</span>
-                          <ArrowRight size={12} className="text-slate-400" />
-                          <span>${Number(r.invoice_price).toFixed(2)}</span>
-                        </div>
-                        {r.po_price !== r.invoice_price && (
-                          <div className="text-[10px] text-rose-600 font-semibold mt-0.5">
-                            Discrepancy: +${Math.abs(r.po_price - r.invoice_price).toFixed(2)}
-                          </div>
-                        )}
-                      </td>
-                      <td className="px-6 py-4">
-                        {r.status === 'matched' ? (
-                          <Badge className="bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-950/20 dark:text-emerald-400 gap-1">
-                            <CheckCircle size={10} />
-                            <span>Matched</span>
-                          </Badge>
-                        ) : r.status === 'mismatched' ? (
-                          <Badge className="bg-rose-50 text-rose-700 border-rose-200 dark:bg-rose-950/20 dark:text-rose-455 gap-1 animate-pulse">
-                            <XCircle size={10} />
-                            <span>Mismatched</span>
-                          </Badge>
-                        ) : (
-                          <Badge className="bg-slate-100 text-slate-700 border-slate-200 dark:bg-slate-800 dark:text-slate-400">
-                            Pending
-                          </Badge>
-                        )}
-                      </td>
-                      <td className="px-6 py-4 text-right">
-                        {r.status !== 'matched' ? (
-                          <Button
-                            size="sm"
-                            disabled={matchingRecordId === r.id}
-                            onClick={() => handleMatchRecord(r.id)}
-                            className="text-xs h-8 gap-1 bg-[#5c59e9] hover:bg-[#4a47d2] text-white cursor-pointer"
-                          >
-                            {matchingRecordId === r.id ? (
-                              <Loader2 size={12} className="animate-spin" />
-                            ) : (
-                              <Truck size={12} />
-                            )}
-                            <span>Reconcile &amp; Close PO</span>
-                          </Button>
-                        ) : (() => {
-                          const matchingItem = r.orders?.order_items?.find(item => item.item_name === r.product_name)
-                          const isProduct = matchingItem ? matchingItem.item_type === 'PRODUCT' : r.orders?.order_type === 'PRODUCT'
-                          if (isProduct) {
-                            return (
-                              <span className="text-xs font-semibold text-emerald-600 dark:text-emerald-400 flex items-center justify-end gap-1.5 py-1.5">
-                                <CheckCircle2 size={13} className="text-emerald-500" />
-                                <span>Order Closed</span>
-                              </span>
-                            )
-                          }
-                          return (
-                            <span className="text-xs font-semibold text-blue-600 dark:text-blue-400 flex items-center justify-end gap-1.5 py-1.5">
-                              <TrendingUp size={13} className="text-blue-500" />
-                              <span>Transferred to Production</span>
-                            </span>
-                          )
-                        })()}
-                      </td>
-                    </tr>
-                  )}
+      <TabsContent value="workplace" className="mt-0 border-none p-0 focus-visible:ring-0 focus-visible:ring-offset-0 animate-in fade-in duration-300">
+        <div className="grid lg:grid-cols-[280px_1fr] -mx-8 -mt-8 -mb-8 h-[calc(100vh-4rem)] overflow-hidden">
+          {/* Left column: Purchase Orders sidebar */}
+          <div className="border-r border-slate-200/60 dark:border-slate-800 bg-white dark:bg-slate-955 flex flex-col h-full overflow-hidden">
+            <div className="p-3 border-b border-slate-100 dark:border-slate-800 flex-shrink-0 space-y-2 bg-slate-50/50 dark:bg-slate-900/10">
+              {/* Row 1: Title */}
+              <div>
+                <h3 className="text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider">Purchase Orders</h3>
+              </div>
+
+              {/* Row 2: Search Input */}
+              <div className="relative">
+                <Search size={12} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" />
+                <input
+                  type="text"
+                  placeholder="Search orders..."
+                  value={sidebarOrderSearch}
+                  onChange={(e) => setSidebarOrderSearch(e.target.value)}
+                  className="w-full pl-7.5 pr-2.5 py-1 text-xs rounded-lg border border-slate-200 focus:outline-none focus:ring-1 focus:ring-indigo-500 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-100"
                 />
+              </div>
+            </div>
+            
+            <div className="flex-1 overflow-y-auto">
+              {sidebarFilteredOrders.length === 0 ? (
+                <div className="p-3 text-center text-xs text-slate-400">
+                  No orders found.
+                </div>
+              ) : (
+                <ul className="divide-y divide-slate-100 dark:divide-slate-800/60">
+                  {sidebarFilteredOrders.map(order => {
+                    const recordsCount = initialRecords.filter(r => r.po_number === order.order_code).length;
+                    return (
+                      <li key={order.id}>
+                        <button
+                          onClick={() => {
+                            if (selectedOrder?.id === order.id) {
+                              setSelectedOrder(null)
+                            } else {
+                              setSelectedOrder(order)
+                            }
+                          }}
+                          className={`w-full text-left px-3 py-3 flex items-center justify-between gap-1.5 transition-all cursor-pointer ${
+                            selectedOrder?.id === order.id
+                              ? 'bg-indigo-50/50 dark:bg-indigo-950/20'
+                              : 'hover:bg-slate-50/60 dark:hover:bg-slate-900/10'
+                          }`}
+                        >
+                          <div className="flex items-center gap-2.5 min-w-0">
+                            <FileText size={13} className={selectedOrder?.id === order.id ? 'text-[#5c59e9] dark:text-indigo-400' : 'text-slate-400 dark:text-slate-500'} />
+                            <span className={`text-xs font-bold truncate ${
+                              selectedOrder?.id === order.id
+                                ? 'text-[#5c59e9] dark:text-indigo-400'
+                                : 'text-slate-800 dark:text-slate-200'
+                            }`}>
+                              {order.order_code}
+                            </span>
+                          </div>
+                          <div className="flex items-center gap-1.5">
+                            {recordsCount > 0 && (
+                              <Badge className="bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-400 text-[9px] font-bold py-0.5 px-1.5 border border-slate-200/50 dark:border-slate-700/50">
+                                {recordsCount}
+                              </Badge>
+                            )}
+                            <ChevronRight size={12} className={selectedOrder?.id === order.id ? 'text-[#5c59e9] dark:text-indigo-400' : 'text-slate-350'} />
+                          </div>
+                        </button>
+                      </li>
+                    );
+                  })}
+                </ul>
               )}
-            </CardContent>
-          </Card>
+            </div>
           </div>
-        </TabsContent>
+
+          {/* Right column: main workplace card */}
+          <div className="flex flex-col h-full overflow-y-auto p-4 bg-slate-50/30 dark:bg-slate-955/10">
+            {!selectedOrder ? (
+              <Card className="border-slate-200/60 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-sm rounded-xl">
+                <CardContent className="p-12 flex flex-col items-center justify-center gap-3 text-center">
+                  <Truck size={36} className="text-slate-200 dark:text-slate-700 animate-pulse" />
+                  <p className="text-sm text-slate-450 dark:text-slate-500 font-semibold">Select an order from the sidebar to begin</p>
+                </CardContent>
+              </Card>
+            ) : (() => {
+              const orderRecords = initialRecords.filter(r => r.po_number === selectedOrder.order_code);
+              return (
+                <Card className="border-slate-200/60 dark:border-slate-800 h-full flex flex-col overflow-hidden bg-white dark:bg-slate-900 shadow-sm rounded-xl">
+                  <CardHeader className="pb-3 border-b border-slate-100 dark:border-slate-800 flex-shrink-0">
+                    <CardTitle className="text-base font-bold flex items-center gap-2">
+                      <Truck size={16} className="text-[#5c59e9]" />
+                      <span>3-Way Match Verification Grid — {selectedOrder.order_code}</span>
+                    </CardTitle>
+                    <CardDescription className="text-xs">
+                      Matches Purchase Order (PO), Goods Receipt (GR), and Vendor Invoice. Quantities must match within 2% tolerance.
+                    </CardDescription>
+                  </CardHeader>
+                  <CardContent className="p-0 flex-1 overflow-y-auto">
+                    {orderRecords.length === 0 ? (
+                      <div className="p-12 text-center text-slate-400 text-xs italic">
+                        No logistics records currently waiting for match for this order.
+                      </div>
+                    ) : (
+                      <DataTable
+                        headers={[
+                          'Linked Documents',
+                          'Material Name',
+                          'Quantity Match (PO vs GR)',
+                          'Price Match (PO vs INV)',
+                          'Match Status',
+                          <span key="inbound" className="sr-only">Actions</span>
+                        ]}
+                        items={orderRecords}
+                        renderRow={(r) => (
+                          <tr key={r.id} className="hover:bg-slate-50/50 dark:hover:bg-slate-900/20">
+                            <td className="px-6 py-4">
+                              <div className="flex flex-col gap-1 font-mono text-[10px]">
+                                <span className="text-indigo-600 dark:text-indigo-400 font-bold">{r.po_number}</span>
+                                <span className="text-slate-500">{r.gr_number}</span>
+                                <span className="text-slate-400">{r.invoice_number}</span>
+                              </div>
+                            </td>
+                            <td className="px-6 py-4 font-semibold text-slate-800 dark:text-slate-200">
+                              {r.product_name}
+                            </td>
+                            <td className="px-6 py-4">
+                              <div className="flex items-center gap-1.5 font-medium">
+                                <span>{Number(r.po_qty).toLocaleString()}</span>
+                                <ArrowRight size={12} className="text-slate-400" />
+                                <span>{Number(r.gr_qty).toLocaleString()}</span>
+                              </div>
+                              <div className="text-[10px] text-slate-400">
+                                Diff: {Math.abs(r.po_qty - r.gr_qty)} units ({(((r.po_qty - r.gr_qty) / r.po_qty) * 100).toFixed(1)}%)
+                              </div>
+                            </td>
+                            <td className="px-6 py-4">
+                              <div className="flex items-center gap-1.5 font-medium">
+                                <span>${Number(r.po_price).toFixed(2)}</span>
+                                <ArrowRight size={12} className="text-slate-400" />
+                                <span>${Number(r.invoice_price).toFixed(2)}</span>
+                              </div>
+                              {r.po_price !== r.invoice_price && (
+                                <div className="text-[10px] text-rose-600 font-semibold mt-0.5">
+                                  Discrepancy: +${Math.abs(r.po_price - r.invoice_price).toFixed(2)}
+                                </div>
+                              )}
+                            </td>
+                            <td className="px-6 py-4">
+                              {r.status === 'matched' ? (
+                                <Badge className="bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-950/20 dark:text-emerald-400 gap-1">
+                                  <CheckCircle size={10} />
+                                  <span>Matched</span>
+                                </Badge>
+                              ) : r.status === 'mismatched' ? (
+                                <Badge className="bg-rose-50 text-rose-700 border-rose-200 dark:bg-rose-950/20 dark:text-rose-455 gap-1 animate-pulse">
+                                  <XCircle size={10} />
+                                  <span>Mismatched</span>
+                                </Badge>
+                              ) : (
+                                <Badge className="bg-slate-100 text-slate-700 border-slate-200 dark:bg-slate-800 dark:text-slate-400">
+                                  Pending
+                                </Badge>
+                              )}
+                            </td>
+                            <td className="px-6 py-4 text-right">
+                              {r.status !== 'matched' ? (
+                                <Button
+                                  size="sm"
+                                  disabled={matchingRecordId === r.id}
+                                  onClick={() => handleMatchRecord(r.id)}
+                                  className="text-xs h-8 gap-1 bg-[#5c59e9] hover:bg-[#4a47d2] text-white cursor-pointer"
+                                >
+                                  {matchingRecordId === r.id ? (
+                                    <Loader2 size={12} className="animate-spin" />
+                                  ) : (
+                                    <Truck size={12} />
+                                  )}
+                                  <span>Reconcile &amp; Close PO</span>
+                                </Button>
+                              ) : (() => {
+                                const matchingItem = r.orders?.order_items?.find(item => item.item_name === r.product_name)
+                                const isProduct = matchingItem ? matchingItem.item_type === 'PRODUCT' : r.orders?.order_type === 'PRODUCT'
+                                if (isProduct) {
+                                  return (
+                                    <span className="text-xs font-semibold text-emerald-600 dark:text-emerald-400 flex items-center justify-end gap-1.5 py-1.5">
+                                      <CheckCircle2 size={13} className="text-emerald-500" />
+                                      <span>Order Closed</span>
+                                    </span>
+                                  )
+                                }
+                                return (
+                                  <span className="text-xs font-semibold text-blue-600 dark:text-blue-400 flex items-center justify-end gap-1.5 py-1.5">
+                                    <TrendingUp size={13} className="text-blue-500" />
+                                    <span>Transferred to Production</span>
+                                  </span>
+                                )
+                              })()}
+                            </td>
+                          </tr>
+                        )}
+                      />
+                    )}
+                  </CardContent>
+                </Card>
+              );
+            })()}
+          </div>
+        </div>
+      </TabsContent>
       </Tabs>
     </div>
   )

@@ -12,7 +12,7 @@ import { Laptop, Moon, Sun } from 'lucide-react'
 import { useTheme } from 'next-themes'
 import { useEffect, useState } from 'react'
 
-const ThemeSwitcher = () => {
+const ThemeSwitcher = ({ onOpenChange }: { onOpenChange?: (open: boolean) => void }) => {
   const [mounted, setMounted] = useState(false)
   const { theme, setTheme } = useTheme()
 
@@ -29,7 +29,7 @@ const ThemeSwitcher = () => {
   const ICON_SIZE = 16
 
   return (
-    <DropdownMenu>
+    <DropdownMenu onOpenChange={onOpenChange}>
       <DropdownMenuTrigger asChild>
         <Button variant="ghost" size={'sm'}>
           {theme === 'light' ? (

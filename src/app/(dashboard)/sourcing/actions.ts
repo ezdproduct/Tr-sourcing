@@ -97,32 +97,21 @@ export async function deleteSupplierAction(supplierId: string) {
     // 1. Try to delete from order_suppliers first
     const { data: orderSupplier, error: fetchError } = await supabase
       .from('order_suppliers')
-      .select('id')
+      .select('id, supplier_id')
       .eq('id', supplierId)
       .maybeSingle()
 
-    if (orderSupplier) {
-      // It is a bid! Delete from order_suppliers
-      const { error: deleteError } = await supabase
-        .from('order_suppliers')
-        .delete()
-        .eq('id', supplierId)
+    const targetSupplierId = orderSupplier ? orderSupplier.supplier_id : supplierId
 
-      if (deleteError) {
-        console.error('Error deleting order supplier bid:', deleteError.message)
-        return { success: false, error: deleteError.message }
-      }
-    } else {
-      // It is a master supplier profile! Delete from suppliers
-      const { error: deleteError } = await supabase
-        .from('suppliers')
-        .delete()
-        .eq('id', supplierId)
+    // 2. Delete the supplier profile from suppliers table (will cascade delete order_suppliers bids)
+    const { error: deleteError } = await supabase
+      .from('suppliers')
+      .delete()
+      .eq('id', targetSupplierId)
 
-      if (deleteError) {
-        console.error('Error deleting supplier profile:', deleteError.message)
-        return { success: false, error: deleteError.message }
-      }
+    if (deleteError) {
+      console.error('Error deleting supplier profile:', deleteError.message)
+      return { success: false, error: deleteError.message }
     }
 
     revalidatePath('/sourcing')
@@ -328,39 +317,134 @@ export async function bulkImportSuppliersAction(rows: BulkSupplierRow[]) {
       }
 
       let orderMatched = false
-      if (row.orderCode && row.orderCode.trim()) {
+      const hasOrderCode = row.orderCode && row.orderCode.trim() && row.orderCode.trim() !== '-'
+
+      let matchedOrder: { id: string; order_items: any[]; isNew?: boolean } | null = null
+
+      if (hasOrderCode) {
+        const targetOrderCode = row.orderCode!.trim()
+
         const { data: order, error: orderError } = await supabase
           .from('orders')
           .select('id, order_items(id, item_name)')
-          .eq('order_code', row.orderCode.trim())
+          .eq('order_code', targetOrderCode)
 
-        // Use find first matches
         if (!orderError && order && order.length > 0) {
-          const matchedOrder = order[0]
-          const matchItem = matchedOrder.order_items?.find(
-            (item: any) => item.item_name.toLowerCase().trim() === row.productName.toLowerCase().trim()
-          )
+          matchedOrder = order[0] as any
+        } else {
+          // Auto-create order if it doesn't exist
+          const { data: newOrder, error: newOrderErr } = await supabase
+            .from('orders')
+            .insert({
+              order_code: targetOrderCode,
+              stage: 'sourcing',
+              order_type: 'PRODUCT',
+              order_date: new Date().toISOString().split('T')[0]
+            })
+            .select('id')
+            .single()
 
-          if (matchItem) {
-            const { error: bidError } = await supabase
-              .from('order_suppliers')
-              .insert({
-                order_id: matchedOrder.id,
-                order_item_id: matchItem.id,
-                supplier_id: supplierId,
-                supplier_name: row.supplierName.trim(),
-                quoted_price: row.quotedPrice,
-                lead_time_days: row.leadTime,
-                is_shortlisted: false
-              })
-
-            if (!bidError) {
-              importedBidsCount++
-              orderMatched = true
-            } else {
-              console.error('Error inserting supplier bid:', bidError.message)
-            }
+          if (!newOrderErr && newOrder) {
+            matchedOrder = { id: newOrder.id, order_items: [], isNew: true }
+          } else {
+            console.error('Error auto-creating order during import:', newOrderErr?.message)
           }
+        }
+      }
+
+      let matchItem: any = null
+      if (matchedOrder) {
+        matchItem = matchedOrder.order_items?.find(
+          (item: any) => item.item_name.toLowerCase().trim() === row.productName.toLowerCase().trim()
+        )
+
+        // If the item doesn't exist in the order, but the order is newly created in this import,
+        // it's safe to auto-create it under the new order.
+        // Otherwise, if the order already existed, we DO NOT create the item under it,
+        // and we will leave matchItem as null so it gets diverted to unassigned.
+        if (!matchItem && matchedOrder.isNew && row.productName && row.productName.trim()) {
+          const { data: newOrderItem, error: newOrderItemErr } = await supabase
+            .from('order_items')
+            .insert({
+              order_id: matchedOrder.id,
+              item_name: row.productName.trim(),
+              quantity: 100, // default placeholder quantity
+              item_type: 'PRODUCT',
+              item_status: 'PENDING'
+            })
+            .select('id, item_name')
+            .single()
+
+          if (!newOrderItemErr && newOrderItem) {
+            matchItem = newOrderItem
+          } else {
+            console.error('Error auto-creating order item during import:', newOrderItemErr?.message)
+          }
+        }
+      }
+
+      // If we matched the order AND a required item in that order, bind it!
+      if (matchedOrder && matchItem) {
+        const { error: bidError } = await supabase
+          .from('order_suppliers')
+          .insert({
+            order_id: matchedOrder.id,
+            order_item_id: matchItem.id,
+            supplier_id: supplierId,
+            supplier_name: row.supplierName.trim(),
+            quoted_price: row.quotedPrice,
+            lead_time_days: row.leadTime,
+            is_shortlisted: false
+          })
+
+        if (!bidError) {
+          importedBidsCount++
+          orderMatched = true
+        } else {
+          console.error('Error inserting supplier bid:', bidError.message)
+        }
+      } else {
+        // No match found in the target order's requirements: divert to unassigned!
+        // 1. Create an unassigned order item first to hold the product name
+        let orderItemId = null
+        if (row.productName && row.productName.trim()) {
+          const { data: newOrderItem, error: newOrderItemErr } = await supabase
+            .from('order_items')
+            .insert({
+              order_id: null,
+              item_name: row.productName.trim(),
+              quantity: 100, // default placeholder quantity
+              item_type: 'PRODUCT',
+              item_status: 'PENDING'
+            })
+            .select('id')
+            .single()
+
+          if (!newOrderItemErr && newOrderItem) {
+            orderItemId = newOrderItem.id
+          } else {
+            console.error('Error auto-creating unassigned order item during import:', newOrderItemErr?.message)
+          }
+        }
+
+        // 2. Create the supplier bid with order_id = null
+        const { error: bidError } = await supabase
+          .from('order_suppliers')
+          .insert({
+            order_id: null,
+            order_item_id: orderItemId,
+            supplier_id: supplierId,
+            supplier_name: row.supplierName.trim(),
+            quoted_price: row.quotedPrice,
+            lead_time_days: row.leadTime,
+            is_shortlisted: false
+          })
+
+        if (!bidError) {
+          importedBidsCount++
+          orderMatched = true
+        } else {
+          console.error('Error inserting unassigned supplier bid:', bidError.message)
         }
       }
 
@@ -490,22 +574,26 @@ export async function deleteSuppliersBatchAction(ids: string[]) {
   try {
     const supabase = await createClient()
 
-    // 1. Delete from order_suppliers
-    const { error: osError } = await supabase
+    // 1. Get all supplier_ids associated with these order_suppliers bids
+    const { data: bids } = await supabase
       .from('order_suppliers')
-      .delete()
+      .select('supplier_id')
       .in('id', ids)
 
-    if (osError) {
-      console.error('Error batch deleting order suppliers:', osError.message)
-      return { success: false, error: osError.message }
+    const supplierIds = new Set<string>()
+    if (bids) {
+      bids.forEach(b => {
+        if (b.supplier_id) supplierIds.add(b.supplier_id)
+      })
     }
+    // Also add any IDs that are directly supplier profiles
+    ids.forEach(id => supplierIds.add(id))
 
-    // 2. Delete from suppliers (for master profiles)
+    // 2. Delete all these suppliers from the suppliers table (will cascade delete order_suppliers)
     const { error: sError } = await supabase
       .from('suppliers')
       .delete()
-      .in('id', ids)
+      .in('id', Array.from(supplierIds))
 
     if (sError) {
       console.error('Error batch deleting supplier profiles:', sError.message)

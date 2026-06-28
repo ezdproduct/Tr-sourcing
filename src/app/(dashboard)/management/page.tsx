@@ -57,14 +57,6 @@ export default function ManagementPage() {
 function ManagementFallback() {
   return (
     <div className="space-y-6">
-      <div className="flex flex-col gap-1">
-        <h1 className="text-2xl font-bold tracking-tight text-slate-900 dark:text-white">
-          Management System
-        </h1>
-        <p className="text-sm text-slate-500">
-          Review pending user signups, authorize account requests, and assign system permissions.
-        </p>
-      </div>
 
       <Card className="border-slate-200/60 dark:border-slate-800 shadow-sm">
         <CardHeader className="pb-3 border-b border-slate-100 dark:border-slate-800">

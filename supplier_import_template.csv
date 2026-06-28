@@ -1,6 +1,6 @@
-Supplier Name,Email,Phone,Address,Order Code,Product Name,Quoted Price,Lead Time
-Hoang Phat Furniture,hoangphat@gmail.com,0987654321,789 Wood Ave Binh Duong,ORD-2026-0005,table,150.00,30
-Dong Nai Chair Factory,dongnaichair@gmail.com,0912345678,456 Industrial St Dong Nai,ORD-2026-0005,chair,45.50,15
-Da Nang Table Maker,danangtable@gmail.com,0236123456,88 Ocean Blvd Da Nang,ORD-2026-0003,Round Table,250.00,20
-Saigon Chair supplier,saigonchair@gmail.com,0283999999,12 Hiep Binh Thu Duc,ORD-2026-0002,Chair,55.00,12
-Hanoi Classic Wood,hanoiclassic@gmail.com,0243111111,99 Ba Dinh Hanoi,ORD-2026-0001,Table,190.00,45
+Supplier Name,Email,Phone,Address,Product Name,Quoted Price,Lead Time
+Hoang Phat Furniture,hoangphat@gmail.com,0987654321,789 Wood Ave Binh Duong,table,150.00,30
+Dong Nai Chair Factory,dongnaichair@gmail.com,0912345678,456 Industrial St Dong Nai,chair,45.50,15
+Da Nang Table Maker,danangtable@gmail.com,0236123456,88 Ocean Blvd Da Nang,Round Table,250.00,20
+Saigon Chair supplier,saigonchair@gmail.com,0283999999,12 Hiep Binh Thu Duc,Chair,55.00,12
+Hanoi Classic Wood,hanoiclassic@gmail.com,0243111111,99 Ba Dinh Hanoi,Table,190.00,45

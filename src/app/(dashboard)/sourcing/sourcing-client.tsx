@@ -32,6 +32,7 @@ import {
   DropdownMenuContent,
   DropdownMenuTrigger,
   DropdownMenuSeparator,
+  DropdownMenuItem,
 } from '@/components/ui/dropdown-menu'
 import {
   Users2,
@@ -57,6 +58,9 @@ import {
   Shield,
   CheckCircle2,
   FileText,
+  PlusCircle,
+  XCircle,
+  ChevronDown,
 } from 'lucide-react'
 
 // ─── CSV Parser Helper ────────────────────────────────────────────────────────
@@ -157,11 +161,12 @@ export function getOrderTypeFromItems(items?: DatabaseOrderItem[]): string {
   return 'PENDING'
 }
 
-export function SourcingClient({ initialOrders, initialSuppliers }: SourcingClientProps) {
+export function SourcingClient({ initialOrders, initialSuppliers, initialAudits = [] }: SourcingClientProps) {
   const { searchQuery, userRole } = useSourcing()
   const router = useRouter()
 
   const [overviewMode, setOverviewMode] = useState<'analytics' | 'kanban'>('analytics')
+  const [audits, setAudits] = useState<any[]>(initialAudits)
   const isStaffOrAdmin = userRole === 'staff' || userRole === 'admin'
 
   const handleStageChange = async (orderId: string, newStage: string) => {
@@ -174,15 +179,13 @@ export function SourcingClient({ initialOrders, initialSuppliers }: SourcingClie
   }
 
   // View mode: 'order' = per-order matrix, 'all' = global all-suppliers table
-  const [viewMode, setViewMode] = useState<ViewMode>('order')
+  const [viewMode, setViewMode] = useState<ViewMode>('all')
   const [allSuppliersSearch, setAllSuppliersSearch] = useState('')
   const [sidebarOrderSearch, setSidebarOrderSearch] = useState('')
   const [shortlistFilterOnly, setShortlistFilterOnly] = useState(false)
   const [orderShortlistFilterOnly, setOrderShortlistFilterOnly] = useState(false)
 
-  const [selectedOrderId, setSelectedOrderId] = useState<string | null>(
-    initialOrders.length > 0 ? initialOrders[0].id : null
-  )
+  const [selectedOrderId, setSelectedOrderId] = useState<string | null>(null)
   const [suppliers, setSuppliers] = useState<DatabaseSupplier[]>(initialSuppliers)
   // Local orders list to allow optimistic updates
   const [orders, setOrders] = useState<DatabaseOrder[]>(initialOrders)
@@ -190,14 +193,15 @@ export function SourcingClient({ initialOrders, initialSuppliers }: SourcingClie
   // Sync props to state when initialOrders or initialSuppliers change
   useEffect(() => {
     setOrders(initialOrders)
-    if (!selectedOrderId && initialOrders.length > 0) {
-      setSelectedOrderId(initialOrders[0].id)
-    }
-  }, [initialOrders, selectedOrderId])
+  }, [initialOrders])
 
   useEffect(() => {
     setSuppliers(initialSuppliers)
   }, [initialSuppliers])
+
+  useEffect(() => {
+    setAudits(initialAudits || [])
+  }, [initialAudits])
 
   // Trigger router refresh on mount to clear Next.js client router cache and get fresh data
   useEffect(() => {
@@ -208,12 +212,15 @@ export function SourcingClient({ initialOrders, initialSuppliers }: SourcingClie
   const initialSubtab = (searchParams.get('subtab') as 'overview' | 'workplace') || 'overview'
   const [subtab, setSubtab] = useState<'overview' | 'workplace'>(initialSubtab)
 
+  const subtabParam = searchParams.get('subtab')
+
   useEffect(() => {
-    const tab = searchParams.get('subtab')
-    if (tab === 'overview' || tab === 'workplace') {
-      setSubtab(tab)
+    if (subtabParam === 'overview' || subtabParam === 'workplace') {
+      setSubtab(subtabParam)
+    } else {
+      setSubtab('overview')
     }
-  }, [searchParams])
+  }, [subtabParam])
 
   const handleTabChange = (val: 'overview' | 'workplace') => {
     setSubtab(val)
@@ -233,6 +240,9 @@ export function SourcingClient({ initialOrders, initialSuppliers }: SourcingClie
   const [poSupplier, setPoSupplier] = useState<DatabaseSupplier | null>(null)
   const [poContractValue, setPoContractValue] = useState<number>(0)
   const [isPoConfirming, setIsPoConfirming] = useState(false)
+  const [poTargetDeliveryDate, setPoTargetDeliveryDate] = useState<string>('')
+  const [poDeliveryAddress, setPoDeliveryAddress] = useState<string>('')
+  const [poContractFile, setPoContractFile] = useState<File | null>(null)
 
   // Upgraded manual normalized form states
   const [manualForm, setManualForm] = useState({
@@ -268,6 +278,17 @@ export function SourcingClient({ initialOrders, initialSuppliers }: SourcingClie
   // Supplier Profile detailed view & edit state
   const [selectedSupplierId, setSelectedSupplierId] = useState<string | null>(null)
   const [isProfileOpen, setIsProfileOpen] = useState(false)
+  const [isSendToQcConfirmOpen, setIsSendToQcConfirmOpen] = useState(false)
+  const [isSendingToQc, setIsSendingToQc] = useState(false)
+  const [toasts, setToasts] = useState<Array<{ id: string; message: string }>>([])
+
+  const triggerToast = (message: string) => {
+    const id = Math.random().toString(36).substring(2, 9)
+    setToasts(prev => [...prev, { id, message }])
+    setTimeout(() => {
+      setToasts(prev => prev.filter(t => t.id !== id))
+    }, 5000)
+  }
   const [isProfileEditMode, setIsProfileEditMode] = useState(false)
   const [isSavingProfile, setIsSavingProfile] = useState(false)
   const [profileErrorMessage, setProfileErrorMessage] = useState<string | null>(null)
@@ -305,7 +326,7 @@ export function SourcingClient({ initialOrders, initialSuppliers }: SourcingClie
     })
 
     setProfileOrderDetails({
-      orderCode: supplier.orders?.order_code || 'Unassigned',
+      orderCode: (supplier.orders?.order_code && supplier.orders.order_code !== 'POTENTIAL') ? supplier.orders.order_code : 'Unassigned',
       quotedPrice: Number(supplier.quoted_price || 0),
       leadTimeDays: supplier.lead_time_days || 0
     })
@@ -351,6 +372,7 @@ export function SourcingClient({ initialOrders, initialSuppliers }: SourcingClie
     quotedPrice: true,
     leadTime: true,
     shortlistStatus: true,
+    qcStatus: true,
   })
 
   const toggleableColumns = [
@@ -363,6 +385,7 @@ export function SourcingClient({ initialOrders, initialSuppliers }: SourcingClie
     { key: 'quotedPrice', label: 'Quoted Price' },
     { key: 'leadTime', label: 'Lead Time' },
     { key: 'shortlistStatus', label: 'Shortlist Status' },
+    { key: 'qcStatus', label: 'QC Status' },
   ]
 
   // Column Visibility State for individual order supplier table
@@ -375,6 +398,7 @@ export function SourcingClient({ initialOrders, initialSuppliers }: SourcingClie
     quotedPrice: true,
     leadTime: true,
     shortlistStatus: true,
+    qcStatus: true,
   })
 
   const orderToggleableColumns = [
@@ -386,6 +410,7 @@ export function SourcingClient({ initialOrders, initialSuppliers }: SourcingClie
     { key: 'quotedPrice', label: 'Quoted Price' },
     { key: 'leadTime', label: 'Lead Time' },
     { key: 'shortlistStatus', label: 'Shortlist Status' },
+    { key: 'qcStatus', label: 'QC Status' },
   ]
 
   // Select order handler
@@ -468,12 +493,19 @@ export function SourcingClient({ initialOrders, initialSuppliers }: SourcingClie
   })
 
   // Suppliers for selected order, also filter by search and shortlist status
-  const orderSuppliers = suppliers.filter(s => s.order_id === selectedOrderId && (
-    searchQuery === '' ||
-    s.supplier_name.toLowerCase().includes(searchQuery.toLowerCase())
-  ) && (
-    !orderShortlistFilterOnly || s.is_shortlisted
-  ))
+  const orderSuppliers = suppliers.filter(s => {
+    if (s.order_id !== selectedOrderId) return false
+
+    // Must explicitly match the pre-defined items required within that specific order
+    if (selectedOrder?.order_items) {
+      const isAllowedItem = selectedOrder.order_items.some(item => item.id === s.order_item_id)
+      if (!isAllowedItem) return false
+    }
+
+    const matchesSearch = searchQuery === '' || s.supplier_name.toLowerCase().includes(searchQuery.toLowerCase())
+    const matchesShortlist = !orderShortlistFilterOnly || s.is_shortlisted
+    return matchesSearch && matchesShortlist
+  })
 
   const shortlistedCount = orderSuppliers.filter(s => s.is_shortlisted).length
   const bestPrice = orderSuppliers.length > 0
@@ -651,19 +683,28 @@ export function SourcingClient({ initialOrders, initialSuppliers }: SourcingClie
           phone: headers.indexOf('phone'),
           address: headers.indexOf('address'),
           orderCode: headers.indexOf('ordercode'),
-          productName: headers.indexOf('productname'),
-          quotedPrice: headers.indexOf('quotedprice'),
-          leadTime: headers.indexOf('leadtime')
+          productName: headers.indexOf('productname') !== -1 ? headers.indexOf('productname') : headers.indexOf('product'),
+          quotedPrice: headers.indexOf('quotedprice') !== -1 ? headers.indexOf('quotedprice') : headers.indexOf('price'),
+          leadTime: headers.indexOf('leadtime') !== -1 ? headers.indexOf('leadtime') : headers.indexOf('leadtimedays')
         }
         
+        if (colMap.supplierName === -1) colMap.supplierName = headers.findIndex(h => h.includes('supplier') || h.includes('name'))
+        if (colMap.email === -1) colMap.email = headers.indexOf('email')
+        if (colMap.phone === -1) colMap.phone = headers.indexOf('phone')
+        if (colMap.address === -1) colMap.address = headers.indexOf('address')
+        if (colMap.orderCode === -1) colMap.orderCode = headers.findIndex(h => h.includes('ordercode') || h.includes('order'))
+        if (colMap.productName === -1) colMap.productName = headers.findIndex(h => h.includes('product') || h.includes('item'))
+        if (colMap.quotedPrice === -1) colMap.quotedPrice = headers.findIndex(h => h.includes('price') || h.includes('quoted'))
+        if (colMap.leadTime === -1) colMap.leadTime = headers.findIndex(h => h.includes('lead') || h.includes('time') || h.includes('days'))
+
         if (colMap.supplierName === -1) colMap.supplierName = 0
         if (colMap.email === -1) colMap.email = 1
         if (colMap.phone === -1) colMap.phone = 2
         if (colMap.address === -1) colMap.address = 3
-        if (colMap.orderCode === -1) colMap.orderCode = 4
-        if (colMap.productName === -1) colMap.productName = 5
-        if (colMap.quotedPrice === -1) colMap.quotedPrice = 6
-        if (colMap.leadTime === -1) colMap.leadTime = 7
+        if (colMap.orderCode === -1) colMap.orderCode = -1
+        if (colMap.productName === -1) colMap.productName = 4
+        if (colMap.quotedPrice === -1) colMap.quotedPrice = 5
+        if (colMap.leadTime === -1) colMap.leadTime = 6
 
         const parsedData = rawRows.slice(1).map(row => {
           const getValue = (idx: number) => (idx !== -1 && idx < row.length ? row[idx] : '')
@@ -672,11 +713,30 @@ export function SourcingClient({ initialOrders, initialSuppliers }: SourcingClie
           const email = getValue(colMap.email)
           const phone = getValue(colMap.phone)
           const address = getValue(colMap.address)
-          const orderCode = getValue(colMap.orderCode)
+          let orderCode = getValue(colMap.orderCode)
           const productName = getValue(colMap.productName)
           const quotedPriceStr = getValue(colMap.quotedPrice)
           const leadTimeStr = getValue(colMap.leadTime)
+
+          // Inject active order code if blank, null, or dashed in order view context, AND the product matches the order requirements
+          const isBlankOrder = !orderCode || orderCode.trim() === '' || orderCode.trim() === '-'
+          if (isBlankOrder && viewMode === 'order' && selectedOrder) {
+            const matchesActiveOrderItems = selectedOrder.order_items?.some(
+              (item: any) => item.item_name.toLowerCase().trim() === productName.toLowerCase().trim()
+            )
+            if (matchesActiveOrderItems) {
+              orderCode = selectedOrder.order_code
+            }
+          }
           
+          // Price: strip dollar sign, parse as float
+          const cleanPriceStr = quotedPriceStr ? quotedPriceStr.replace(/[^0-9.]/g, '') : '0'
+          const quotedPrice = parseFloat(cleanPriceStr) || 0
+
+          // Lead Time: strip non-numeric characters, parse as integer
+          const cleanLeadTimeStr = leadTimeStr ? leadTimeStr.replace(/[^0-9]/g, '') : '0'
+          const leadTime = parseInt(cleanLeadTimeStr) || 0
+
           return {
             supplierName,
             email,
@@ -684,8 +744,8 @@ export function SourcingClient({ initialOrders, initialSuppliers }: SourcingClie
             address,
             orderCode,
             productName,
-            quotedPrice: parseFloat(quotedPriceStr) || 0,
-            leadTime: parseInt(leadTimeStr) || 0
+            quotedPrice,
+            leadTime
           }
         }).filter(item => item.supplierName !== '')
 
@@ -718,14 +778,36 @@ export function SourcingClient({ initialOrders, initialSuppliers }: SourcingClie
   }
 
   const handleSendShortlistToQc = (orderId?: string | null) => {
-    startTransition(async () => {
-      const res = await sendShortlistToQcAction(orderId)
-      if (res.success) {
-        setQcSuccessCount(res.count ?? 0)
-      } else {
-        setQcErrorText(res.error || 'Failed to send shortlist to QC')
+    setIsSendToQcConfirmOpen(true)
+  }
+
+  const handleConfirmSendToQc = async () => {
+    setIsSendingToQc(true)
+    const checkedCount = selectedSupplierIds.length
+    if (checkedCount > 0) {
+      const checkedSuppliers = orderSuppliers.filter(s => selectedSupplierIds.includes(s.id))
+      const unshortlisted = checkedSuppliers.filter(s => !s.is_shortlisted)
+      
+      for (const supplier of unshortlisted) {
+        await updateShortlistAction(supplier.id, true)
       }
-    })
+      
+      // Update local state
+      setSuppliers(prev =>
+        prev.map(item => selectedSupplierIds.includes(item.id) ? { ...item, is_shortlisted: true } : item)
+      )
+    }
+    
+    const res = await sendShortlistToQcAction(selectedOrderId)
+    setIsSendingToQc(false)
+    setIsSendToQcConfirmOpen(false)
+    
+    if (res.success) {
+      setQcSuccessCount(res.count ?? 0)
+      setSelectedSupplierIds([])
+    } else {
+      setQcErrorText(res.error || 'Failed to send shortlist to QC')
+    }
   }
 
   const handleConfirmDelete = async () => {
@@ -733,10 +815,17 @@ export function SourcingClient({ initialOrders, initialSuppliers }: SourcingClie
     const idToDelete = confirmDeleteId
     setConfirmDeleteId(null)
     setDeletingId(idToDelete)
+
+    const itemToDelete = suppliers.find(s => s.id === idToDelete)
+    const supplierId = itemToDelete ? itemToDelete.supplier_id : null
+
     const result = await deleteSupplierAction(idToDelete)
     setDeletingId(null)
     if (result.success) {
-      setSuppliers(prev => prev.filter(s => s.id !== idToDelete))
+      setSuppliers(prev => prev.filter(s => 
+        s.id !== idToDelete && 
+        (supplierId ? s.supplier_id !== supplierId : true)
+      ))
     }
   }
 
@@ -826,17 +915,36 @@ export function SourcingClient({ initialOrders, initialSuppliers }: SourcingClie
     }
   }
 
-  // ─── Render ──────────────────────────────────────────────────────────────────
-
   return (
     <div className="space-y-6">
-      {/* Page Header */}
+      {/* Controls Row */}
       {subtab === 'overview' && (
-        <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-          <div className="flex flex-col gap-1">
-            <h1 className="text-2xl font-bold tracking-tight text-slate-900 dark:text-white">
-              Supplier Sourcing &amp; Matrix
-            </h1>
+        <div className="flex justify-end items-center gap-4">
+          <div className="flex items-center gap-1 bg-slate-100/80 dark:bg-slate-900/60 p-1 rounded-xl border border-slate-200/50 dark:border-slate-800/80">
+            <Button
+              variant={overviewMode === 'analytics' ? 'secondary' : 'ghost'}
+              size="sm"
+              onClick={() => setOverviewMode('analytics')}
+              className={`text-xs font-semibold px-4 py-1.5 h-8 rounded-lg cursor-pointer transition-all ${
+                overviewMode === 'analytics'
+                  ? 'bg-white text-[#5c59e9] shadow-sm dark:bg-slate-800 dark:text-slate-900'
+                  : 'text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white'
+              }`}
+            >
+              <span>Analytics View</span>
+            </Button>
+            <Button
+              variant={overviewMode === 'kanban' ? 'secondary' : 'ghost'}
+              size="sm"
+              onClick={() => setOverviewMode('kanban')}
+              className={`text-xs font-semibold px-4 py-1.5 h-8 rounded-lg cursor-pointer transition-all ${
+                overviewMode === 'kanban'
+                  ? 'bg-white text-[#5c59e9] shadow-sm dark:bg-slate-800 dark:text-slate-900'
+                  : 'text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white'
+              }`}
+            >
+              <span>Kanban Board</span>
+            </Button>
           </div>
         </div>
       )}
@@ -846,41 +954,7 @@ export function SourcingClient({ initialOrders, initialSuppliers }: SourcingClie
 
         <TabsContent value="overview" className="space-y-6 mt-0 border-none p-0 focus-visible:ring-0 focus-visible:ring-offset-0">
         <div className="space-y-6">
-          {/* Subtab Switcher */}
-          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 bg-slate-50/50 dark:bg-slate-900/10 p-4 rounded-2xl border border-slate-100 dark:border-slate-800/60">
-            <div className="space-y-0.5">
-              <h2 className="text-sm font-bold text-slate-955 dark:text-slate-50">Sourcing Overview</h2>
-              <p className="text-xs text-slate-400 dark:text-slate-500 font-medium">
-                Monitor key metrics and track purchase order lifecycle stages in real-time.
-              </p>
-            </div>
-            <div className="flex items-center gap-1 bg-slate-100 dark:bg-slate-955 p-1 rounded-xl self-start sm:self-auto border border-slate-200/50 dark:border-slate-800/80">
-              <Button
-                variant={overviewMode === 'analytics' ? 'secondary' : 'ghost'}
-                size="sm"
-                onClick={() => setOverviewMode('analytics')}
-                className={`text-xs font-semibold px-4 py-1.5 h-8 rounded-lg cursor-pointer transition-all ${
-                  overviewMode === 'analytics'
-                    ? 'bg-white text-[#5c59e9] shadow-sm dark:bg-slate-900 dark:text-white'
-                    : 'text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white'
-                }`}
-              >
-                <span>Analytics View</span>
-              </Button>
-              <Button
-                variant={overviewMode === 'kanban' ? 'secondary' : 'ghost'}
-                size="sm"
-                onClick={() => setOverviewMode('kanban')}
-                className={`text-xs font-semibold px-4 py-1.5 h-8 rounded-lg cursor-pointer transition-all ${
-                  overviewMode === 'kanban'
-                    ? 'bg-white text-[#5c59e9] shadow-sm dark:bg-slate-900 dark:text-white'
-                    : 'text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white'
-                }`}
-              >
-                <span>Kanban Board</span>
-              </Button>
-            </div>
-          </div>
+
 
           {overviewMode === 'analytics' ? (
             <div className="space-y-6">
@@ -999,6 +1073,7 @@ export function SourcingClient({ initialOrders, initialSuppliers }: SourcingClie
                 isStaffOrAdmin={isStaffOrAdmin}
                 onCardClick={(order) => {
                   setSelectedOrderId(order.id)
+                  setViewMode('order')
                   setSubtab('workplace')
                 }}
                 onStageChange={handleStageChange}
@@ -1030,32 +1105,6 @@ export function SourcingClient({ initialOrders, initialSuppliers }: SourcingClie
             </div>
           </div>
           <div className="flex-1 overflow-y-auto">
-            {/* All Suppliers button */}
-            <div className="border-b border-slate-100 dark:border-slate-800/80">
-              <button
-                id="btn-all-suppliers"
-                onClick={() => setViewMode('all')}
-                className={`w-full text-left px-2.5 py-3 flex items-center justify-between gap-1 transition-colors cursor-pointer ${
-                  viewMode === 'all'
-                    ? 'bg-indigo-50 dark:bg-indigo-950/30'
-                    : 'hover:bg-slate-50/80 dark:hover:bg-slate-900/20'
-                }`}
-              >
-                <div className="flex items-center gap-2 min-w-0">
-                  <Globe size={13} className={viewMode === 'all' ? 'text-indigo-600 dark:text-indigo-400' : 'text-slate-400 dark:text-slate-500'} />
-                  <span className={`text-xs font-bold ${viewMode === 'all' ? 'text-indigo-700 dark:text-indigo-400' : 'text-slate-800 dark:text-slate-200'}`}>
-                    All Suppliers
-                  </span>
-                </div>
-                <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-md ${
-                  viewMode === 'all'
-                    ? 'bg-indigo-200/50 dark:bg-indigo-900/50 text-indigo-700 dark:text-indigo-400'
-                    : 'bg-slate-100 dark:bg-slate-800 text-slate-505'
-                }`}>
-                  {suppliers.length}
-                </span>
-              </button>
-            </div>
 
             {filteredOrders.length === 0 ? (
               <div className="p-3 text-center text-xs text-slate-400">
@@ -1067,7 +1116,15 @@ export function SourcingClient({ initialOrders, initialSuppliers }: SourcingClie
                   <li key={order.id}>
                     <button
                       id={`order-select-${order.id}`}
-                      onClick={() => { setSelectedOrderId(order.id); setViewMode('order') }}
+                      onClick={() => {
+                        if (selectedOrderId === order.id) {
+                          setSelectedOrderId(null);
+                          setViewMode('all');
+                        } else {
+                          setSelectedOrderId(order.id);
+                          setViewMode('order');
+                        }
+                      }}
                       className={`w-full text-left px-2.5 py-3 flex items-center justify-between gap-1 transition-colors cursor-pointer ${
                         viewMode === 'order' && selectedOrderId === order.id
                           ? 'bg-indigo-50 dark:bg-indigo-950/30'
@@ -1191,20 +1248,82 @@ export function SourcingClient({ initialOrders, initialSuppliers }: SourcingClie
                         </DropdownMenuContent>
                       </DropdownMenu>
 
-                      {suppliers.some(s => s.is_shortlisted) && (
-                        <Button
-                          id="btn-send-qc"
-                          onClick={() => handleSendShortlistToQc()}
-                          disabled={isPending}
-                          className="bg-[#5c59e9] hover:bg-[#4a47d2] text-white gap-1.5 h-8 px-3 rounded-lg text-xs font-semibold cursor-pointer"
-                        >
-                          {isPending ? (
-                            <Loader2 size={12} className="animate-spin" />
-                          ) : (
-                            <Send size={12} />
-                          )}
-                          <span>Send Shortlist to QC</span>
-                        </Button>
+                      {selectedSupplierIds.length > 0 && (
+                        <DropdownMenu>
+                          <DropdownMenuTrigger asChild>
+                            <Button
+                              size="sm"
+                              className="bg-[#5c59e9] hover:bg-[#4a47d2] text-white gap-1.5 h-8 px-3 rounded-lg text-xs font-semibold cursor-pointer"
+                            >
+                              <span>Actions</span>
+                              <ChevronDown size={12} />
+                            </Button>
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent align="end" className="w-48 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-1 shadow-md z-50">
+                            {selectedSupplierIds.length === 1 && (() => {
+                              const supplier = suppliers.find(s => s.id === selectedSupplierIds[0])
+                              if (!supplier || !supplier.order_item_id) return null
+                              const hasQcAudit = audits.some(a => a.supplier_id === supplier.supplier_id && a.order_id === supplier.order_id)
+                              return (
+                                <DropdownMenuItem
+                                  disabled={hasQcAudit}
+                                  onClick={() => handleToggleShortlist(supplier)}
+                                  className="flex items-center gap-2 px-2.5 py-1.5 text-xs rounded-lg cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-800 font-semibold text-slate-700 dark:text-slate-300 disabled:opacity-50 disabled:cursor-not-allowed"
+                                >
+                                  <Check size={12} className="text-indigo-500" />
+                                  <span>{supplier.is_shortlisted ? 'Remove Shortlist' : 'Shortlist'}</span>
+                                </DropdownMenuItem>
+                              )
+                            })()}
+
+                            {selectedSupplierIds.length === 1 && (() => {
+                              const supplier = suppliers.find(s => s.id === selectedSupplierIds[0])
+                              if (!supplier || !supplier.order_item_id) return null
+                              const linkedOrder = orders.find(o => o.id === supplier.order_id)
+                              if (linkedOrder?.stage !== 'Sourcing' && linkedOrder?.stage !== 'Ready for PO') return null
+                              
+                              const audit = audits.find(a => a.supplier_id === supplier.supplier_id && a.order_id === supplier.order_id)
+                              const hasPassedQC = audit && 
+                                audit.audit_status === 'Completed' && 
+                                (audit.audit_verdict === 'PASS' || audit.audit_verdict === 'PASS WITH CONDITIONS')
+                              
+                              return (
+                                <DropdownMenuItem
+                                  disabled={!hasPassedQC}
+                                  onClick={() => {
+                                    setPoSupplier(supplier)
+                                    const qty = linkedOrder?.order_items?.find(item => item.id === supplier.order_item_id)?.quantity || 1
+                                    setPoContractValue(Number(supplier.quoted_price) * qty)
+                                    setIsPoConfirming(false)
+                                    setErrorMessage(null)
+                                  }}
+                                  className="flex items-center gap-2 px-2.5 py-1.5 text-xs rounded-lg cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-800 font-semibold text-slate-755 dark:text-slate-300 disabled:opacity-50 disabled:cursor-not-allowed"
+                                >
+                                  <PlusCircle size={12} className="text-emerald-500" />
+                                  <span>Create PO</span>
+                                </DropdownMenuItem>
+                              )
+                            })()}
+
+                            <DropdownMenuSeparator className="my-1 border-t border-slate-100 dark:border-slate-800" />
+
+                            <DropdownMenuItem
+                              onClick={() => setIsBulkDeleteConfirmOpen(true)}
+                              className="flex items-center gap-2 px-2.5 py-1.5 text-xs rounded-lg cursor-pointer hover:bg-red-50 dark:hover:bg-red-950/20 font-semibold text-red-600 dark:text-red-400"
+                            >
+                              <Trash2 size={12} className="text-red-500" />
+                              <span>Delete Selected ({selectedSupplierIds.length})</span>
+                            </DropdownMenuItem>
+
+                            <DropdownMenuItem
+                              onClick={() => setSelectedSupplierIds([])}
+                              className="flex items-center gap-2 px-2.5 py-1.5 text-xs rounded-lg cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-800 font-semibold text-slate-500"
+                            >
+                              <XCircle size={12} className="text-slate-400" />
+                              <span>Clear Selection</span>
+                            </DropdownMenuItem>
+                          </DropdownMenuContent>
+                        </DropdownMenu>
                       )}
 
                       <Button
@@ -1282,22 +1401,20 @@ export function SourcingClient({ initialOrders, initialSuppliers }: SourcingClie
                   <table className="w-full text-left border-collapse">
                     <thead>
                       <tr className="border-b border-slate-100 bg-slate-50/50 text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:border-slate-800 dark:bg-slate-900/50">
-                        {isManageMode && (
-                          <th className="px-6 py-4 w-12 text-center">
-                            <input 
-                              type="checkbox"
-                              checked={filteredAllSuppliers.length > 0 && selectedSupplierIds.length === filteredAllSuppliers.length}
-                              onChange={(e) => {
-                                if (e.target.checked) {
-                                  setSelectedSupplierIds(filteredAllSuppliers.map(s => s.id))
-                                } else {
-                                  setSelectedSupplierIds([])
-                                }
-                              }}
-                              className="rounded text-[#5c59e9] focus:ring-[#5c59e9] h-3.5 w-3.5 cursor-pointer"
-                            />
-                          </th>
-                        )}
+                        <th className="px-6 py-4 w-12 text-center">
+                          <input 
+                            type="checkbox"
+                            checked={filteredAllSuppliers.length > 0 && selectedSupplierIds.length === filteredAllSuppliers.length}
+                            onChange={(e) => {
+                              if (e.target.checked) {
+                                setSelectedSupplierIds(filteredAllSuppliers.map(s => s.id))
+                              } else {
+                                setSelectedSupplierIds([])
+                              }
+                            }}
+                            className="rounded text-[#5c59e9] focus:ring-[#5c59e9] h-3.5 w-3.5 cursor-pointer"
+                          />
+                        </th>
                         {columnVisibility.supplierName && <th className="px-6 py-4">Supplier Name</th>}
                         {columnVisibility.email && <th className="px-6 py-4">Email</th>}
                         {columnVisibility.phone && <th className="px-6 py-4">Phone</th>}
@@ -1307,7 +1424,8 @@ export function SourcingClient({ initialOrders, initialSuppliers }: SourcingClie
                         {columnVisibility.quotedPrice && <th className="px-6 py-4">Quoted Price</th>}
                         {columnVisibility.leadTime && <th className="px-6 py-4">Lead Time</th>}
                         {columnVisibility.shortlistStatus && <th className="px-6 py-4 text-center">Shortlist Status</th>}
-                        <th className="px-6 py-4 text-right">Actions</th>
+                        {columnVisibility.qcStatus && <th className="px-6 py-4">QC Status</th>}
+
                       </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100 dark:divide-slate-800 text-xs">
@@ -1316,22 +1434,20 @@ export function SourcingClient({ initialOrders, initialSuppliers }: SourcingClie
                         const linkedOrder = orders.find(o => o.id === supplier.order_id)
                         return (
                           <tr key={supplier.id} className={`hover:bg-slate-50/50 dark:hover:bg-slate-900/20 ${selectedSupplierIds.includes(supplier.id) ? 'bg-indigo-50/30 dark:bg-indigo-950/10' : ''}`}>
-                            {isManageMode && (
-                              <td className="px-6 py-4 w-12 text-center">
-                                <input 
-                                  type="checkbox"
-                                  checked={selectedSupplierIds.includes(supplier.id)}
-                                  onChange={(e) => {
-                                    if (e.target.checked) {
-                                      setSelectedSupplierIds(prev => [...prev, supplier.id])
-                                    } else {
-                                      setSelectedSupplierIds(prev => prev.filter(id => id !== supplier.id))
-                                    }
-                                  }}
-                                  className="rounded text-[#5c59e9] focus:ring-[#5c59e9] h-3.5 w-3.5 cursor-pointer"
-                                />
-                              </td>
-                            )}
+                            <td className="px-6 py-4 w-12 text-center">
+                              <input 
+                                type="checkbox"
+                                checked={selectedSupplierIds.includes(supplier.id)}
+                                onChange={(e) => {
+                                  if (e.target.checked) {
+                                    setSelectedSupplierIds(prev => [...prev, supplier.id])
+                                  } else {
+                                    setSelectedSupplierIds(prev => prev.filter(id => id !== supplier.id))
+                                  }
+                                }}
+                                className="rounded text-[#5c59e9] focus:ring-[#5c59e9] h-3.5 w-3.5 cursor-pointer"
+                              />
+                            </td>
                             {columnVisibility.supplierName && (
                               <td className="px-6 py-4">
                                 <button
@@ -1367,15 +1483,9 @@ export function SourcingClient({ initialOrders, initialSuppliers }: SourcingClie
                             {columnVisibility.associatedOrder && (
                               <td className="px-6 py-4">
                                 {!supplier.order_id ? (
-                                  supplier.order_item_id ? (
-                                    <Badge variant="outline" className="text-[10px] font-semibold bg-red-50 text-red-500 border-red-200 dark:bg-red-950/20 dark:text-red-400 dark:border-red-900">
-                                      Deleted Order
-                                    </Badge>
-                                  ) : (
-                                    <Badge variant="outline" className="text-[10px] font-semibold bg-slate-50 text-slate-400 border-slate-200 dark:bg-slate-900/10 dark:text-slate-500 dark:border-slate-800">
-                                      Unassigned
-                                    </Badge>
-                                  )
+                                  <Badge variant="outline" className="text-[10px] font-semibold bg-slate-50 text-slate-400 border-slate-200 dark:bg-slate-900/10 dark:text-slate-500 dark:border-slate-800">
+                                    Unassigned
+                                  </Badge>
                                 ) : !linkedOrder ? (
                                   <Badge variant="outline" className="text-[10px] font-semibold bg-red-50 text-red-500 border-red-200 dark:bg-red-950/20 dark:text-red-400 dark:border-red-900">
                                     Deleted Order
@@ -1427,20 +1537,43 @@ export function SourcingClient({ initialOrders, initialSuppliers }: SourcingClie
                                 </Badge>
                               </td>
                             )}
-                            <td className="px-6 py-4 text-right">
-                              <button
-                                id={`all-delete-supplier-${supplier.id}`}
-                                onClick={() => setConfirmDeleteId(supplier.id)}
-                                disabled={deletingId === supplier.id}
-                                className="inline-flex items-center justify-center h-7 w-7 rounded-lg border border-slate-200 text-slate-400 hover:border-red-300 hover:text-red-500 hover:bg-red-50 dark:border-slate-800 dark:hover:bg-red-950/20 dark:hover:text-red-400 transition-colors cursor-pointer disabled:opacity-50"
-                                title="Remove supplier"
-                              >
-                                {deletingId === supplier.id
-                                  ? <Loader2 size={13} className="animate-spin" />
-                                  : <Trash2 size={13} />
+                            {columnVisibility.qcStatus && (() => {
+                              const audit = audits.find(a => a.supplier_id === supplier.supplier_id && a.order_id === supplier.order_id)
+                              if (!audit) {
+                                return (
+                                  <td className="px-6 py-4">
+                                    <span className="text-slate-400 dark:text-slate-500">—</span>
+                                  </td>
+                                )
+                              }
+                              
+                              let badgeStyle = "bg-slate-100 text-slate-700 border-slate-200 dark:bg-slate-800 dark:text-slate-300 dark:border-slate-700"
+                              let label = audit.audit_status
+                              
+                              if (audit.audit_status === 'Completed') {
+                                if (audit.audit_verdict === 'PASS') {
+                                  badgeStyle = "bg-emerald-50 text-emerald-700 border-emerald-250 dark:bg-emerald-950/20 dark:text-emerald-450 dark:border-emerald-900"
+                                  label = "QC PASS"
+                                } else if (audit.audit_verdict === 'PASS WITH CONDITIONS') {
+                                  badgeStyle = "bg-amber-50 text-amber-700 border-amber-250 dark:bg-amber-950/20 dark:text-amber-450 dark:border-amber-900"
+                                  label = "QC PASS W/ COND"
+                                } else {
+                                  badgeStyle = "bg-rose-50 text-rose-700 border-rose-250 dark:bg-rose-950/20 dark:text-rose-450 dark:border-rose-900"
+                                  label = "QC FAIL"
                                 }
-                              </button>
-                            </td>
+                              } else {
+                                badgeStyle = "bg-blue-50 text-blue-700 border-blue-200 dark:bg-blue-950/20 dark:text-blue-450 dark:border-blue-900"
+                                label = "QC In Progress"
+                              }
+                              
+                              return (
+                                <td className="px-6 py-4">
+                                  <span className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-bold border ${badgeStyle}`}>
+                                    {label}
+                                  </span>
+                                </td>
+                              )
+                            })()}
                           </tr>
                         )
                       })}
@@ -1505,7 +1638,7 @@ export function SourcingClient({ initialOrders, initialSuppliers }: SourcingClie
                                         >
                                           <option value="PENDING">Pending</option>
                                           <option value="MATERIAL">Material</option>
-                                          <option value="FINISHED_GOODS">Product</option>
+                                          <option value="PRODUCT">Product</option>
                                         </select>
                                       </td>
                                     </tr>
@@ -1614,22 +1747,6 @@ export function SourcingClient({ initialOrders, initialSuppliers }: SourcingClie
                                 </>
                               ) : (
                                 <>
-                                  {orderSuppliers.some(s => s.is_shortlisted) && (
-                                    <Button
-                                      id="btn-order-send-qc"
-                                      onClick={() => handleSendShortlistToQc(selectedOrderId)}
-                                      disabled={isPending}
-                                      className="bg-[#5c59e9] hover:bg-[#4a47d2] text-white gap-1.5 h-8 px-3 rounded-lg text-xs font-semibold cursor-pointer"
-                                    >
-                                      {isPending ? (
-                                        <Loader2 size={12} className="animate-spin" />
-                                      ) : (
-                                        <Send size={12} />
-                                      )}
-                                      <span>Send Shortlist to QC</span>
-                                    </Button>
-                                  )}
-
                                   <DropdownMenu>
                                     <DropdownMenuTrigger asChild>
                                       <Button
@@ -1638,19 +1755,109 @@ export function SourcingClient({ initialOrders, initialSuppliers }: SourcingClie
                                         className="flex items-center gap-1.5 h-8 px-3 rounded-lg border border-slate-200 text-slate-700 hover:bg-slate-50 dark:border-slate-800 dark:text-slate-400 dark:hover:text-slate-200 transition-colors cursor-pointer text-xs font-semibold"
                                       >
                                         <SlidersHorizontal size={12} />
-                                        <span>Manage Table</span>
+                                        <span>Actions</span>
                                       </Button>
                                     </DropdownMenuTrigger>
-                                    <DropdownMenuContent align="end" className="w-48 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-1 shadow-md z-50">
-                                      {/* Manage Mode trigger */}
-                                      <div
-                                        role="button"
-                                        onClick={() => setIsManageMode(true)}
+                                    <DropdownMenuContent align="end" className="w-56 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-1 shadow-md z-50">
+                                      {/* Send Shortlist to QC */}
+                                      <DropdownMenuItem
+                                        disabled={
+                                          isPending || 
+                                          !orderSuppliers.some(s => s.is_shortlisted) ||
+                                          orderSuppliers.filter(s => s.is_shortlisted).every(s => audits.some(a => a.supplier_id === s.supplier_id && a.order_id === s.order_id))
+                                        }
+                                        onClick={() => handleSendShortlistToQc(selectedOrderId)}
+                                        className="flex items-center gap-2 px-2.5 py-1.5 text-xs rounded-lg cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-800 font-semibold text-slate-755 dark:text-slate-300 disabled:opacity-50 disabled:cursor-not-allowed"
+                                      >
+                                        {isPending ? (
+                                          <Loader2 size={12} className="animate-spin" />
+                                        ) : (
+                                          <Send size={12} className="text-indigo-500" />
+                                        )}
+                                        <span>Send Shortlist to QC</span>
+                                      </DropdownMenuItem>
+
+                                      {/* Edit Classification */}
+                                      <DropdownMenuItem
+                                        onClick={() => setIsEditingClassification(true)}
                                         className="flex items-center gap-2 px-2.5 py-1.5 text-xs rounded-lg cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-800 font-semibold text-slate-750 dark:text-slate-300"
                                       >
-                                        <Trash2 size={12} className="text-red-500" />
-                                        <span>Select & Delete</span>
-                                      </div>
+                                        <Package size={12} className="text-emerald-500" />
+                                        <span>Edit Classification</span>
+                                      </DropdownMenuItem>
+
+                                      {/* Selection-specific Actions */}
+                                      {selectedSupplierIds.length > 0 && (
+                                        <>
+                                          <DropdownMenuSeparator className="my-1 border-t border-slate-100 dark:border-slate-800" />
+                                          <div className="px-2.5 py-1 text-[10px] font-bold text-slate-400 uppercase tracking-wider">
+                                            Selection ({selectedSupplierIds.length})
+                                          </div>
+
+                                          {/* Create PO (only if 1 is selected and QC passed) */}
+                                          {selectedSupplierIds.length === 1 && (() => {
+                                            const supplier = suppliers.find(s => s.id === selectedSupplierIds[0])
+                                            if (!supplier) return null
+                                            const audit = audits.find(a => a.supplier_id === supplier.supplier_id && a.order_id === supplier.order_id)
+                                            const hasPassedQC = audit && 
+                                              audit.audit_status === 'Completed' && 
+                                              (audit.audit_verdict === 'PASS' || audit.audit_verdict === 'PASS WITH CONDITIONS')
+                                            
+                                            return (
+                                              <DropdownMenuItem
+                                                disabled={!hasPassedQC || (selectedOrder?.stage !== 'Sourcing' && selectedOrder?.stage !== 'Ready for PO')}
+                                                onClick={() => {
+                                                  setPoSupplier(supplier)
+                                                  const qty = selectedOrder?.order_items?.find(item => item.id === supplier.order_item_id)?.quantity || 1
+                                                  setPoContractValue(Number(supplier.quoted_price) * qty)
+                                                  setIsPoConfirming(false)
+                                                  setErrorMessage(null)
+                                                }}
+                                                className="flex items-center gap-2 px-2.5 py-1.5 text-xs rounded-lg cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-800 font-semibold text-slate-755 dark:text-slate-300 disabled:opacity-50 disabled:cursor-not-allowed"
+                                              >
+                                                <PlusCircle size={12} className="text-emerald-500" />
+                                                <span>Create PO</span>
+                                              </DropdownMenuItem>
+                                            )
+                                          })()}
+
+                                          {/* Toggle Shortlist */}
+                                          {selectedSupplierIds.length === 1 && (() => {
+                                            const supplier = suppliers.find(s => s.id === selectedSupplierIds[0])
+                                             if (!supplier) return null
+                                             const hasQcAudit = audits.some(a => a.supplier_id === supplier.supplier_id && a.order_id === supplier.order_id)
+                                            return (
+                                               <DropdownMenuItem
+                                                 disabled={hasQcAudit}
+                                                onClick={() => handleToggleShortlist(supplier)}
+                                                className="flex items-center gap-2 px-2.5 py-1.5 text-xs rounded-lg cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-800 font-semibold text-slate-700 dark:text-slate-300 disabled:opacity-50 disabled:cursor-not-allowed"
+                                              >
+                                                <Check size={12} className="text-indigo-500" />
+                                                <span>{supplier.is_shortlisted ? 'Remove Shortlist' : 'Shortlist'}</span>
+                                              </DropdownMenuItem>
+                                            )
+                                          })()}
+
+                                          {/* Delete selected */}
+                                          <DropdownMenuItem
+                                            onClick={() => setIsBulkDeleteConfirmOpen(true)}
+                                            className="flex items-center gap-2 px-2.5 py-1.5 text-xs rounded-lg cursor-pointer hover:bg-red-50 dark:hover:bg-red-950/20 font-semibold text-red-650 dark:text-red-400"
+                                          >
+                                            <Trash2 size={12} className="text-red-500" />
+                                            <span>Delete Selected ({selectedSupplierIds.length})</span>
+                                          </DropdownMenuItem>
+
+                                          <DropdownMenuItem
+                                            onClick={() => setSelectedSupplierIds([])}
+                                            className="flex items-center gap-2 px-2.5 py-1.5 text-xs rounded-lg cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-800 font-semibold text-slate-500"
+                                          >
+                                            <XCircle size={12} className="text-slate-400" />
+                                            <span>Clear Selection</span>
+                                          </DropdownMenuItem>
+                                        </>
+                                      )}
+
+                                      <DropdownMenuSeparator className="my-1 border-t border-slate-100 dark:border-slate-800" />
 
                                       <DropdownMenuCheckboxItem
                                         checked={orderShortlistFilterOnly}
@@ -1662,14 +1869,13 @@ export function SourcingClient({ initialOrders, initialSuppliers }: SourcingClie
                                       >
                                         Shortlisted Only
                                       </DropdownMenuCheckboxItem>
-                                      
+
                                       <DropdownMenuSeparator className="my-1 border-t border-slate-100 dark:border-slate-800" />
-                                      
-                                      {/* Column toggles header */}
+
                                       <div className="px-2.5 py-1 text-[10px] font-bold text-slate-400 uppercase tracking-wider">
                                         Toggle Columns
                                       </div>
-                                      
+
                                       {orderToggleableColumns.map(col => (
                                         <DropdownMenuCheckboxItem
                                           key={col.key}
@@ -1685,16 +1891,6 @@ export function SourcingClient({ initialOrders, initialSuppliers }: SourcingClie
                                       ))}
                                     </DropdownMenuContent>
                                   </DropdownMenu>
-
-                                  <Button
-                                    onClick={() => setIsEditingClassification(true)}
-                                    variant="outline"
-                                    size="sm"
-                                    className="gap-1.5 border-emerald-250 text-emerald-700 hover:bg-emerald-50/50 dark:border-emerald-900/50 dark:text-emerald-400 cursor-pointer h-8 px-3 rounded-lg text-xs"
-                                  >
-                                    <Package size={14} />
-                                    <span>Edit Classification</span>
-                                  </Button>
 
                                   <Button
                                     onClick={() => {
@@ -1774,22 +1970,25 @@ export function SourcingClient({ initialOrders, initialSuppliers }: SourcingClie
                                 <table className="w-full text-left border-collapse">
                                   <thead>
                                     <tr className="border-b border-slate-100 bg-slate-50/50 text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:border-slate-800 dark:bg-slate-900/50">
-                                      {isManageMode && (
-                                        <th className="px-6 py-4 w-12 text-center">
-                                          <input 
-                                            type="checkbox"
-                                            checked={sortedOrderSuppliers.length > 0 && selectedSupplierIds.length === sortedOrderSuppliers.length}
-                                            onChange={(e) => {
-                                              if (e.target.checked) {
-                                                setSelectedSupplierIds(sortedOrderSuppliers.map(s => s.id))
-                                              } else {
-                                                setSelectedSupplierIds([])
+                                      <th className="px-6 py-4 w-12 text-center">
+                                        <input 
+                                          type="checkbox"
+                                          checked={sortedOrderSuppliers.length > 0 && selectedSupplierIds.length === sortedOrderSuppliers.length}
+                                          onChange={(e) => {
+                                            if (e.target.checked) {
+                                              const allIds = sortedOrderSuppliers.map(s => s.id)
+                                              setSelectedSupplierIds(allIds)
+                                              const hasUnshortlisted = sortedOrderSuppliers.some(s => !s.is_shortlisted)
+                                              if (hasUnshortlisted) {
+                                                triggerToast("Selected an unshortlisted supplier. This will automatically shortlist them if sent to QC.")
                                               }
-                                            }}
-                                            className="rounded text-[#5c59e9] focus:ring-[#5c59e9] h-3.5 w-3.5 cursor-pointer"
-                                          />
-                                        </th>
-                                      )}
+                                            } else {
+                                              setSelectedSupplierIds([])
+                                            }
+                                          }}
+                                          className="rounded text-[#5c59e9] focus:ring-[#5c59e9] h-3.5 w-3.5 cursor-pointer"
+                                        />
+                                      </th>
                                       {orderColumnVisibility.supplierName && <th className="px-6 py-4">Supplier</th>}
                                       {orderColumnVisibility.email && <th className="px-6 py-4">Email</th>}
                                       {orderColumnVisibility.phone && <th className="px-6 py-4">Phone</th>}
@@ -1798,7 +1997,8 @@ export function SourcingClient({ initialOrders, initialSuppliers }: SourcingClie
                                       {orderColumnVisibility.quotedPrice && <th className="px-6 py-4">Quoted Price</th>}
                                       {orderColumnVisibility.leadTime && <th className="px-6 py-4">Lead Time</th>}
                                       {orderColumnVisibility.shortlistStatus && <th className="px-6 py-4 text-center">Shortlist</th>}
-                                      <th className="px-6 py-4 text-right">Actions</th>
+                                      {orderColumnVisibility.qcStatus && <th className="px-6 py-4">QC Status</th>}
+              
                                     </tr>
                                   </thead>
                                   <tbody className="divide-y divide-slate-100 dark:divide-slate-800 text-xs">
@@ -1807,22 +2007,23 @@ export function SourcingClient({ initialOrders, initialSuppliers }: SourcingClie
                                       const isFastestLead = supplier.order_item_id && bestLeadTimePerItem[supplier.order_item_id] !== undefined && supplier.lead_time_days === bestLeadTimePerItem[supplier.order_item_id]
                                       return (
                                         <tr key={supplier.id} className={`hover:bg-slate-50/50 dark:hover:bg-slate-900/20 ${selectedSupplierIds.includes(supplier.id) ? 'bg-indigo-50/30 dark:bg-indigo-950/10' : ''}`}>
-                                          {isManageMode && (
-                                            <td className="px-6 py-4 w-12 text-center">
-                                              <input 
-                                                type="checkbox"
-                                                checked={selectedSupplierIds.includes(supplier.id)}
-                                                onChange={(e) => {
-                                                  if (e.target.checked) {
-                                                    setSelectedSupplierIds(prev => [...prev, supplier.id])
-                                                  } else {
-                                                    setSelectedSupplierIds(prev => prev.filter(id => id !== supplier.id))
-                                                  }
-                                                }}
-                                                className="rounded text-[#5c59e9] focus:ring-[#5c59e9] h-3.5 w-3.5 cursor-pointer"
-                                              />
-                                            </td>
-                                          )}
+                                           <td className="px-6 py-4 w-12 text-center">
+                                             <input 
+                                               type="checkbox"
+                                               checked={selectedSupplierIds.includes(supplier.id)}
+                                               onChange={(e) => {
+                                                 if (e.target.checked) {
+                                                   setSelectedSupplierIds(prev => [...prev, supplier.id])
+                                                   if (!supplier.is_shortlisted) {
+                                                     triggerToast("Selected an unshortlisted supplier. This will automatically shortlist them if sent to QC.")
+                                                   }
+                                                 } else {
+                                                   setSelectedSupplierIds(prev => prev.filter(id => id !== supplier.id))
+                                                 }
+                                               }}
+                                               className="rounded text-[#5c59e9] focus:ring-[#5c59e9] h-3.5 w-3.5 cursor-pointer"
+                                             />
+                                           </td>
                                           {orderColumnVisibility.supplierName && (
                                             <td className="px-6 py-4">
                                               <div className="font-semibold text-slate-800 dark:text-slate-200">
@@ -1890,7 +2091,8 @@ export function SourcingClient({ initialOrders, initialSuppliers }: SourcingClie
                                               <button
                                                 id={`shortlist-${supplier.id}`}
                                                 onClick={() => handleToggleShortlist(supplier)}
-                                                disabled={isPending}
+                                                 disabled={isPending || audits.some(a => a.supplier_id === supplier.supplier_id && a.order_id === supplier.order_id)}
+                                                 title={audits.some(a => a.supplier_id === supplier.supplier_id && a.order_id === supplier.order_id) ? "Shortlist locked - Sent to QC" : undefined}
                                                 className={`mx-auto flex h-7 w-7 items-center justify-center rounded-lg border transition-all cursor-pointer disabled:opacity-50 ${
                                                   supplier.is_shortlisted
                                                     ? 'bg-emerald-50 text-emerald-600 border-emerald-300 dark:bg-emerald-950/30 dark:text-emerald-400 dark:border-emerald-800'
@@ -1901,37 +2103,43 @@ export function SourcingClient({ initialOrders, initialSuppliers }: SourcingClie
                                               </button>
                                             </td>
                                           )}
-                                          <td className="px-6 py-4 text-right">
-                                            <div className="flex justify-end items-center gap-2">
-                                              {selectedOrder?.stage === 'Sourcing' && (
-                                                <Button
-                                                  size="sm"
-                                                  onClick={() => {
-                                                    setPoSupplier(supplier)
-                                                    const qty = selectedOrder?.order_items?.find(item => item.id === supplier.order_item_id)?.quantity || 1
-                                                    setPoContractValue(Number(supplier.quoted_price) * qty)
-                                                    setIsPoConfirming(false)
-                                                    setErrorMessage(null)
-                                                  }}
-                                                  className="h-7 text-[10px] font-bold px-2.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white cursor-pointer"
-                                                >
-                                                  Create PO
-                                                </Button>
-                                              )}
-                                              <button
-                                                id={`delete-supplier-${supplier.id}`}
-                                                onClick={() => setConfirmDeleteId(supplier.id)}
-                                                disabled={deletingId === supplier.id}
-                                                className="inline-flex items-center justify-center h-7 w-7 rounded-lg border border-slate-200 text-slate-400 hover:border-red-300 hover:text-red-500 hover:bg-red-50 dark:border-slate-800 dark:hover:bg-red-950/20 dark:hover:text-red-400 transition-colors cursor-pointer disabled:opacity-50"
-                                                title="Remove supplier"
-                                              >
-                                                {deletingId === supplier.id
-                                                  ? <Loader2 size={13} className="animate-spin" />
-                                                  : <Trash2 size={13} />
-                                                }
-                                              </button>
-                                            </div>
-                                          </td>
+                                          {orderColumnVisibility.qcStatus && (() => {
+                                            const audit = audits.find(a => a.supplier_id === supplier.supplier_id && a.order_id === supplier.order_id)
+                                            if (!audit) {
+                                              return (
+                                                <td className="px-6 py-4">
+                                                  <span className="text-slate-400 dark:text-slate-500">—</span>
+                                                </td>
+                                              )
+                                            }
+                                            
+                                            let badgeStyle = "bg-slate-100 text-slate-700 border-slate-200 dark:bg-slate-800 dark:text-slate-300 dark:border-slate-700"
+                                            let label = audit.audit_status
+                                            
+                                            if (audit.audit_status === 'Completed') {
+                                              if (audit.audit_verdict === 'PASS') {
+                                                badgeStyle = "bg-emerald-50 text-emerald-700 border-emerald-250 dark:bg-emerald-950/20 dark:text-emerald-450 dark:border-emerald-900"
+                                                label = "QC PASS"
+                                              } else if (audit.audit_verdict === 'PASS WITH CONDITIONS') {
+                                                badgeStyle = "bg-amber-50 text-amber-700 border-amber-250 dark:bg-amber-950/20 dark:text-amber-450 dark:border-amber-900"
+                                                label = "QC PASS W/ COND"
+                                              } else {
+                                                badgeStyle = "bg-rose-50 text-rose-700 border-rose-250 dark:bg-rose-950/20 dark:text-rose-450 dark:border-rose-900"
+                                                label = "QC FAIL"
+                                              }
+                                            } else {
+                                              badgeStyle = "bg-blue-50 text-blue-700 border-blue-200 dark:bg-blue-950/20 dark:text-blue-450 dark:border-blue-900"
+                                              label = "QC In Progress"
+                                            }
+                                            
+                                            return (
+                                              <td className="px-6 py-4">
+                                                <span className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-bold border ${badgeStyle}`}>
+                                                  {label}
+                                                </span>
+                                              </td>
+                                            )
+                                          })()}
                                         </tr>
                                       )
                                     })}
@@ -2331,7 +2539,7 @@ export function SourcingClient({ initialOrders, initialSuppliers }: SourcingClie
               <h3 className="text-base font-bold text-slate-900 dark:text-white">Confirm Supplier &amp; Create PO</h3>
             </div>
             
-            <div className="space-y-4">
+            <div className="space-y-4 max-h-[75vh] overflow-y-auto pr-1 scrollbar-thin">
               <p className="text-xs text-slate-600 dark:text-slate-400 leading-relaxed">
                 You are selecting <strong className="font-semibold text-slate-800 dark:text-slate-200">{poSupplier.supplier_name}</strong> as the final supplier for the item <strong className="font-semibold text-slate-800 dark:text-slate-200">{poSupplier.order_items?.item_name}</strong>.
               </p>
@@ -2372,6 +2580,48 @@ export function SourcingClient({ initialOrders, initialSuppliers }: SourcingClie
                 </p>
               </div>
 
+              <div className="space-y-2">
+                <Label htmlFor="po-delivery-date" className="text-xs font-bold text-slate-700 dark:text-slate-300">
+                  Target Delivery Date
+                </Label>
+                <Input
+                  id="po-delivery-date"
+                  type="date"
+                  min={new Date().toISOString().split('T')[0]}
+                  value={poTargetDeliveryDate}
+                  onChange={(e) => setPoTargetDeliveryDate(e.target.value)}
+                  className="bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 text-sm font-semibold rounded-xl"
+                  required
+                />
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="po-delivery-address" className="text-xs font-bold text-slate-700 dark:text-slate-300">
+                  Delivery Address
+                </Label>
+                <textarea
+                  id="po-delivery-address"
+                  value={poDeliveryAddress}
+                  onChange={(e) => setPoDeliveryAddress(e.target.value)}
+                  rows={2}
+                  className="w-full text-sm font-medium p-3 rounded-xl border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-900 focus:outline-none focus:ring-2 focus:ring-[#5c59e9] dark:text-slate-100"
+                  required
+                />
+              </div>
+
+              <div className="space-y-2">
+                <Label htmlFor="po-contract-file" className="text-xs font-bold text-slate-700 dark:text-slate-300">
+                  Upload Signed Contract (PDF, Word, Image)
+                </Label>
+                <Input
+                  id="po-contract-file"
+                  type="file"
+                  accept="application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,image/*"
+                  onChange={(e) => setPoContractFile(e.target.files?.[0] || null)}
+                  className="bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 text-xs rounded-xl file:mr-4 file:py-1 file:px-3 file:rounded-full file:border-0 file:text-xs file:font-semibold file:bg-indigo-50 file:text-[#5c59e9] hover:file:bg-indigo-100 cursor-pointer"
+                />
+              </div>
+
               {errorMessage && (
                 <div className="p-3 bg-red-50 text-red-600 dark:bg-red-950/20 dark:text-red-400 rounded-xl text-xs font-medium border border-red-200 dark:border-red-900/50 flex items-center gap-2">
                   <AlertCircle size={14} className="flex-shrink-0" />
@@ -2390,16 +2640,30 @@ export function SourcingClient({ initialOrders, initialSuppliers }: SourcingClie
                 </Button>
                 <Button
                   type="button"
-                  disabled={isPoConfirming || !poContractValue || poContractValue <= 0}
+                  disabled={
+                    isPoConfirming || 
+                    !poContractValue || poContractValue <= 0 || 
+                    !poTargetDeliveryDate || 
+                    !poDeliveryAddress
+                  }
                   onClick={async () => {
-                    if (!selectedOrderId || !poSupplier.supplier_id) return
+                    const activeOrderId = selectedOrderId || poSupplier.order_id
+                    if (!activeOrderId || !poSupplier.supplier_id || !poSupplier.order_item_id) return
                     setIsPoConfirming(true)
                     setErrorMessage(null)
-                    const res = await confirmSupplierAndCreatePoAction({
-                      orderId: selectedOrderId,
-                      selectedSupplierId: poSupplier.supplier_id,
-                      contractValue: poContractValue
-                    })
+                    
+                    const fd = new FormData()
+                    fd.append('orderId', activeOrderId)
+                    fd.append('selectedSupplierId', poSupplier.supplier_id)
+                    fd.append('orderItemId', poSupplier.order_item_id)
+                    fd.append('contractValue', String(poContractValue))
+                    fd.append('targetDeliveryDate', poTargetDeliveryDate)
+                    fd.append('deliveryAddress', poDeliveryAddress)
+                    if (poContractFile) {
+                      fd.append('contractFile', poContractFile)
+                    }
+                    
+                    const res = await confirmSupplierAndCreatePoAction(fd)
                     setIsPoConfirming(false)
                     if (res.success) {
                       setPoSupplier(null)
@@ -2500,7 +2764,7 @@ export function SourcingClient({ initialOrders, initialSuppliers }: SourcingClie
                     >
                       <Upload className="h-8 w-8 text-slate-400 hover:text-[#5c59e9] transition-colors" />
                       <span className="text-xs font-semibold text-slate-700 dark:text-slate-300">Click to upload CSV template</span>
-                      <span className="text-[10px] text-slate-400">Columns: supplier_name, email, phone, address, order_code, product_name, quoted_price, lead_time</span>
+                      <span className="text-[10px] text-slate-400">Columns: supplier_name, email, phone, address, product_name, quoted_price, lead_time (order_code is optional)</span>
                     </label>
                   </div>
 
@@ -2613,11 +2877,17 @@ export function SourcingClient({ initialOrders, initialSuppliers }: SourcingClie
                 type="button"
                 onClick={async () => {
                   setIsBulkDeleting(true)
+                  const deletedItems = suppliers.filter(s => selectedSupplierIds.includes(s.id))
+                  const deletedSupplierIds = deletedItems.map(s => s.supplier_id)
+
                   const res = await deleteSuppliersBatchAction(selectedSupplierIds)
                   setIsBulkDeleting(false)
                   setIsBulkDeleteConfirmOpen(false)
                   if (res.success) {
-                    setSuppliers(prev => prev.filter(s => !selectedSupplierIds.includes(s.id)))
+                    setSuppliers(prev => prev.filter(s => 
+                      !selectedSupplierIds.includes(s.id) && 
+                      !deletedSupplierIds.includes(s.supplier_id)
+                    ))
                     setSelectedSupplierIds([])
                     setIsManageMode(false)
                   } else {
@@ -2633,6 +2903,87 @@ export function SourcingClient({ initialOrders, initialSuppliers }: SourcingClie
           </div>
         </div>
       )}
+      {/* Send to QC Confirmation Modal */}
+      {isSendToQcConfirmOpen && (() => {
+        const checkedCount = selectedSupplierIds.length
+        const checkedSuppliers = orderSuppliers.filter(s => selectedSupplierIds.includes(s.id))
+        const unshortlisted = checkedSuppliers.filter(s => !s.is_shortlisted)
+        
+        return (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+            <div
+              className="absolute inset-0 bg-black/40 backdrop-blur-sm"
+              onClick={() => { if (!isSendingToQc) setIsSendToQcConfirmOpen(false); }}
+            />
+            <div className="relative z-10 w-full max-w-sm bg-white dark:bg-slate-900 rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-800 p-6">
+              <div className="flex items-center gap-3 text-indigo-600 dark:text-indigo-400 mb-4">
+                <Send size={22} className="flex-shrink-0 text-indigo-600 dark:text-indigo-400" />
+                <h3 className="text-base font-bold text-slate-900 dark:text-white">Send Suppliers to QC</h3>
+              </div>
+              
+              <div className="text-xs text-slate-650 dark:text-slate-400 mb-6 space-y-3 leading-relaxed">
+                <p>
+                  {checkedCount > 0 ? (
+                    <>You are about to send <strong className="font-semibold text-slate-800 dark:text-slate-200">{checkedCount} selected supplier(s)</strong> to the QA queue.</>
+                  ) : (
+                    <>You are about to send all <strong className="font-semibold text-slate-800 dark:text-slate-200">{orderSuppliers.filter(s => s.is_shortlisted).length} shortlisted supplier(s)</strong> to the QA queue.</>
+                  )}
+                </p>
+                {checkedCount > 0 && unshortlisted.length > 0 && (
+                  <div className="bg-amber-50 dark:bg-amber-950/20 border border-amber-200 dark:border-amber-900 rounded-lg p-3 text-amber-700 dark:text-amber-400">
+                    <p className="font-medium flex items-center gap-1.5 mb-1">
+                      <AlertCircle size={14} /> Unshortlisted Suppliers Warning
+                    </p>
+                    <p className="text-[11px] leading-normal">
+                      Note: Supplier(s) {unshortlisted.map(s => `'${s.supplier_name}'`).join(', ')} is not shortlisted and will be automatically updated upon confirmation.
+                    </p>
+                  </div>
+                )}
+              </div>
+
+              <div className="flex gap-3">
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => setIsSendToQcConfirmOpen(false)}
+                  className="flex-1 h-9 text-sm cursor-pointer"
+                  disabled={isSendingToQc}
+                >
+                  Cancel
+                </Button>
+                <Button
+                  type="button"
+                  onClick={handleConfirmSendToQc}
+                  disabled={isSendingToQc}
+                  className="flex-1 h-9 text-sm bg-indigo-600 hover:bg-indigo-700 text-white cursor-pointer gap-2"
+                >
+                  {isSendingToQc ? <><Loader2 size={13} className="animate-spin" /> Sending...</> : 'Confirm & Send'}
+                </Button>
+              </div>
+            </div>
+          </div>
+        )
+      })()}
+
+      {/* Toast notifications container */}
+      <div className="fixed bottom-4 right-4 z-50 flex flex-col gap-2 max-w-sm">
+        {toasts.map(t => (
+          <div
+            key={t.id}
+            className="flex items-center gap-2.5 bg-slate-900 text-white dark:bg-white dark:text-slate-900 px-4 py-3 rounded-xl shadow-lg border border-slate-800 dark:border-slate-200 text-xs font-semibold animate-in slide-in-from-bottom-5 fade-in duration-200"
+          >
+            <AlertCircle size={14} className="text-amber-500 flex-shrink-0" />
+            <span className="flex-1 leading-normal">{t.message}</span>
+            <button
+              onClick={() => setToasts(prev => prev.filter(item => item.id !== t.id))}
+              className="text-slate-400 hover:text-white dark:text-slate-500 dark:hover:text-slate-900 ml-1 cursor-pointer flex-shrink-0"
+            >
+              <X size={12} />
+            </button>
+          </div>
+        ))}
+      </div>
+
       {/* Supplier Profile Modal */}
       {isProfileOpen && selectedSupplierId && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm animate-in fade-in duration-200">

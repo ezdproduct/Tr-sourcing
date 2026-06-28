@@ -45,11 +45,11 @@ const departmentOptions = [
   { value: 'all', label: 'All Departments' },
   { value: 'dashboard', label: 'Dashboard' },
   { value: 'orders', label: 'Order Management' },
-  { value: 'sourcing', label: 'Supplier Sourcing' },
-  { value: 'audit', label: 'Factory Audit' },
-  { value: 'inspection', label: 'Port Inspection' },
-  { value: 'logistics', label: 'Logistics & Inbound' },
-  { value: 'production', label: 'Production Run' }
+  { value: 'sourcing', label: 'Sourcing Management' },
+  { value: 'audit', label: 'Quality Control' },
+  { value: 'inspection', label: 'Inspection' },
+  { value: 'logistics', label: 'Logistics & Inventory' },
+  { value: 'production', label: 'Production' }
 ]
 
 export function ManagementClient({ initialProfiles }: ManagementClientProps) {
@@ -160,14 +160,6 @@ export function ManagementClient({ initialProfiles }: ManagementClientProps) {
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-col gap-1">
-        <h1 className="text-2xl font-bold tracking-tight text-slate-900 dark:text-white">
-          Management System
-        </h1>
-        <p className="text-sm text-slate-500">
-          Review pending user signups, authorize account requests, and assign system permissions.
-        </p>
-      </div>
 
       {message && (
         <div className={`p-3 text-xs rounded-xl flex items-center gap-2 border font-semibold animate-in fade-in duration-200 max-w-xl ${

@@ -99,13 +99,15 @@ export function InspectionClient({ initialInspections, activeOrders, initialOrde
   const [showForm, setShowForm] = useState(false)
   const [isPending, startTransition] = useTransition()
 
-  // Sync subtab when URL searchParams change (e.g., sidebar link click without unmount)
+  const subtabParam = searchParams.get('subtab')
+
   useEffect(() => {
-    const tab = searchParams.get('subtab')
-    if (tab === 'overview' || tab === 'workplace') {
-      setSubtab(tab)
+    if (subtabParam === 'overview' || subtabParam === 'workplace') {
+      setSubtab(subtabParam)
+    } else {
+      setSubtab('overview')
     }
-  }, [searchParams])
+  }, [subtabParam])
 
   const handleTabChange = (val: 'overview' | 'workplace') => {
     setSubtab(val)
@@ -191,44 +193,42 @@ export function InspectionClient({ initialInspections, activeOrders, initialOrde
         </div>
       )}
 
+      {/* Controls Row */}
+      {subtab === 'overview' && (
+        <div className="flex justify-end items-center gap-4">
+          <div className="flex items-center gap-1 bg-slate-100/80 dark:bg-slate-900/60 p-1 rounded-xl border border-slate-200/50 dark:border-slate-800/80">
+            <Button
+              variant={overviewMode === 'analytics' ? 'secondary' : 'ghost'}
+              size="sm"
+              onClick={() => setOverviewMode('analytics')}
+              className={`text-xs font-semibold px-4 py-1.5 h-8 rounded-lg cursor-pointer transition-all ${
+                overviewMode === 'analytics'
+                  ? 'bg-white text-[#5c59e9] shadow-sm dark:bg-slate-800 dark:text-slate-900'
+                  : 'text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white'
+              }`}
+            >
+              <span>Analytics View</span>
+            </Button>
+            <Button
+              variant={overviewMode === 'kanban' ? 'secondary' : 'ghost'}
+              size="sm"
+              onClick={() => setOverviewMode('kanban')}
+              className={`text-xs font-semibold px-4 py-1.5 h-8 rounded-lg cursor-pointer transition-all ${
+                overviewMode === 'kanban'
+                  ? 'bg-white text-[#5c59e9] shadow-sm dark:bg-slate-800 dark:text-slate-900'
+                  : 'text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white'
+              }`}
+            >
+              <span>Kanban Board</span>
+            </Button>
+          </div>
+        </div>
+      )}
+
       {/* Subtab Switcher */}
-      <Tabs value={subtab} onValueChange={(v) => handleTabChange(v as 'overview' | 'workplace')} className="w-full space-y-6">
+      <Tabs value={subtab} className="w-full space-y-6">
 
         <TabsContent value="overview" className="space-y-6 mt-0 border-none p-0 focus-visible:ring-0 focus-visible:ring-offset-0">
-          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 bg-slate-50/50 dark:bg-slate-900/10 p-4 rounded-2xl border border-slate-100 dark:border-slate-800/60">
-            <div className="space-y-0.5">
-              <h2 className="text-sm font-bold text-slate-950 dark:text-slate-50">Inspection Overview</h2>
-              <p className="text-xs text-slate-400 dark:text-slate-500 font-medium">
-                Monitor key metrics and track purchase order lifecycle stages in real-time.
-              </p>
-            </div>
-            <div className="flex items-center gap-1 bg-slate-100 dark:bg-slate-955 p-1 rounded-xl self-start sm:self-auto border border-slate-200/50 dark:border-slate-800/80">
-              <Button
-                variant={overviewMode === 'analytics' ? 'secondary' : 'ghost'}
-                size="sm"
-                onClick={() => setOverviewMode('analytics')}
-                className={`text-xs font-semibold px-4 py-1.5 h-8 rounded-lg cursor-pointer transition-all ${
-                  overviewMode === 'analytics'
-                    ? 'bg-white text-[#5c59e9] shadow-sm dark:bg-slate-900 dark:text-white'
-                    : 'text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white'
-                }`}
-              >
-                <span>Analytics View</span>
-              </Button>
-              <Button
-                variant={overviewMode === 'kanban' ? 'secondary' : 'ghost'}
-                size="sm"
-                onClick={() => setOverviewMode('kanban')}
-                className={`text-xs font-semibold px-4 py-1.5 h-8 rounded-lg cursor-pointer transition-all ${
-                  overviewMode === 'kanban'
-                    ? 'bg-white text-[#5c59e9] shadow-sm dark:bg-slate-900 dark:text-white'
-                    : 'text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white'
-                }`}
-              >
-                <span>Kanban Board</span>
-              </Button>
-            </div>
-          </div>
 
           {overviewMode === 'analytics' ? (
             <div className="space-y-6 animate-in fade-in duration-300">

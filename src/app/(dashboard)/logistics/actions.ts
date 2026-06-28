@@ -99,14 +99,14 @@ async function reconcileWarehouseStockIn(supabase: any, orderId: string, product
     if (hasInStockMaterial) {
       await supabase
         .from('orders')
-        .update({ stage: 'MATERIALS IN STOCK' })
+        .update({ stage: 'Production' })
         .eq('id', orderId)
       
       await supabase
         .from('order_activities')
         .insert({
           order_id: orderId,
-          activity_text: `Warehouse: All materials stock-in confirmed. Stage changed to MATERIALS IN STOCK.`
+          activity_text: `Warehouse: All materials stock-in confirmed. Stage changed to Production.`
         })
     } else {
       await supabase

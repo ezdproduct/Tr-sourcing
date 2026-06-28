@@ -17,7 +17,9 @@ import {
   Anchor,
   Truck,
   TrendingUp,
-  FolderOpen
+  FolderOpen,
+  FileText,
+  CheckCircle2
 } from 'lucide-react'
 
 // Define Kanban Columns
@@ -38,31 +40,45 @@ const COLUMNS = [
   },
   {
     key: 'QC',
-    label: 'Factory Audit & QC',
+    label: 'Quality Control',
     colorClass: 'border-t-purple-500 bg-purple-50/50 dark:bg-purple-950/10 hover:bg-purple-100/30 dark:hover:bg-purple-950/20 text-purple-700 dark:text-purple-400 border-purple-100 dark:border-purple-900/40',
     badgeClass: 'bg-purple-100 text-purple-800 dark:bg-purple-950 dark:text-purple-300',
     icon: FileCheck2
   },
   {
+    key: 'CreatePO',
+    label: 'Create PO',
+    colorClass: 'border-t-pink-500 bg-pink-50/50 dark:bg-pink-950/10 hover:bg-pink-100/30 dark:hover:bg-pink-950/20 text-pink-700 dark:text-pink-400 border-pink-100 dark:border-pink-900/40',
+    badgeClass: 'bg-pink-100 text-pink-800 dark:bg-pink-950 dark:text-pink-300',
+    icon: FileText
+  },
+  {
     key: 'Inspection',
-    label: 'Port Inspection',
+    label: 'Inspection',
     colorClass: 'border-t-indigo-500 bg-indigo-50/50 dark:bg-indigo-950/10 hover:bg-indigo-100/30 dark:hover:bg-indigo-950/20 text-indigo-700 dark:text-indigo-400 border-indigo-100 dark:border-indigo-900/40',
     badgeClass: 'bg-indigo-100 text-indigo-800 dark:bg-indigo-950 dark:text-indigo-300',
     icon: Anchor
   },
   {
     key: 'Logistic',
-    label: 'Logistics & Inbound',
+    label: 'Logistics & Inventory',
     colorClass: 'border-t-cyan-500 bg-cyan-50/50 dark:bg-cyan-950/10 hover:bg-cyan-100/30 dark:hover:bg-cyan-950/20 text-cyan-700 dark:text-cyan-400 border-cyan-100 dark:border-cyan-900/40',
     badgeClass: 'bg-cyan-100 text-cyan-800 dark:bg-cyan-950 dark:text-cyan-300',
     icon: Truck
   },
   {
     key: 'Production',
-    label: 'Production Run',
+    label: 'Production',
     colorClass: 'border-t-emerald-500 bg-emerald-50/50 dark:bg-emerald-950/10 hover:bg-emerald-100/30 dark:hover:bg-emerald-950/20 text-emerald-700 dark:text-emerald-400 border-emerald-100 dark:border-emerald-900/40',
     badgeClass: 'bg-emerald-100 text-emerald-800 dark:bg-emerald-950 dark:text-emerald-300',
     icon: TrendingUp
+  },
+  {
+    key: 'Done',
+    label: 'Order Done',
+    colorClass: 'border-t-emerald-600 bg-emerald-50/30 dark:bg-emerald-950/5 hover:bg-emerald-100/20 dark:hover:bg-emerald-950/10 text-emerald-800 dark:text-emerald-500 border-emerald-100 dark:border-emerald-900/40',
+    badgeClass: 'bg-emerald-100 text-emerald-900 dark:bg-emerald-950 dark:text-emerald-305',
+    icon: CheckCircle2
   }
 ]
 
@@ -70,11 +86,14 @@ const COLUMNS = [
 export function getColumnKey(stage: string): string {
   const s = stage ? stage.toLowerCase() : ''
   if (s.includes('definition') || s.includes('draft') || s.includes('order')) return 'Order'
+  if (s.includes('ready') || s.includes('po')) return 'CreatePO'
   if (s.includes('sourcing')) return 'Sourcing'
   if (s.includes('audit') || s.includes('qc')) return 'QC'
+  if (s.includes('inspection passed') || s.includes('inspection_passed')) return 'Logistic'
   if (s.includes('inspection') || s.includes('port')) return 'Inspection'
   if (s.includes('logistics') || s.includes('inbound') || s.includes('logistic')) return 'Logistic'
-  if (s.includes('production') || s.includes('run') || s.includes('completed')) return 'Production'
+  if (s.includes('production') || s.includes('run') || s.includes('stock') || s.includes('assemble')) return 'Production'
+  if (s.includes('closed') || s.includes('completed') || s.includes('done')) return 'Done'
   return 'Order' // default fallback
 }
 
@@ -102,7 +121,10 @@ export function KanbanBoard({ orders, isStaffOrAdmin, onCardClick, onStageChange
   const handleStageMove = async (orderId: string, newStage: string) => {
     setUpdatingIds(prev => ({ ...prev, [orderId]: true }))
     try {
-      await onStageChange(orderId, newStage)
+      let dbStage = newStage
+      if (newStage === 'CreatePO') dbStage = 'Ready for PO'
+      else if (newStage === 'Done') dbStage = 'Closed'
+      await onStageChange(orderId, dbStage)
     } finally {
       setUpdatingIds(prev => ({ ...prev, [orderId]: false }))
     }
@@ -156,9 +178,11 @@ export function KanbanBoard({ orders, isStaffOrAdmin, onCardClick, onStageChange
     Order: [],
     Sourcing: [],
     QC: [],
+    CreatePO: [],
     Inspection: [],
     Logistic: [],
-    Production: []
+    Production: [],
+    Done: []
   }
 
   orders.forEach(order => {
