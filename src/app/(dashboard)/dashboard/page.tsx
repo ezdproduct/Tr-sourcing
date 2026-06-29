@@ -190,10 +190,11 @@ async function DashboardLoader({ searchParams }: { searchParams: SearchParams | 
   const logistics: LogisticsRecord[] = (rawLogistics as any) || []
 
   // --- Date Filtering Setup ---
-  // System Date is June 28, 2026. Predefined relative timeframe will be computed from this reference date.
-  const SYSTEM_DATE = new Date('2026-06-28T00:00:00Z')
+  // BUG 7 FIX: was hard-coded to 2026-06-28 — all filters were frozen at that date.
+  // Use the actual current date so timeframe filters (7d, 30d, custom) work correctly.
+  const SYSTEM_DATE = new Date()
   let filterStart: Date | null = null
-  let filterEnd: Date | null = new Date('2026-06-28T23:59:59Z')
+  let filterEnd: Date | null = new Date(new Date().toISOString().split('T')[0] + 'T23:59:59Z')
 
   const resolvedSearchParams = await Promise.resolve(searchParams)
   const timeframe = resolvedSearchParams?.timeframe || 'all'
@@ -280,10 +281,12 @@ async function DashboardLoader({ searchParams }: { searchParams: SearchParams | 
   // --- 3. Risk & Escalations Setup ---
   const failedAudits = filteredAudits.filter(a => a.audit_verdict === 'FAIL')
   const failedInspections = filteredInspections.filter(i => i.quality_status === 'FAIL' || i.verdict === 'Rejected')
+  // BUG 7 FIX (part 2): the comparison date was also hard-coded to '2026-06-28'
+  const todayStr = new Date().toISOString().split('T')[0]
   const delayedShipments = filteredOrders.filter(o => 
     o.stage !== 'Order Done' && 
     o.estimated_delivery_date && 
-    o.estimated_delivery_date < '2026-06-28'
+    o.estimated_delivery_date < todayStr
   )
   const mismatchedLogistics = filteredLogistics.filter(l => l.status === 'mismatched')
 

@@ -61,6 +61,8 @@ import {
   PlusCircle,
   XCircle,
   ChevronDown,
+  Clipboard,
+  Download,
 } from 'lucide-react'
 
 // ─── CSV Parser Helper ────────────────────────────────────────────────────────
@@ -138,8 +140,17 @@ export interface DatabaseSupplier {
   // Joined from orders table
   orders?: { order_code: string } | null
   order_items?: { item_name: string } | null
-  // Joined from suppliers table
-  suppliers?: { email: string | null; phone: string | null; address: string | null } | null
+  suppliers?: { 
+    email: string | null; 
+    phone: string | null; 
+    address: string | null;
+    website?: string | null;
+    contact_person?: string | null;
+    tax_id?: string | null;
+    business_type?: string | null;
+    certifications?: string[] | null;
+    [key: string]: any;
+  } | null
 }
 
 interface SourcingClientProps {
@@ -203,27 +214,41 @@ export function SourcingClient({ initialOrders, initialSuppliers, initialAudits 
     setAudits(initialAudits || [])
   }, [initialAudits])
 
-  // Trigger router refresh on mount to clear Next.js client router cache and get fresh data
+  // Trigger router refresh once on mount only to clear Next.js client router cache
+  // BUG 1 FIX: was [router] dep which caused infinite refresh loop
   useEffect(() => {
     router.refresh()
-  }, [router])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  // Sync selectedOrderId and viewMode with orders list (handling deletions/empty states)
+  useEffect(() => {
+    if (selectedOrderId && !orders.some(o => o.id === selectedOrderId)) {
+      setSelectedOrderId(null)
+      setViewMode('all')
+    }
+  }, [orders, selectedOrderId])
 
   const searchParams = useSearchParams()
-  const initialSubtab = (searchParams.get('subtab') as 'overview' | 'workplace') || 'overview'
-  const [subtab, setSubtab] = useState<'overview' | 'workplace'>(initialSubtab)
+  const initialSubtab = (searchParams.get('subtab') as 'overview' | 'suppliers' | 'workplace') || 'overview'
+  const [subtab, setSubtab] = useState<'overview' | 'suppliers' | 'workplace'>(initialSubtab)
+  const [supplierSearch, setSupplierSearch] = useState('')
+  const [isDeletingBatch, setIsDeletingBatch] = useState(false)
 
   const subtabParam = searchParams.get('subtab')
 
   useEffect(() => {
-    if (subtabParam === 'overview' || subtabParam === 'workplace') {
+    if (subtabParam === 'overview' || subtabParam === 'suppliers' || subtabParam === 'workplace') {
       setSubtab(subtabParam)
     } else {
       setSubtab('overview')
     }
   }, [subtabParam])
 
-  const handleTabChange = (val: 'overview' | 'workplace') => {
+  const handleTabChange = (val: 'overview' | 'suppliers' | 'workplace') => {
     setSubtab(val)
+    setSelectedSupplierIds([])
+    setIsManageMode(false)
     if (typeof window !== 'undefined') {
       const newUrl = `${window.location.pathname}?subtab=${val}`
       window.history.pushState({ ...window.history.state, as: newUrl, url: newUrl }, '', newUrl)
@@ -250,14 +275,27 @@ export function SourcingClient({ initialOrders, initialSuppliers, initialAudits 
     email: '',
     phone: '',
     address: '',
-    orderId: ''
+    orderId: '',
+    website: '',
+    contactPerson: '',
+    taxId: '',
+    businessType: ''
   })
   
   // Case 2 checklist bids: orderItemId -> { checked, price, leadTime }
   const [itemBids, setItemBids] = useState<Record<string, { checked: boolean; price: string; leadTime: string }>>({})
 
   // Case 1 & 2 repeating capability rows
-  const [capabilities, setCapabilities] = useState<Array<{ id: string; productName: string; targetPrice: string }>>([])
+  const [capabilities, setCapabilities] = useState<Array<{ 
+    id: string
+    productName: string 
+    targetPrice: string 
+    leadTimeDays?: string
+    description?: string
+    moq?: string
+    sku?: string
+    monthlyCapacity?: string
+  }>>([])
 
   // Searchable order combobox states
   const [orderSearchQuery, setOrderSearchQuery] = useState('')
@@ -268,6 +306,14 @@ export function SourcingClient({ initialOrders, initialSuppliers, initialAudits 
   const [csvPreview, setCsvPreview] = useState<any[]>([])
   const [importStatus, setImportStatus] = useState<{ success?: boolean; msg?: string; error?: string } | null>(null)
   const [isImporting, setIsImporting] = useState(false)
+  const [importTab, setImportTab] = useState<'file' | 'paste'>('file')
+
+  // Sheets paste states
+  const [pasteText, setPasteText] = useState('')
+  const [pastePreview, setPastePreview] = useState<any[]>([])
+  const [isPasteImporting, setIsPasteImporting] = useState(false)
+  const [pasteImportStatus, setPasteImportStatus] = useState<{ success?: boolean; msg?: string; error?: string } | null>(null)
+  const [pasteErrorMessage, setPasteErrorMessage] = useState<string | null>(null)
 
   // Selection states for bulk delete in All Suppliers Overview
   const [selectedSupplierIds, setSelectedSupplierIds] = useState<string[]>([])
@@ -282,7 +328,94 @@ export function SourcingClient({ initialOrders, initialSuppliers, initialAudits 
   const [isSendingToQc, setIsSendingToQc] = useState(false)
   const [toasts, setToasts] = useState<Array<{ id: string; message: string }>>([])
 
+  // Duplicate Conflict Resolution states
+  const [isConflictDialogOpen, setIsConflictDialogOpen] = useState(false)
+  const [conflictingDuplicates, setConflictingDuplicates] = useState<any[]>([])
+  const [pendingActionType, setPendingActionType] = useState<'manual' | 'csv' | 'paste' | null>(null)
+  const [pendingPayload, setPendingPayload] = useState<any>(null)
+  const [isResolvingDuplicates, setIsResolvingDuplicates] = useState(false)
+
+  const handleResolveDuplicates = async (resolution: 'skip' | 'overwrite') => {
+    if (!pendingActionType || !pendingPayload) return
+
+    setIsResolvingDuplicates(true)
+    setErrorMessage(null)
+    setPasteErrorMessage(null)
+
+    try {
+      if (pendingActionType === 'manual') {
+        const res = await addSupplierNormalizedAction(pendingPayload, resolution)
+        if (res.success) {
+          setManualForm({
+            supplierName: '',
+            email: '',
+            phone: '',
+            address: '',
+            orderId: '',
+            website: '',
+            contactPerson: '',
+            taxId: '',
+            businessType: ''
+          })
+          setItemBids({})
+          setCapabilities([])
+          setIsAddOpen(false)
+          setIsConflictDialogOpen(false)
+          setPendingActionType(null)
+          setPendingPayload(null)
+          setConflictingDuplicates([])
+          router.refresh()
+        } else {
+          setErrorMessage(res.error || 'Failed to add supplier.')
+          setIsConflictDialogOpen(false)
+        }
+      } else if (pendingActionType === 'csv') {
+        const res = await bulkImportSuppliersAction(pendingPayload, resolution)
+        if (res.success) {
+          setImportStatus({
+            success: true,
+            msg: `Imported ${res.importedSuppliersCount} unique suppliers, ${res.importedBidsCount} active bids, and ${res.importedCapabilitiesCount} capability records (with resolution: ${resolution}).`
+          })
+          setIsConflictDialogOpen(false)
+          setPendingActionType(null)
+          setPendingPayload(null)
+          setConflictingDuplicates([])
+        } else {
+          setImportStatus({
+            success: false,
+            error: res.error || 'Import failed.'
+          })
+          setIsConflictDialogOpen(false)
+        }
+      } else if (pendingActionType === 'paste') {
+        const res = await bulkImportSuppliersAction(pendingPayload, resolution)
+        if (res.success) {
+          setPasteImportStatus({
+            success: true,
+            msg: `Imported ${res.importedSuppliersCount} unique suppliers, ${res.importedBidsCount} active bids, and ${res.importedCapabilitiesCount} capability records (with resolution: ${resolution}).`
+          })
+          setIsConflictDialogOpen(false)
+          setPendingActionType(null)
+          setPendingPayload(null)
+          setConflictingDuplicates([])
+        } else {
+          setPasteImportStatus({
+            success: false,
+            error: res.error || 'Import failed.'
+          })
+          setIsConflictDialogOpen(false)
+        }
+      }
+    } catch (err: any) {
+      console.error('Error resolving duplicates:', err)
+      setErrorMessage(err.message || 'An unexpected error occurred.')
+    } finally {
+      setIsResolvingDuplicates(false)
+    }
+  }
+
   const triggerToast = (message: string) => {
+    // eslint-disable-next-line react-hooks/purity
     const id = Math.random().toString(36).substring(2, 9)
     setToasts(prev => [...prev, { id, message }])
     setTimeout(() => {
@@ -296,12 +429,93 @@ export function SourcingClient({ initialOrders, initialSuppliers, initialAudits 
   const [qcSuccessCount, setQcSuccessCount] = useState<number | null>(null)
   const [qcErrorText, setQcErrorText] = useState<string | null>(null)
   
+  // Tab selector for Profile Modal
+  const [activeProfileTab, setActiveProfileTab] = useState<'overview' | 'sourcing' | 'financials' | 'documents'>('overview')
+
   // Basic & contact details input state
   const [profileForm, setProfileForm] = useState({
     name: '',
     email: '',
     phone: '',
-    address: ''
+    address: '',
+    website: '',
+    contactPerson: '',
+    taxId: '',
+    businessType: '',
+
+    // Basic Information
+    supplierCode: '',
+    legalName: '',
+    yearFounded: '',
+    companySize: '',
+    industry: '',
+    mainProducts: '',
+    shortDescription: '',
+
+    // Contact Information
+    primaryContactName: '',
+    position: '',
+    alternativeContact: '',
+    street: '',
+    district: '',
+    city: '',
+    country: '',
+    postalCode: '',
+    linkedin: '',
+    socialContact: '',
+
+    // Financial & Legal
+    paymentTerms: '',
+    currency: '',
+    bankInfo: '',
+    creditLimit: '',
+    taxStatus: '',
+    businessLicense: '',
+    certifications: '',
+
+    // Sourcing & Performance
+    sourcingCategory: '',
+    leadTimeAverage: '',
+    moq: '',
+    pricingTier: '',
+    qualityRating: '',
+    reliabilityScore: '',
+    onTimeDeliveryRate: '',
+    defectRate: '',
+    lastSourcedDate: '',
+    totalSpend: '',
+    totalOrders: '',
+    isPreferred: false,
+
+    // Metadata & Tracking
+    status: 'Prospect',
+    sourcingStage: 'New',
+    approvalDate: '',
+    reviewedBy: '',
+    nextReviewDate: '',
+    riskLevel: '',
+    riskNotes: '',
+    createdBy: '',
+    ownerPic: '',
+    tags: '',
+
+    // Attachments
+    docCompanyProfile: '',
+    docCatalog: '',
+    docContract: '',
+    docCertificates: '',
+    docAuditReports: '',
+    docSampleApprovals: '',
+    docNda: '',
+
+    // Advanced
+    esgScore: '',
+    socialResponsibilityNotes: '',
+    maxCapacityMonthly: '',
+    mainMarkets: '',
+    competitors: '',
+    notes: '',
+    communicationHistory: ''
   })
   
   // Associated order bid details (for reference)
@@ -318,11 +532,91 @@ export function SourcingClient({ initialOrders, initialSuppliers, initialAudits 
     if (!supplier.supplier_id) return
 
     setSelectedSupplierId(supplier.supplier_id)
+    
+    const sDetails: any = supplier.suppliers || {}
     setProfileForm({
       name: supplier.supplier_name || '',
-      email: supplier.suppliers?.email || '',
-      phone: supplier.suppliers?.phone || '',
-      address: supplier.suppliers?.address || ''
+      email: sDetails.email || '',
+      phone: sDetails.phone || '',
+      address: sDetails.address || '',
+      website: sDetails.website || '',
+      contactPerson: sDetails.contact_person || '',
+      taxId: sDetails.tax_id || '',
+      businessType: sDetails.business_type || '',
+
+      // Basic Information
+      supplierCode: sDetails.supplier_code || '',
+      legalName: sDetails.legal_name || '',
+      yearFounded: sDetails.year_founded ? String(sDetails.year_founded) : '',
+      companySize: sDetails.company_size || '',
+      industry: sDetails.industry || '',
+      mainProducts: sDetails.main_products ? sDetails.main_products.join(', ') : '',
+      shortDescription: sDetails.short_description || '',
+
+      // Contact Information
+      primaryContactName: sDetails.primary_contact_name || '',
+      position: sDetails.position || '',
+      alternativeContact: sDetails.alternative_contact || '',
+      street: sDetails.street || '',
+      district: sDetails.district || '',
+      city: sDetails.city || '',
+      country: sDetails.country || '',
+      postalCode: sDetails.postal_code || '',
+      linkedin: sDetails.linkedin || '',
+      socialContact: sDetails.social_contact || '',
+
+      // Financial & Legal
+      paymentTerms: sDetails.payment_terms || '',
+      currency: sDetails.currency || '',
+      bankInfo: sDetails.bank_info || '',
+      creditLimit: sDetails.credit_limit ? String(sDetails.credit_limit) : '',
+      taxStatus: sDetails.tax_status || '',
+      businessLicense: sDetails.business_license || '',
+      certifications: sDetails.certifications ? sDetails.certifications.join(', ') : '',
+
+      // Sourcing & Performance
+      sourcingCategory: sDetails.sourcing_category || '',
+      leadTimeAverage: sDetails.lead_time_average ? String(sDetails.lead_time_average) : '',
+      moq: sDetails.moq ? String(sDetails.moq) : '',
+      pricingTier: sDetails.pricing_tier || '',
+      qualityRating: sDetails.quality_rating || '',
+      reliabilityScore: sDetails.reliability_score ? String(sDetails.reliability_score) : '',
+      onTimeDeliveryRate: sDetails.on_time_delivery_rate ? String(sDetails.on_time_delivery_rate) : '',
+      defectRate: sDetails.defect_rate ? String(sDetails.defect_rate) : '',
+      lastSourcedDate: sDetails.last_sourced_date || '',
+      totalSpend: sDetails.total_spend ? String(sDetails.total_spend) : '',
+      totalOrders: sDetails.total_orders ? String(sDetails.total_orders) : '',
+      isPreferred: sDetails.is_preferred || false,
+
+      // Metadata & Tracking
+      status: sDetails.status || 'Prospect',
+      sourcingStage: sDetails.sourcing_stage || 'New',
+      approvalDate: sDetails.approval_date ? sDetails.approval_date.substring(0, 10) : '',
+      reviewedBy: sDetails.reviewed_by || '',
+      nextReviewDate: sDetails.next_review_date || '',
+      riskLevel: sDetails.risk_level || '',
+      riskNotes: sDetails.risk_notes || '',
+      createdBy: sDetails.created_by || '',
+      ownerPic: sDetails.owner_pic || '',
+      tags: sDetails.tags ? sDetails.tags.join(', ') : '',
+
+      // Attachments
+      docCompanyProfile: sDetails.doc_company_profile || '',
+      docCatalog: sDetails.doc_catalog || '',
+      docContract: sDetails.doc_contract || '',
+      docCertificates: sDetails.doc_certificates ? sDetails.doc_certificates.join(', ') : '',
+      docAuditReports: sDetails.doc_audit_reports ? sDetails.doc_audit_reports.join(', ') : '',
+      docSampleApprovals: sDetails.doc_sample_approvals ? sDetails.doc_sample_approvals.join(', ') : '',
+      docNda: sDetails.doc_nda || '',
+
+      // Advanced
+      esgScore: sDetails.esg_score ? String(sDetails.esg_score) : '',
+      socialResponsibilityNotes: sDetails.social_responsibility_notes || '',
+      maxCapacityMonthly: sDetails.max_capacity_monthly || '',
+      mainMarkets: sDetails.main_markets ? sDetails.main_markets.join(', ') : '',
+      competitors: sDetails.competitors || '',
+      notes: sDetails.notes || '',
+      communicationHistory: sDetails.communication_history || ''
     })
 
     setProfileOrderDetails({
@@ -334,6 +628,7 @@ export function SourcingClient({ initialOrders, initialSuppliers, initialAudits 
     setProfileCapabilities([])
     setProfileErrorMessage(null)
     setIsProfileEditMode(false)
+    setActiveProfileTab('overview')
     setIsProfileOpen(true)
 
     // Fetch capabilities
@@ -367,6 +662,11 @@ export function SourcingClient({ initialOrders, initialSuppliers, initialAudits 
     email: false,
     phone: false,
     address: false,
+    website: false,
+    contactPerson: false,
+    taxId: false,
+    businessType: false,
+    certifications: false,
     associatedOrder: true,
     productItem: true,
     quotedPrice: true,
@@ -380,6 +680,11 @@ export function SourcingClient({ initialOrders, initialSuppliers, initialAudits 
     { key: 'email', label: 'Email' },
     { key: 'phone', label: 'Phone' },
     { key: 'address', label: 'Address' },
+    { key: 'website', label: 'Website' },
+    { key: 'contactPerson', label: 'Contact Person' },
+    { key: 'taxId', label: 'Tax ID' },
+    { key: 'businessType', label: 'Business Type' },
+    { key: 'certifications', label: 'Certifications' },
     { key: 'associatedOrder', label: 'Associated Order' },
     { key: 'productItem', label: 'Product Item' },
     { key: 'quotedPrice', label: 'Quoted Price' },
@@ -394,6 +699,11 @@ export function SourcingClient({ initialOrders, initialSuppliers, initialAudits 
     email: false,
     phone: false,
     address: false,
+    website: false,
+    contactPerson: false,
+    taxId: false,
+    businessType: false,
+    certifications: false,
     productItem: true,
     quotedPrice: true,
     leadTime: true,
@@ -406,6 +716,11 @@ export function SourcingClient({ initialOrders, initialSuppliers, initialAudits 
     { key: 'email', label: 'Email' },
     { key: 'phone', label: 'Phone' },
     { key: 'address', label: 'Address' },
+    { key: 'website', label: 'Website' },
+    { key: 'contactPerson', label: 'Contact Person' },
+    { key: 'taxId', label: 'Tax ID' },
+    { key: 'businessType', label: 'Business Type' },
+    { key: 'certifications', label: 'Certifications' },
     { key: 'productItem', label: 'Product Item' },
     { key: 'quotedPrice', label: 'Quoted Price' },
     { key: 'leadTime', label: 'Lead Time' },
@@ -493,11 +808,13 @@ export function SourcingClient({ initialOrders, initialSuppliers, initialAudits 
   })
 
   // Suppliers for selected order, also filter by search and shortlist status
+  // BUG 2 FIX: only apply item-match filter when the order actually HAS items;
+  //            an empty order_items array (length === 0) previously hid all suppliers.
   const orderSuppliers = suppliers.filter(s => {
     if (s.order_id !== selectedOrderId) return false
 
-    // Must explicitly match the pre-defined items required within that specific order
-    if (selectedOrder?.order_items) {
+    // Only enforce item-matching when the order has at least one item defined
+    if (selectedOrder?.order_items && selectedOrder.order_items.length > 0) {
       const isAllowedItem = selectedOrder.order_items.some(item => item.id === s.order_item_id)
       if (!isAllowedItem) return false
     }
@@ -530,6 +847,37 @@ export function SourcingClient({ initialOrders, initialSuppliers, initialAudits 
       (s.orders?.order_code ?? '').toLowerCase().includes(allSuppliersSearch.toLowerCase())
     const matchesShortlist = !shortlistFilterOnly || s.is_shortlisted
     return matchesSearch && matchesShortlist
+  })
+
+  // Unique supplier profiles directory logic (moved from management system)
+  const uniqueSuppliers = Array.from(
+    new Map(
+      suppliers
+        .filter(s => s.suppliers)
+        .map(s => [s.supplier_id, {
+          id: s.suppliers!.id,
+          name: s.supplier_name,
+          email: s.suppliers!.email,
+          phone: s.suppliers!.phone,
+          address: s.suppliers!.address,
+          website: s.suppliers!.website,
+          contact_person: s.suppliers!.contact_person,
+          tax_id: s.suppliers!.tax_id,
+          business_type: s.suppliers!.business_type,
+          bidsCount: suppliers.filter(x => x.supplier_id === s.supplier_id && x.order_id).length,
+          auditsCount: audits.filter(x => x.supplier_id === s.supplier_id).length,
+          rawRecord: s
+        }])
+    ).values()
+  )
+
+  const filteredUniqueSuppliers = uniqueSuppliers.filter(s => {
+    const q = supplierSearch.toLowerCase()
+    return (
+      (s.name || '').toLowerCase().includes(q) ||
+      (s.email || '').toLowerCase().includes(q) ||
+      (s.contact_person || '').toLowerCase().includes(q)
+    )
   })
 
   // ─── Handlers ────────────────────────────────────────────────────────────────
@@ -575,7 +923,7 @@ export function SourcingClient({ initialOrders, initialSuppliers, initialAudits 
 
   const handleAddSupplier = async (e: React.FormEvent) => {
     e.preventDefault()
-    const { supplierName, email, phone, address, orderId } = manualForm
+    const { supplierName, email, phone, address, orderId, website, contactPerson, taxId, businessType } = manualForm
 
     if (!supplierName) {
       setErrorMessage('Supplier Name is required.')
@@ -610,7 +958,15 @@ export function SourcingClient({ initialOrders, initialSuppliers, initialAudits 
       }
     }
 
-    const caps: Array<{ productName: string; targetPrice: number }> = []
+    const caps: Array<{
+      productName: string
+      targetPrice: number
+      leadTimeDays?: string
+      description?: string
+      moq?: number
+      sku?: string
+      monthlyCapacity?: string
+    }> = []
     for (const cap of capabilities) {
       if (!cap.productName) {
         setErrorMessage('Product Name is required for all capabilities.')
@@ -621,9 +977,15 @@ export function SourcingClient({ initialOrders, initialSuppliers, initialAudits 
         setErrorMessage('Please enter a valid target price for all capabilities.')
         return
       }
+      const moqVal = cap.moq ? parseInt(cap.moq, 10) : undefined
       caps.push({
         productName: cap.productName.trim(),
-        targetPrice: price
+        targetPrice: price,
+        leadTimeDays: cap.leadTimeDays || undefined,
+        description: cap.description || undefined,
+        moq: moqVal,
+        sku: cap.sku || undefined,
+        monthlyCapacity: cap.monthlyCapacity || undefined
       })
     }
 
@@ -637,7 +999,11 @@ export function SourcingClient({ initialOrders, initialSuppliers, initialAudits 
       address,
       orderId: orderId || null,
       items: bids,
-      capabilities: caps
+      capabilities: caps,
+      website,
+      contactPerson,
+      taxId,
+      businessType
     })
 
     setIsSubmitting(false)
@@ -648,12 +1014,33 @@ export function SourcingClient({ initialOrders, initialSuppliers, initialAudits 
         email: '',
         phone: '',
         address: '',
-        orderId: ''
+        orderId: '',
+        website: '',
+        contactPerson: '',
+        taxId: '',
+        businessType: ''
       })
       setItemBids({})
       setCapabilities([])
       setIsAddOpen(false)
       router.refresh()
+    } else if (result.duplicateDetected) {
+      setPendingActionType('manual')
+      setPendingPayload({
+        supplierName,
+        email,
+        phone,
+        address,
+        orderId: orderId || null,
+        items: bids,
+        capabilities: caps,
+        website,
+        contactPerson,
+        taxId,
+        businessType
+      })
+      setConflictingDuplicates(result.duplicates)
+      setIsConflictDialogOpen(true)
     } else {
       setErrorMessage(result.error || 'Failed to add supplier.')
     }
@@ -685,7 +1072,11 @@ export function SourcingClient({ initialOrders, initialSuppliers, initialAudits 
           orderCode: headers.indexOf('ordercode'),
           productName: headers.indexOf('productname') !== -1 ? headers.indexOf('productname') : headers.indexOf('product'),
           quotedPrice: headers.indexOf('quotedprice') !== -1 ? headers.indexOf('quotedprice') : headers.indexOf('price'),
-          leadTime: headers.indexOf('leadtime') !== -1 ? headers.indexOf('leadtime') : headers.indexOf('leadtimedays')
+          leadTime: headers.indexOf('leadtime') !== -1 ? headers.indexOf('leadtime') : headers.indexOf('leadtimedays'),
+          website: headers.indexOf('website'),
+          contactPerson: headers.indexOf('contactperson'),
+          taxId: headers.indexOf('taxid'),
+          businessType: headers.indexOf('businesstype')
         }
         
         if (colMap.supplierName === -1) colMap.supplierName = headers.findIndex(h => h.includes('supplier') || h.includes('name'))
@@ -696,6 +1087,10 @@ export function SourcingClient({ initialOrders, initialSuppliers, initialAudits 
         if (colMap.productName === -1) colMap.productName = headers.findIndex(h => h.includes('product') || h.includes('item'))
         if (colMap.quotedPrice === -1) colMap.quotedPrice = headers.findIndex(h => h.includes('price') || h.includes('quoted'))
         if (colMap.leadTime === -1) colMap.leadTime = headers.findIndex(h => h.includes('lead') || h.includes('time') || h.includes('days'))
+        if (colMap.website === -1) colMap.website = headers.findIndex(h => h.includes('website') || h.includes('site'))
+        if (colMap.contactPerson === -1) colMap.contactPerson = headers.findIndex(h => h.includes('contact') || h.includes('representative'))
+        if (colMap.taxId === -1) colMap.taxId = headers.findIndex(h => h.includes('tax') || h.includes('reg'))
+        if (colMap.businessType === -1) colMap.businessType = headers.findIndex(h => h.includes('business') || h.includes('type'))
 
         if (colMap.supplierName === -1) colMap.supplierName = 0
         if (colMap.email === -1) colMap.email = 1
@@ -705,6 +1100,10 @@ export function SourcingClient({ initialOrders, initialSuppliers, initialAudits 
         if (colMap.productName === -1) colMap.productName = 4
         if (colMap.quotedPrice === -1) colMap.quotedPrice = 5
         if (colMap.leadTime === -1) colMap.leadTime = 6
+        if (colMap.website === -1) colMap.website = -1
+        if (colMap.contactPerson === -1) colMap.contactPerson = -1
+        if (colMap.taxId === -1) colMap.taxId = -1
+        if (colMap.businessType === -1) colMap.businessType = -1
 
         const parsedData = rawRows.slice(1).map(row => {
           const getValue = (idx: number) => (idx !== -1 && idx < row.length ? row[idx] : '')
@@ -717,6 +1116,11 @@ export function SourcingClient({ initialOrders, initialSuppliers, initialAudits 
           const productName = getValue(colMap.productName)
           const quotedPriceStr = getValue(colMap.quotedPrice)
           const leadTimeStr = getValue(colMap.leadTime)
+
+          const website = getValue(colMap.website)
+          const contactPerson = getValue(colMap.contactPerson)
+          const taxId = getValue(colMap.taxId)
+          const businessType = getValue(colMap.businessType)
 
           // Inject active order code if blank, null, or dashed in order view context, AND the product matches the order requirements
           const isBlankOrder = !orderCode || orderCode.trim() === '' || orderCode.trim() === '-'
@@ -745,7 +1149,11 @@ export function SourcingClient({ initialOrders, initialSuppliers, initialAudits 
             orderCode,
             productName,
             quotedPrice,
-            leadTime
+            leadTime,
+            website,
+            contactPerson,
+            taxId,
+            businessType
           }
         }).filter(item => item.supplierName !== '')
 
@@ -756,6 +1164,138 @@ export function SourcingClient({ initialOrders, initialSuppliers, initialAudits 
       }
     }
     reader.readAsText(file)
+  }
+
+  const handleClipboardPaste = (e: React.ClipboardEvent<HTMLTextAreaElement>) => {
+    const pastedText = e.clipboardData.getData('text')
+    if (!pastedText) return
+    parseAndPreviewPaste(pastedText)
+  }
+
+  const handlePasteTextChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
+    const text = e.target.value
+    setPasteText(text)
+    parseAndPreviewPaste(text)
+  }
+
+  const parseAndPreviewPaste = (text: string) => {
+    try {
+      const rawRows = text.split(/\r?\n/).map(row => row.split('\t').map(cell => cell.trim()))
+      const validRows = rawRows.filter(r => r.length > 0 && r.some(cell => cell !== ''))
+      
+      if (validRows.length === 0) {
+        setPastePreview([])
+        return
+      }
+
+      // Check if the first row is a header row
+      const firstRow = validRows[0]
+      const lowercaseFirstRow = firstRow.map(cell => cell.toLowerCase().trim().replace(/['"_\s]+/g, ''))
+      
+      const hasHeaderIndicators = lowercaseFirstRow.some(h => 
+        h.includes('supplier') || h.includes('name') || h.includes('email') || 
+        h.includes('product') || h.includes('item') || h.includes('price') || 
+        h.includes('quoted') || h.includes('lead') || h.includes('time') || h.includes('days')
+      )
+
+      let dataRows = validRows
+      let colMap = {
+        supplierName: 0,
+        email: 1,
+        productName: 2,
+        quotedPrice: 3,
+        leadTime: 4,
+        phone: -1,
+        address: -1,
+        orderCode: -1,
+        website: -1,
+        contactPerson: -1,
+        taxId: -1,
+        businessType: -1
+      }
+
+      if (hasHeaderIndicators) {
+        dataRows = validRows.slice(1)
+        colMap = {
+          supplierName: lowercaseFirstRow.findIndex(h => h.includes('supplier') || h.includes('name')),
+          email: lowercaseFirstRow.indexOf('email'),
+          productName: lowercaseFirstRow.findIndex(h => h.includes('product') || h.includes('item')),
+          quotedPrice: lowercaseFirstRow.findIndex(h => h.includes('price') || h.includes('quoted')),
+          leadTime: lowercaseFirstRow.findIndex(h => h.includes('lead') || h.includes('time') || h.includes('days')),
+          phone: lowercaseFirstRow.indexOf('phone'),
+          address: lowercaseFirstRow.indexOf('address'),
+          orderCode: lowercaseFirstRow.findIndex(h => h.includes('ordercode') || h.includes('order')),
+          website: lowercaseFirstRow.findIndex(h => h.includes('website') || h.includes('site')),
+          contactPerson: lowercaseFirstRow.findIndex(h => h.includes('contact') || h.includes('representative')),
+          taxId: lowercaseFirstRow.findIndex(h => h.includes('tax') || h.includes('reg')),
+          businessType: lowercaseFirstRow.findIndex(h => h.includes('business') || h.includes('type'))
+        }
+
+        // Fallbacks if not found
+        if (colMap.supplierName === -1) colMap.supplierName = 0
+        if (colMap.email === -1) colMap.email = 1
+        if (colMap.productName === -1) colMap.productName = 2
+        if (colMap.quotedPrice === -1) colMap.quotedPrice = 3
+        if (colMap.leadTime === -1) colMap.leadTime = 4
+      }
+
+      const parsedData = dataRows.map(row => {
+        const getValue = (idx: number) => (idx !== -1 && idx < row.length ? row[idx] : '')
+        
+        const supplierName = getValue(colMap.supplierName)
+        const email = getValue(colMap.email)
+        const phone = getValue(colMap.phone)
+        const address = getValue(colMap.address)
+        let orderCode = getValue(colMap.orderCode)
+        const productName = getValue(colMap.productName)
+        const quotedPriceStr = getValue(colMap.quotedPrice)
+        const leadTimeStr = getValue(colMap.leadTime)
+
+        const website = getValue(colMap.website)
+        const contactPerson = getValue(colMap.contactPerson)
+        const taxId = getValue(colMap.taxId)
+        const businessType = getValue(colMap.businessType)
+
+        // Inject active order code if blank, null, or dashed in order view context, AND the product matches the order requirements
+        const isBlankOrder = !orderCode || orderCode.trim() === '' || orderCode.trim() === '-'
+        if (isBlankOrder && viewMode === 'order' && selectedOrder) {
+          const matchesActiveOrderItems = selectedOrder.order_items?.some(
+            (item: any) => item.item_name.toLowerCase().trim() === productName.toLowerCase().trim()
+          )
+          if (matchesActiveOrderItems) {
+            orderCode = selectedOrder.order_code
+          }
+        }
+
+        // Price: strip dollar sign, parse as float
+        const cleanPriceStr = quotedPriceStr ? quotedPriceStr.replace(/[^0-9.]/g, '') : '0'
+        const quotedPrice = parseFloat(cleanPriceStr) || 0
+
+        // Lead Time: strip non-numeric characters, parse as integer
+        const cleanLeadTimeStr = leadTimeStr ? leadTimeStr.replace(/[^0-9]/g, '') : '0'
+        const leadTime = parseInt(cleanLeadTimeStr) || 0
+
+        return {
+          supplierName,
+          email,
+          phone,
+          address,
+          orderCode,
+          productName,
+          quotedPrice,
+          leadTime,
+          website,
+          contactPerson,
+          taxId,
+          businessType
+        }
+      }).filter(item => item.supplierName !== '')
+
+      setPastePreview(parsedData)
+      setPasteErrorMessage(null)
+    } catch (err: any) {
+      setPasteErrorMessage('Failed to parse clipboard data: ' + err.message)
+    }
   }
 
   const handleToggleShortlist = (supplier: DatabaseSupplier) => {
@@ -777,16 +1317,27 @@ export function SourcingClient({ initialOrders, initialSuppliers, initialAudits 
     })
   }
 
+  // BUG 5 FIX: orderId was accepted but silently dropped — now stored so
+  //            handleConfirmSendToQc can use the correct scoped order
+  const [pendingQcOrderId, setPendingQcOrderId] = useState<string | null | undefined>(undefined)
+
   const handleSendShortlistToQc = (orderId?: string | null) => {
+    setPendingQcOrderId(orderId)
     setIsSendToQcConfirmOpen(true)
   }
 
   const handleConfirmSendToQc = async () => {
     setIsSendingToQc(true)
+    // BUG 5 FIX: use pendingQcOrderId (set by handleSendShortlistToQc) so the
+    //            correct order scope is preserved through the confirmation modal
+    const targetOrderId = pendingQcOrderId !== undefined ? pendingQcOrderId : selectedOrderId
+
     const checkedCount = selectedSupplierIds.length
     if (checkedCount > 0) {
-      const checkedSuppliers = orderSuppliers.filter(s => selectedSupplierIds.includes(s.id))
-      const unshortlisted = checkedSuppliers.filter(s => !s.is_shortlisted)
+      const scopedSuppliers = targetOrderId
+        ? orderSuppliers.filter(s => selectedSupplierIds.includes(s.id))
+        : suppliers.filter(s => selectedSupplierIds.includes(s.id))
+      const unshortlisted = scopedSuppliers.filter(s => !s.is_shortlisted)
       
       for (const supplier of unshortlisted) {
         await updateShortlistAction(supplier.id, true)
@@ -798,9 +1349,10 @@ export function SourcingClient({ initialOrders, initialSuppliers, initialAudits 
       )
     }
     
-    const res = await sendShortlistToQcAction(selectedOrderId)
+    const res = await sendShortlistToQcAction(targetOrderId)
     setIsSendingToQc(false)
     setIsSendToQcConfirmOpen(false)
+    setPendingQcOrderId(undefined)
     
     if (res.success) {
       setQcSuccessCount(res.count ?? 0)
@@ -826,6 +1378,22 @@ export function SourcingClient({ initialOrders, initialSuppliers, initialAudits 
         s.id !== idToDelete && 
         (supplierId ? s.supplier_id !== supplierId : true)
       ))
+    }
+  }
+
+  const handleConfirmBatchDelete = async () => {
+    setIsDeletingBatch(true)
+    const res = await deleteSuppliersBatchAction(selectedSupplierIds)
+    setIsDeletingBatch(false)
+    setIsBulkDeleteConfirmOpen(false)
+
+    if (res.success) {
+      setSuppliers(prev => prev.filter(s => s.supplier_id ? !selectedSupplierIds.includes(s.supplier_id) : true))
+      setSelectedSupplierIds([])
+      setIsManageMode(false)
+      triggerToast(`Successfully deleted ${selectedSupplierIds.length} suppliers.`)
+    } else {
+      triggerToast(res.error || 'Failed to delete suppliers.')
     }
   }
 
@@ -861,7 +1429,78 @@ export function SourcingClient({ initialOrders, initialSuppliers, initialAudits 
       email: profileForm.email,
       phone: profileForm.phone,
       address: profileForm.address,
-      capabilities: caps
+      capabilities: caps,
+      website: profileForm.website,
+      contactPerson: profileForm.contactPerson,
+      taxId: profileForm.taxId,
+      businessType: profileForm.businessType,
+
+      supplierCode: profileForm.supplierCode,
+      legalName: profileForm.legalName,
+      yearFounded: profileForm.yearFounded ? parseInt(profileForm.yearFounded) : undefined,
+      companySize: profileForm.companySize,
+      industry: profileForm.industry,
+      mainProducts: profileForm.mainProducts ? profileForm.mainProducts.split(',').map(s => s.trim()).filter(Boolean) : [],
+      shortDescription: profileForm.shortDescription,
+
+      primaryContactName: profileForm.primaryContactName,
+      position: profileForm.position,
+      alternativeContact: profileForm.alternativeContact,
+      street: profileForm.street,
+      district: profileForm.district,
+      city: profileForm.city,
+      country: profileForm.country,
+      postalCode: profileForm.postalCode,
+      linkedin: profileForm.linkedin,
+      socialContact: profileForm.socialContact,
+
+      paymentTerms: profileForm.paymentTerms,
+      currency: profileForm.currency,
+      bankInfo: profileForm.bankInfo,
+      creditLimit: profileForm.creditLimit ? parseFloat(profileForm.creditLimit) : undefined,
+      taxStatus: profileForm.taxStatus,
+      businessLicense: profileForm.businessLicense,
+      certifications: profileForm.certifications ? profileForm.certifications.split(',').map(s => s.trim()).filter(Boolean) : [],
+
+      sourcingCategory: profileForm.sourcingCategory,
+      leadTimeAverage: profileForm.leadTimeAverage ? parseInt(profileForm.leadTimeAverage) : undefined,
+      moq: profileForm.moq ? parseInt(profileForm.moq) : undefined,
+      pricingTier: profileForm.pricingTier,
+      qualityRating: profileForm.qualityRating,
+      reliabilityScore: profileForm.reliabilityScore ? parseFloat(profileForm.reliabilityScore) : undefined,
+      onTimeDeliveryRate: profileForm.onTimeDeliveryRate ? parseFloat(profileForm.onTimeDeliveryRate) : undefined,
+      defectRate: profileForm.defectRate ? parseFloat(profileForm.defectRate) : undefined,
+      lastSourcedDate: profileForm.lastSourcedDate || undefined,
+      totalSpend: profileForm.totalSpend ? parseFloat(profileForm.totalSpend) : undefined,
+      totalOrders: profileForm.totalOrders ? parseInt(profileForm.totalOrders) : undefined,
+      isPreferred: profileForm.isPreferred,
+
+      status: profileForm.status,
+      sourcingStage: profileForm.sourcingStage,
+      approvalDate: profileForm.approvalDate || undefined,
+      reviewedBy: profileForm.reviewedBy,
+      nextReviewDate: profileForm.nextReviewDate || undefined,
+      riskLevel: profileForm.riskLevel,
+      riskNotes: profileForm.riskNotes,
+      createdBy: profileForm.createdBy,
+      ownerPic: profileForm.ownerPic,
+      tags: profileForm.tags ? profileForm.tags.split(',').map(s => s.trim()).filter(Boolean) : [],
+
+      docCompanyProfile: profileForm.docCompanyProfile,
+      docCatalog: profileForm.docCatalog,
+      docContract: profileForm.docContract,
+      docCertificates: profileForm.docCertificates ? profileForm.docCertificates.split(',').map(s => s.trim()).filter(Boolean) : [],
+      docAuditReports: profileForm.docAuditReports ? profileForm.docAuditReports.split(',').map(s => s.trim()).filter(Boolean) : [],
+      docSampleApprovals: profileForm.docSampleApprovals ? profileForm.docSampleApprovals.split(',').map(s => s.trim()).filter(Boolean) : [],
+      docNda: profileForm.docNda,
+
+      esgScore: profileForm.esgScore ? parseFloat(profileForm.esgScore) : undefined,
+      socialResponsibilityNotes: profileForm.socialResponsibilityNotes,
+      maxCapacityMonthly: profileForm.maxCapacityMonthly,
+      mainMarkets: profileForm.mainMarkets ? profileForm.mainMarkets.split(',').map(s => s.trim()).filter(Boolean) : [],
+      competitors: profileForm.competitors,
+      notes: profileForm.notes,
+      communicationHistory: profileForm.communicationHistory
     })
 
     setIsSavingProfile(false)
@@ -875,12 +1514,94 @@ export function SourcingClient({ initialOrders, initialSuppliers, initialAudits 
               ...s.suppliers,
               email: profileForm.email,
               phone: profileForm.phone,
-              address: profileForm.address
+              address: profileForm.address,
+              website: profileForm.website,
+              contact_person: profileForm.contactPerson,
+              tax_id: profileForm.taxId,
+              business_type: profileForm.businessType,
+
+              supplier_code: profileForm.supplierCode,
+              legal_name: profileForm.legalName,
+              year_founded: profileForm.yearFounded ? parseInt(profileForm.yearFounded) : null,
+              company_size: profileForm.companySize,
+              industry: profileForm.industry,
+              main_products: profileForm.mainProducts ? profileForm.mainProducts.split(',').map(s => s.trim()).filter(Boolean) : [],
+              short_description: profileForm.shortDescription,
+
+              primary_contact_name: profileForm.primaryContactName,
+              position: profileForm.position,
+              alternative_contact: profileForm.alternativeContact,
+              street: profileForm.street,
+              district: profileForm.district,
+              city: profileForm.city,
+              country: profileForm.country,
+              postal_code: profileForm.postalCode,
+              linkedin: profileForm.linkedin,
+              social_contact: profileForm.socialContact,
+
+              payment_terms: profileForm.paymentTerms,
+              currency: profileForm.currency,
+              bank_info: profileForm.bankInfo,
+              credit_limit: profileForm.creditLimit ? parseFloat(profileForm.creditLimit) : null,
+              tax_status: profileForm.taxStatus,
+              business_license: profileForm.businessLicense,
+              certifications: profileForm.certifications ? profileForm.certifications.split(',').map(s => s.trim()).filter(Boolean) : [],
+
+              sourcing_category: profileForm.sourcingCategory,
+              lead_time_average: profileForm.leadTimeAverage ? parseInt(profileForm.leadTimeAverage) : null,
+              moq: profileForm.moq ? parseInt(profileForm.moq) : null,
+              pricing_tier: profileForm.pricingTier,
+              quality_rating: profileForm.qualityRating,
+              reliability_score: profileForm.reliabilityScore ? parseFloat(profileForm.reliabilityScore) : null,
+              on_time_delivery_rate: profileForm.onTimeDeliveryRate ? parseFloat(profileForm.onTimeDeliveryRate) : null,
+              defect_rate: profileForm.defectRate ? parseFloat(profileForm.defectRate) : null,
+              last_sourced_date: profileForm.lastSourcedDate || null,
+              total_spend: profileForm.totalSpend ? parseFloat(profileForm.totalSpend) : null,
+              total_orders: profileForm.totalOrders ? parseInt(profileForm.totalOrders) : null,
+              is_preferred: profileForm.isPreferred,
+
+              status: profileForm.status,
+              sourcing_stage: profileForm.sourcingStage,
+              approval_date: profileForm.approvalDate || null,
+              reviewed_by: profileForm.reviewedBy,
+              next_review_date: profileForm.nextReviewDate || null,
+              risk_level: profileForm.riskLevel,
+              risk_notes: profileForm.riskNotes,
+              created_by: profileForm.createdBy,
+              owner_pic: profileForm.ownerPic,
+              tags: profileForm.tags ? profileForm.tags.split(',').map(s => s.trim()).filter(Boolean) : [],
+
+              doc_company_profile: profileForm.docCompanyProfile,
+              doc_catalog: profileForm.docCatalog,
+              doc_contract: profileForm.docContract,
+              doc_certificates: profileForm.docCertificates ? profileForm.docCertificates.split(',').map(s => s.trim()).filter(Boolean) : [],
+              doc_audit_reports: profileForm.docAuditReports ? profileForm.docAuditReports.split(',').map(s => s.trim()).filter(Boolean) : [],
+              doc_sample_approvals: profileForm.docSampleApprovals ? profileForm.docSampleApprovals.split(',').map(s => s.trim()).filter(Boolean) : [],
+              doc_nda: profileForm.docNda,
+
+              esg_score: profileForm.esgScore ? parseFloat(profileForm.esgScore) : null,
+              social_responsibility_notes: profileForm.socialResponsibilityNotes,
+              max_capacity_monthly: profileForm.maxCapacityMonthly,
+              main_markets: profileForm.mainMarkets ? profileForm.mainMarkets.split(',').map(s => s.trim()).filter(Boolean) : [],
+              competitors: profileForm.competitors,
+              notes: profileForm.notes,
+              communication_history: profileForm.communicationHistory
             }
           }
         }
         return s
       }))
+      // Refresh order context
+      const updatedSupplier = suppliers.find(s => s.supplier_id === selectedSupplierId)
+      if (updatedSupplier) {
+        setProfileOrderDetails({
+          orderCode: (updatedSupplier.orders?.order_code && updatedSupplier.orders.order_code !== 'POTENTIAL')
+            ? updatedSupplier.orders.order_code
+            : 'Unassigned',
+          quotedPrice: Number(updatedSupplier.quoted_price || 0),
+          leadTimeDays: updatedSupplier.lead_time_days || 0
+        })
+      }
       setIsProfileEditMode(false)
     } else {
       setProfileErrorMessage(res.error || 'Failed to update supplier profile.')
@@ -966,7 +1687,8 @@ export function SourcingClient({ initialOrders, initialSuppliers, initialAudits 
                 <Users2 className="h-4 w-4 text-indigo-500" />
               </CardHeader>
               <CardContent>
-                <div className="text-2xl font-black text-slate-900 dark:text-white">{initialSuppliers.length}</div>
+                {/* BUG 15 FIX: use live suppliers state, not the stale initial prop */}
+                <div className="text-2xl font-black text-slate-900 dark:text-white">{suppliers.length}</div>
                 <p className="text-[10px] text-slate-400 mt-1">Registered suppliers in database</p>
               </CardContent>
             </Card>
@@ -978,7 +1700,8 @@ export function SourcingClient({ initialOrders, initialSuppliers, initialAudits 
               </CardHeader>
               <CardContent>
                 <div className="text-2xl font-black text-slate-900 dark:text-white">
-                  {initialSuppliers.filter(s => s.quoted_price > 0).length}
+                  {/* BUG 16 FIX: use live suppliers state */}
+                  {suppliers.filter(s => s.quoted_price > 0).length}
                 </div>
                 <p className="text-[10px] text-slate-400 mt-1">Suppliers with active bids</p>
               </CardContent>
@@ -990,7 +1713,8 @@ export function SourcingClient({ initialOrders, initialSuppliers, initialAudits 
                 <Package className="h-4 w-4 text-blue-500" />
               </CardHeader>
               <CardContent>
-                <div className="text-2xl font-black text-slate-900 dark:text-white">{initialOrders.length}</div>
+                {/* BUG 17 FIX: use live orders state */}
+                <div className="text-2xl font-black text-slate-900 dark:text-white">{orders.length}</div>
                 <p className="text-[10px] text-slate-400 mt-1">Sourcing campaigns running</p>
               </CardContent>
             </Card>
@@ -1083,6 +1807,253 @@ export function SourcingClient({ initialOrders, initialSuppliers, initialAudits 
         </div>
       </TabsContent>
 
+      <TabsContent value="suppliers" className="space-y-4 mt-0 border-none p-0 focus-visible:ring-0 focus-visible:ring-offset-0">
+        <div className="flex items-center gap-3 justify-between">
+          <div className="relative w-full sm:w-64">
+            <Search className="absolute top-2.5 left-3 h-4 w-4 text-slate-400" />
+            <Input
+              type="text"
+              placeholder="Search suppliers by name or email..."
+              value={supplierSearch}
+              onChange={e => setSupplierSearch(e.target.value)}
+              className="h-9 w-full rounded-lg pl-9 pr-4 text-xs bg-slate-50 border-slate-200 focus:bg-white dark:bg-slate-900 dark:border-slate-800"
+            />
+          </div>
+          {isManageMode ? (
+            <div className="flex items-center gap-2">
+              <Button
+                disabled={selectedSupplierIds.length === 0 || isDeletingBatch}
+                onClick={handleConfirmBatchDelete}
+                className="bg-red-600 hover:bg-red-700 disabled:opacity-50 disabled:bg-red-600 text-white gap-1.5 h-9 px-4 rounded-lg text-xs font-semibold cursor-pointer"
+              >
+                {isDeletingBatch ? <Loader2 size={12} className="animate-spin" /> : <Trash2 size={12} />}
+                <span>Delete Selected ({selectedSupplierIds.length})</span>
+              </Button>
+              <Button
+                variant="outline"
+                onClick={() => {
+                  setIsManageMode(false)
+                  setSelectedSupplierIds([])
+                }}
+                className="h-9 px-4 rounded-lg text-xs font-semibold border border-slate-200 text-slate-500 hover:bg-slate-50 cursor-pointer"
+              >
+                Cancel
+              </Button>
+            </div>
+          ) : (
+            <DropdownMenu>
+              <DropdownMenuTrigger asChild>
+                <Button
+                  variant="outline"
+                  className="flex items-center gap-1.5 h-9 px-4 rounded-lg border border-slate-200 text-slate-700 hover:bg-slate-50 dark:border-slate-800 dark:text-slate-400 dark:hover:text-slate-200 transition-colors cursor-pointer text-xs font-semibold"
+                >
+                  <span>Add / Manage</span>
+                  <ChevronDown size={12} />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" className="w-56 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-1 shadow-md z-50">
+                <DropdownMenuItem
+                  onClick={() => {
+                    setManualForm({
+                      supplierName: '',
+                      email: '',
+                      phone: '',
+                      address: '',
+                      orderId: '',
+                      website: '',
+                      contactPerson: '',
+                      taxId: '',
+                      businessType: ''
+                    })
+                    setItemBids({})
+                    setCapabilities([])
+                    setErrorMessage(null)
+                    setIsAddOpen(true)
+                  }}
+                  className="flex items-center gap-2 px-2.5 py-1.5 text-xs rounded-lg cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-800 font-semibold text-slate-700 dark:text-slate-300"
+                >
+                  <Plus size={12} className="text-[#5c59e9]" />
+                  <span>Add Supplier</span>
+                </DropdownMenuItem>
+
+                <DropdownMenuItem
+                  onClick={() => {
+                    setCsvPreview([])
+                    setImportStatus(null)
+                    setPasteText('')
+                    setPastePreview([])
+                    setPasteImportStatus(null)
+                    setPasteErrorMessage(null)
+                    setImportTab('file')
+                    setIsImportOpen(true)
+                    setErrorMessage(null)
+                  }}
+                  className="flex items-center gap-2 px-2.5 py-1.5 text-xs rounded-lg cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-800 font-semibold text-slate-700 dark:text-slate-300"
+                >
+                  <Upload size={12} className="text-[#5c59e9]" />
+                  <span>Import Excel/CSV</span>
+                </DropdownMenuItem>
+
+                <DropdownMenuItem
+                  onClick={() => setIsManageMode(true)}
+                  className="flex items-center gap-2 px-2.5 py-1.5 text-xs rounded-lg cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-800 font-semibold text-slate-700 dark:text-slate-300"
+                >
+                  <Trash2 size={12} className="text-red-500" />
+                  <span>Select & Delete</span>
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
+          )}
+        </div>
+
+        <Card className="border-slate-200/60 dark:border-slate-800 shadow-sm">
+          <CardContent className="p-0">
+            {filteredUniqueSuppliers.length === 0 ? (
+              <div className="p-12 flex flex-col items-center justify-center gap-3 text-center min-h-[300px]">
+                <Users2 size={36} className="text-slate-200 dark:text-slate-700" />
+                <p className="text-sm text-slate-400 font-medium">No suppliers found</p>
+              </div>
+            ) : (
+              <div className="overflow-x-auto min-h-[300px]">
+                <table className="w-full text-left border-collapse">
+                  <thead>
+                    <tr className="border-b border-slate-100 bg-slate-50/50 text-[10px] font-bold uppercase tracking-wider text-slate-500 dark:border-slate-800 dark:bg-slate-900/50">
+                      {isManageMode && (
+                        <th className="px-6 py-4 w-12 text-center">
+                          <input 
+                            type="checkbox"
+                            checked={filteredUniqueSuppliers.length > 0 && selectedSupplierIds.length === filteredUniqueSuppliers.length}
+                            onChange={(e) => {
+                              if (e.target.checked) {
+                                setSelectedSupplierIds(filteredUniqueSuppliers.map(s => s.id))
+                              } else {
+                                setSelectedSupplierIds([])
+                              }
+                            }}
+                            className="rounded text-[#5c59e9] focus:ring-[#5c59e9] h-3.5 w-3.5 cursor-pointer"
+                          />
+                        </th>
+                      )}
+                      <th className="px-6 py-4">Supplier Name</th>
+                      <th className="px-6 py-4">Website</th>
+                      <th className="px-6 py-4">Contact Person</th>
+                      <th className="px-6 py-4">Email</th>
+                      <th className="px-6 py-4">Phone</th>
+                      <th className="px-6 py-4">Address</th>
+                      <th className="px-6 py-4 text-center">Bids / Audits</th>
+                      <th className="px-6 py-4 text-right">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100 dark:divide-slate-800 text-xs">
+                    {filteredUniqueSuppliers.map(supplier => {
+                      const isSelected = selectedSupplierIds.includes(supplier.id)
+                      return (
+                        <tr key={supplier.id} className={`hover:bg-slate-50/50 dark:hover:bg-slate-900/20 ${isSelected ? 'bg-indigo-50/30 dark:bg-indigo-950/10' : ''}`}>
+                          {isManageMode && (
+                            <td className="px-6 py-4 w-12 text-center">
+                              <input 
+                                type="checkbox"
+                                checked={isSelected}
+                                onChange={(e) => {
+                                  if (e.target.checked) {
+                                    setSelectedSupplierIds(prev => [...prev, supplier.id])
+                                  } else {
+                                    setSelectedSupplierIds(prev => prev.filter(id => id !== supplier.id))
+                                  }
+                                }}
+                                className="rounded text-[#5c59e9] focus:ring-[#5c59e9] h-3.5 w-3.5 cursor-pointer"
+                              />
+                            </td>
+                          )}
+                          {/* Supplier Name */}
+                          <td className="px-6 py-4 font-semibold text-slate-800 dark:text-slate-200">
+                            <a
+                              href={`/management/supplier/${supplier.id}`}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="font-semibold hover:text-[#5c59e9] hover:underline text-left cursor-pointer"
+                            >
+                              {supplier.name}
+                            </a>
+                          </td>
+
+                          {/* Website Link */}
+                          <td className="px-6 py-4">
+                            {supplier.website ? (
+                              <a 
+                                href={supplier.website.startsWith('http') ? supplier.website : `https://${supplier.website}`} 
+                                target="_blank" 
+                                rel="noopener noreferrer"
+                                className="text-[#5c59e9] hover:underline flex items-center gap-1 font-semibold"
+                              >
+                                <Globe size={12} className="text-slate-400" />
+                                <span>{supplier.website.replace(/^https?:\/\/(www\.)?/, '')}</span>
+                              </a>
+                            ) : (
+                              <span className="text-slate-400">—</span>
+                            )}
+                          </td>
+
+                          {/* Contact Person */}
+                          <td className="px-6 py-4 text-slate-700 dark:text-slate-355 font-semibold">
+                            {supplier.contact_person || '—'}
+                          </td>
+
+                          {/* Email */}
+                          <td className="px-6 py-4 text-slate-600 dark:text-slate-450">
+                            {supplier.email || '—'}
+                          </td>
+
+                          {/* Phone */}
+                          <td className="px-6 py-4 text-slate-600 dark:text-slate-450">
+                            {supplier.phone || '—'}
+                          </td>
+
+                          {/* Address */}
+                          <td className="px-6 py-4 text-slate-500 dark:text-slate-400 truncate max-w-xs" title={supplier.address || ''}>
+                            {supplier.address || '—'}
+                          </td>
+
+                          {/* Bids / Audits counts */}
+                          <td className="px-6 py-4">
+                            <div className="flex items-center justify-center gap-1.5">
+                              <Badge variant="outline" className="bg-blue-50/50 text-blue-600 border-blue-200/50 dark:bg-blue-955/20 dark:text-blue-400 dark:border-blue-900/50 font-medium text-[10px] px-2 py-0.5 rounded-md">
+                                {supplier.bidsCount} Bid{supplier.bidsCount !== 1 ? 's' : ''}
+                              </Badge>
+                              <Badge variant="outline" className="bg-amber-50/50 text-amber-600 border-amber-200/50 dark:bg-amber-955/20 dark:text-amber-400 dark:border-amber-900/50 font-medium text-[10px] px-2 py-0.5 rounded-md">
+                                {supplier.auditsCount} Audit{supplier.auditsCount !== 1 ? 's' : ''}
+                              </Badge>
+                            </div>
+                          </td>
+
+                          {/* View Profile Action */}
+                          <td className="px-6 py-4 text-right">
+                            <a
+                              href={`/management/supplier/${supplier.id}`}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="inline-block"
+                            >
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                className="h-8 px-2.5 border-slate-200 text-slate-600 hover:text-slate-700 dark:border-slate-800 hover:bg-slate-50/50 cursor-pointer gap-1 text-[11px]"
+                              >
+                                <span>View Profile</span>
+                              </Button>
+                            </a>
+                          </td>
+                        </tr>
+                      )
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      </TabsContent>
+
       <TabsContent value="workplace" className="space-y-6 mt-0 border-none p-0 focus-visible:ring-0 focus-visible:ring-offset-0">
       {/* Main Content: Order List + Matrix / All Suppliers */}
       <div className="grid lg:grid-cols-[280px_1fr] -mx-8 -mt-8 -mb-8 h-[calc(100vh-4rem)] overflow-hidden">
@@ -1105,6 +2076,35 @@ export function SourcingClient({ initialOrders, initialSuppliers, initialAudits 
             </div>
           </div>
           <div className="flex-1 overflow-y-auto">
+            {/* All Suppliers button */}
+            <div className="border-b border-slate-100 dark:border-slate-800/80">
+              <button
+                id="btn-all-suppliers"
+                onClick={() => {
+                  setSelectedOrderId(null);
+                  setViewMode('all');
+                }}
+                className={`w-full text-left px-2.5 py-3 flex items-center justify-between gap-1 transition-colors cursor-pointer ${
+                  viewMode === 'all'
+                    ? 'bg-indigo-50 dark:bg-indigo-950/30'
+                    : 'hover:bg-slate-50/80 dark:hover:bg-slate-900/20'
+                }`}
+              >
+                <div className="flex items-center gap-2 min-w-0">
+                  <Globe size={13} className={viewMode === 'all' ? 'text-indigo-600 dark:text-indigo-400' : 'text-slate-400 dark:text-slate-500'} />
+                  <span className={`text-xs font-bold ${viewMode === 'all' ? 'text-indigo-700 dark:text-indigo-400' : 'text-slate-800 dark:text-slate-200'}`}>
+                    All Suppliers
+                  </span>
+                </div>
+                <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-md ${
+                  viewMode === 'all'
+                    ? 'bg-indigo-200/50 dark:bg-indigo-900/50 text-indigo-700 dark:text-indigo-400'
+                    : 'bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400'
+                }`}>
+                  {suppliers.length}
+                </span>
+              </button>
+            </div>
 
             {filteredOrders.length === 0 ? (
               <div className="p-3 text-center text-xs text-slate-400">
@@ -1204,29 +2204,6 @@ export function SourcingClient({ initialOrders, initialSuppliers, initialAudits 
                           </Button>
                         </DropdownMenuTrigger>
                         <DropdownMenuContent align="end" className="w-48 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-1 shadow-md z-50">
-                          {/* Manage Mode trigger */}
-                          <div
-                            role="button"
-                            onClick={() => setIsManageMode(true)}
-                            className="flex items-center gap-2 px-2.5 py-1.5 text-xs rounded-lg cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-800 font-semibold text-slate-750 dark:text-slate-300"
-                          >
-                            <Trash2 size={12} className="text-red-500" />
-                            <span>Select & Delete</span>
-                          </div>
-
-                          <DropdownMenuCheckboxItem
-                            checked={shortlistFilterOnly}
-                            onCheckedChange={(checked) => {
-                              setShortlistFilterOnly(!!checked)
-                            }}
-                            onSelect={(e) => e.preventDefault()}
-                            className="text-xs rounded-lg cursor-pointer py-1.5 hover:bg-slate-50 dark:hover:bg-slate-800 font-semibold text-[#5c59e9]"
-                          >
-                            Shortlisted Only
-                          </DropdownMenuCheckboxItem>
-                          
-                          <DropdownMenuSeparator className="my-1 border-t border-slate-100 dark:border-slate-800" />
-                          
                           {/* Column toggles header */}
                           <div className="px-2.5 py-1 text-[10px] font-bold text-slate-400 uppercase tracking-wider">
                             Toggle Columns
@@ -1248,118 +2225,85 @@ export function SourcingClient({ initialOrders, initialSuppliers, initialAudits 
                         </DropdownMenuContent>
                       </DropdownMenu>
 
-                      {selectedSupplierIds.length > 0 && (
-                        <DropdownMenu>
-                          <DropdownMenuTrigger asChild>
-                            <Button
-                              size="sm"
-                              className="bg-[#5c59e9] hover:bg-[#4a47d2] text-white gap-1.5 h-8 px-3 rounded-lg text-xs font-semibold cursor-pointer"
-                            >
-                              <span>Actions</span>
-                              <ChevronDown size={12} />
-                            </Button>
-                          </DropdownMenuTrigger>
-                          <DropdownMenuContent align="end" className="w-48 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-1 shadow-md z-50">
-                            {selectedSupplierIds.length === 1 && (() => {
-                              const supplier = suppliers.find(s => s.id === selectedSupplierIds[0])
-                              if (!supplier || !supplier.order_item_id) return null
-                              const hasQcAudit = audits.some(a => a.supplier_id === supplier.supplier_id && a.order_id === supplier.order_id)
-                              return (
-                                <DropdownMenuItem
-                                  disabled={hasQcAudit}
-                                  onClick={() => handleToggleShortlist(supplier)}
-                                  className="flex items-center gap-2 px-2.5 py-1.5 text-xs rounded-lg cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-800 font-semibold text-slate-700 dark:text-slate-300 disabled:opacity-50 disabled:cursor-not-allowed"
-                                >
-                                  <Check size={12} className="text-indigo-500" />
-                                  <span>{supplier.is_shortlisted ? 'Remove Shortlist' : 'Shortlist'}</span>
-                                </DropdownMenuItem>
-                              )
-                            })()}
+                      {/* Always visible Add dropdown button (replacing separate import + actions buttons) */}
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="flex items-center gap-1.5 h-8 px-3 rounded-lg border border-slate-200 text-slate-700 hover:bg-slate-50 dark:border-slate-800 dark:text-slate-400 dark:hover:text-slate-200 transition-colors cursor-pointer text-xs font-semibold"
+                          >
+                            <span>Add</span>
+                            <ChevronDown size={12} />
+                          </Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent align="end" className="w-56 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-1 shadow-md z-50">
+                          {/* Add Supplier */}
+                          <DropdownMenuItem
+                            onClick={() => {
+                              setManualForm({
+                                supplierName: '',
+                                email: '',
+                                phone: '',
+                                address: '',
+                                orderId: '',
+                                website: '',
+                                contactPerson: '',
+                                taxId: '',
+                                businessType: ''
+                              })
+                              setItemBids({})
+                              setCapabilities([])
+                              setIsAddOpen(true)
+                              setErrorMessage(null)
+                            }}
+                            className="flex items-center gap-2 px-2.5 py-1.5 text-xs rounded-lg cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-800 font-semibold text-slate-700 dark:text-slate-300"
+                          >
+                            <Plus size={12} className="text-[#5c59e9]" />
+                            <span>Add Supplier</span>
+                          </DropdownMenuItem>
 
-                            {selectedSupplierIds.length === 1 && (() => {
-                              const supplier = suppliers.find(s => s.id === selectedSupplierIds[0])
-                              if (!supplier || !supplier.order_item_id) return null
-                              const linkedOrder = orders.find(o => o.id === supplier.order_id)
-                              if (linkedOrder?.stage !== 'Sourcing' && linkedOrder?.stage !== 'Ready for PO') return null
-                              
-                              const audit = audits.find(a => a.supplier_id === supplier.supplier_id && a.order_id === supplier.order_id)
-                              const hasPassedQC = audit && 
-                                audit.audit_status === 'Completed' && 
-                                (audit.audit_verdict === 'PASS' || audit.audit_verdict === 'PASS WITH CONDITIONS')
-                              
-                              return (
-                                <DropdownMenuItem
-                                  disabled={!hasPassedQC}
-                                  onClick={() => {
-                                    setPoSupplier(supplier)
-                                    const qty = linkedOrder?.order_items?.find(item => item.id === supplier.order_item_id)?.quantity || 1
-                                    setPoContractValue(Number(supplier.quoted_price) * qty)
-                                    setIsPoConfirming(false)
-                                    setErrorMessage(null)
-                                  }}
-                                  className="flex items-center gap-2 px-2.5 py-1.5 text-xs rounded-lg cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-800 font-semibold text-slate-755 dark:text-slate-300 disabled:opacity-50 disabled:cursor-not-allowed"
-                                >
-                                  <PlusCircle size={12} className="text-emerald-500" />
-                                  <span>Create PO</span>
-                                </DropdownMenuItem>
-                              )
-                            })()}
+                          {/* Import Excel/CSV */}
+                          <DropdownMenuItem
+                            onClick={() => {
+                              setCsvPreview([])
+                              setImportStatus(null)
+                              setPasteText('')
+                              setPastePreview([])
+                              setPasteImportStatus(null)
+                              setPasteErrorMessage(null)
+                              setImportTab('file')
+                              setIsImportOpen(true)
+                              setErrorMessage(null)
+                            }}
+                            className="flex items-center gap-2 px-2.5 py-1.5 text-xs rounded-lg cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-800 font-semibold text-slate-700 dark:text-slate-305"
+                          >
+                            <Upload size={12} className="text-[#5c59e9]" />
+                            <span>Import Excel/CSV</span>
+                          </DropdownMenuItem>
 
-                            <DropdownMenuSeparator className="my-1 border-t border-slate-100 dark:border-slate-800" />
+                          {/* Select & Delete */}
+                          <DropdownMenuItem
+                            onClick={() => setIsManageMode(true)}
+                            className="flex items-center gap-2 px-2.5 py-1.5 text-xs rounded-lg cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-800 font-semibold text-slate-700 dark:text-slate-305"
+                          >
+                            <Trash2 size={12} className="text-red-500" />
+                            <span>Select & Delete</span>
+                          </DropdownMenuItem>
 
-                            <DropdownMenuItem
-                              onClick={() => setIsBulkDeleteConfirmOpen(true)}
-                              className="flex items-center gap-2 px-2.5 py-1.5 text-xs rounded-lg cursor-pointer hover:bg-red-50 dark:hover:bg-red-950/20 font-semibold text-red-600 dark:text-red-400"
-                            >
-                              <Trash2 size={12} className="text-red-500" />
-                              <span>Delete Selected ({selectedSupplierIds.length})</span>
-                            </DropdownMenuItem>
-
-                            <DropdownMenuItem
-                              onClick={() => setSelectedSupplierIds([])}
-                              className="flex items-center gap-2 px-2.5 py-1.5 text-xs rounded-lg cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-800 font-semibold text-slate-500"
-                            >
-                              <XCircle size={12} className="text-slate-400" />
-                              <span>Clear Selection</span>
-                            </DropdownMenuItem>
-                          </DropdownMenuContent>
-                        </DropdownMenu>
-                      )}
-
-                      <Button
-                        onClick={() => {
-                          setCsvPreview([])
-                          setImportStatus(null)
-                          setIsImportOpen(true)
-                          setErrorMessage(null)
-                        }}
-                        variant="outline"
-                        size="sm"
-                        className="gap-2 border-slate-200 text-slate-700 hover:bg-slate-50 dark:border-slate-800 dark:text-slate-350 cursor-pointer h-8 px-3 rounded-lg text-xs"
-                      >
-                        <Upload size={14} />
-                        <span>Import Excel/CSV</span>
-                      </Button>
-                      <Button
-                        onClick={() => {
-                          setManualForm({
-                            supplierName: '',
-                            email: '',
-                            phone: '',
-                            address: '',
-                            orderId: ''
-                          })
-                          setItemBids({})
-                          setCapabilities([])
-                          setIsAddOpen(true)
-                          setErrorMessage(null)
-                        }}
-                        size="sm"
-                        className="gap-2 bg-[#5c59e9] hover:bg-[#4a47d2] cursor-pointer h-8 px-3 rounded-lg text-xs"
-                      >
-                        <Plus size={14} />
-                        <span>Add Supplier</span>
-                      </Button>
+                          {/* Shortlisted Only filter */}
+                          <DropdownMenuCheckboxItem
+                            checked={shortlistFilterOnly}
+                            onCheckedChange={(checked) => {
+                              setShortlistFilterOnly(!!checked)
+                            }}
+                            onSelect={(e) => e.preventDefault()}
+                            className="text-xs rounded-lg cursor-pointer py-1.5 hover:bg-slate-50 dark:hover:bg-slate-800 font-semibold text-[#5c59e9]"
+                          >
+                            Shortlisted Only
+                          </DropdownMenuCheckboxItem>
+                        </DropdownMenuContent>
+                      </DropdownMenu>
                     </>
                   )}
                 </div>
@@ -1419,6 +2363,11 @@ export function SourcingClient({ initialOrders, initialSuppliers, initialAudits 
                         {columnVisibility.email && <th className="px-6 py-4">Email</th>}
                         {columnVisibility.phone && <th className="px-6 py-4">Phone</th>}
                         {columnVisibility.address && <th className="px-6 py-4">Address</th>}
+                        {columnVisibility.website && <th className="px-6 py-4">Website</th>}
+                        {columnVisibility.contactPerson && <th className="px-6 py-4">Contact Person</th>}
+                        {columnVisibility.taxId && <th className="px-6 py-4">Tax ID</th>}
+                        {columnVisibility.businessType && <th className="px-6 py-4">Business Type</th>}
+                        {columnVisibility.certifications && <th className="px-6 py-4">Certifications</th>}
                         {columnVisibility.associatedOrder && <th className="px-6 py-4">Associated Order</th>}
                         {columnVisibility.productItem && <th className="px-6 py-4">Product Item</th>}
                         {columnVisibility.quotedPrice && <th className="px-6 py-4">Quoted Price</th>}
@@ -1431,6 +2380,10 @@ export function SourcingClient({ initialOrders, initialSuppliers, initialAudits 
                     <tbody className="divide-y divide-slate-100 dark:divide-slate-800 text-xs">
                       {filteredAllSuppliers.map(supplier => {
                         const orderCode = supplier.orders?.order_code ?? '—'
+                        // BUG 9 FIX: use single source of truth for order existence.
+                        // A supplier has a "Deleted Order" only when order_id is set
+                        // (so it's not unassigned) but the order is absent from both
+                        // the server-joined data AND local state.
                         const linkedOrder = orders.find(o => o.id === supplier.order_id)
                         return (
                           <tr key={supplier.id} className={`hover:bg-slate-50/50 dark:hover:bg-slate-900/20 ${selectedSupplierIds.includes(supplier.id) ? 'bg-indigo-50/30 dark:bg-indigo-950/10' : ''}`}>
@@ -1450,13 +2403,14 @@ export function SourcingClient({ initialOrders, initialSuppliers, initialAudits 
                             </td>
                             {columnVisibility.supplierName && (
                               <td className="px-6 py-4">
-                                <button
-                                  type="button"
-                                  onClick={() => handleOpenProfile(supplier)}
+                                <a
+                                  href={`/management/supplier/${supplier.supplier_id}`}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
                                   className="font-semibold text-slate-800 dark:text-slate-200 hover:text-[#5c59e9] dark:hover:text-[#818cf8] hover:underline cursor-pointer text-left focus:outline-none transition-colors"
                                 >
                                   {supplier.supplier_name}
-                                </button>
+                                </a>
                               </td>
                             )}
                             {columnVisibility.email && (
@@ -1480,13 +2434,64 @@ export function SourcingClient({ initialOrders, initialSuppliers, initialAudits 
                                 </div>
                               </td>
                             )}
+                            {columnVisibility.website && (
+                              <td className="px-6 py-4">
+                                {supplier.suppliers?.website ? (
+                                  <a 
+                                    href={supplier.suppliers.website.startsWith('http') ? supplier.suppliers.website : `https://${supplier.suppliers.website}`}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="text-indigo-600 dark:text-indigo-400 hover:underline font-medium"
+                                  >
+                                    {supplier.suppliers.website}
+                                  </a>
+                                ) : '—'}
+                              </td>
+                            )}
+                            {columnVisibility.contactPerson && (
+                              <td className="px-6 py-4">
+                                <div className="text-slate-600 dark:text-slate-400">
+                                  {supplier.suppliers?.contact_person || '—'}
+                                </div>
+                              </td>
+                            )}
+                            {columnVisibility.taxId && (
+                              <td className="px-6 py-4">
+                                <div className="text-slate-600 dark:text-slate-400 font-mono">
+                                  {supplier.suppliers?.tax_id || '—'}
+                                </div>
+                              </td>
+                            )}
+                            {columnVisibility.businessType && (
+                              <td className="px-6 py-4">
+                                <div className="text-slate-600 dark:text-slate-400">
+                                  {supplier.suppliers?.business_type || '—'}
+                                </div>
+                              </td>
+                            )}
+                            {columnVisibility.certifications && (
+                              <td className="px-6 py-4">
+                                <div className="flex flex-wrap gap-1">
+                                  {supplier.suppliers?.certifications && supplier.suppliers.certifications.length > 0 ? (
+                                    supplier.suppliers.certifications.map((cert, idx) => (
+                                      <Badge key={idx} variant="outline" className="text-[10px] font-medium bg-slate-50 text-slate-600 dark:bg-slate-900/50 dark:text-slate-400">
+                                        {cert}
+                                      </Badge>
+                                    ))
+                                  ) : '—'}
+                                </div>
+                              </td>
+                            )}
                             {columnVisibility.associatedOrder && (
                               <td className="px-6 py-4">
                                 {!supplier.order_id ? (
                                   <Badge variant="outline" className="text-[10px] font-semibold bg-slate-50 text-slate-400 border-slate-200 dark:bg-slate-900/10 dark:text-slate-500 dark:border-slate-800">
                                     Unassigned
                                   </Badge>
-                                ) : !linkedOrder ? (
+                                ) : (!linkedOrder && !supplier.orders?.order_code) ? (
+                                  // BUG 9 FIX: only show "Deleted Order" when BOTH local state
+                                  // AND the server-joined order_code are absent — prevents false
+                                  // positives from stale client-side state
                                   <Badge variant="outline" className="text-[10px] font-semibold bg-red-50 text-red-500 border-red-200 dark:bg-red-950/20 dark:text-red-400 dark:border-red-900">
                                     Deleted Order
                                   </Badge>
@@ -1525,16 +2530,19 @@ export function SourcingClient({ initialOrders, initialSuppliers, initialAudits 
                             )}
                             {columnVisibility.shortlistStatus && (
                               <td className="px-6 py-4 text-center">
-                                <Badge
-                                  variant="outline"
-                                  className={`text-[10px] font-semibold px-2.5 py-0.5 select-none ${
+                                <button
+                                  id={`all-shortlist-${supplier.id}`}
+                                  onClick={() => handleToggleShortlist(supplier)}
+                                  disabled={isPending || audits.some(a => a.supplier_id === supplier.supplier_id && a.order_id === supplier.order_id)}
+                                  title={audits.some(a => a.supplier_id === supplier.supplier_id && a.order_id === supplier.order_id) ? "Shortlist locked - Sent to QC" : undefined}
+                                  className={`mx-auto flex h-7 w-7 items-center justify-center rounded-lg border transition-all cursor-pointer disabled:opacity-50 ${
                                     supplier.is_shortlisted
-                                      ? 'bg-emerald-50 text-emerald-700 border-emerald-200 dark:bg-emerald-950/20 dark:text-emerald-450 dark:border-emerald-800'
-                                      : 'bg-slate-50 text-slate-500 border-slate-200 dark:bg-slate-900/50 dark:text-slate-400 dark:border-slate-700'
+                                      ? 'bg-emerald-50 text-emerald-600 border-emerald-300 dark:bg-emerald-950/30 dark:text-emerald-450 dark:border-emerald-800'
+                                      : 'border-slate-200 text-slate-400 hover:border-slate-300 hover:text-slate-600 dark:border-slate-800'
                                   }`}
                                 >
-                                  {supplier.is_shortlisted ? '✓ Shortlisted' : 'Not shortlisted'}
-                                </Badge>
+                                  <Check size={14} className={supplier.is_shortlisted ? 'opacity-100' : 'opacity-30'} />
+                                </button>
                               </td>
                             )}
                             {columnVisibility.qcStatus && (() => {
@@ -1747,6 +2755,7 @@ export function SourcingClient({ initialOrders, initialSuppliers, initialAudits 
                                 </>
                               ) : (
                                 <>
+                                  {/* Manage Table Dropdown */}
                                   <DropdownMenu>
                                     <DropdownMenuTrigger asChild>
                                       <Button
@@ -1755,10 +2764,117 @@ export function SourcingClient({ initialOrders, initialSuppliers, initialAudits 
                                         className="flex items-center gap-1.5 h-8 px-3 rounded-lg border border-slate-200 text-slate-700 hover:bg-slate-50 dark:border-slate-800 dark:text-slate-400 dark:hover:text-slate-200 transition-colors cursor-pointer text-xs font-semibold"
                                       >
                                         <SlidersHorizontal size={12} />
-                                        <span>Actions</span>
+                                        <span>Manage Table</span>
+                                      </Button>
+                                    </DropdownMenuTrigger>
+                                    <DropdownMenuContent align="end" className="w-48 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-1 shadow-md z-50">
+                                      {/* Column toggles header */}
+                                      <div className="px-2.5 py-1 text-[10px] font-bold text-slate-400 uppercase tracking-wider">
+                                        Toggle Columns
+                                      </div>
+
+                                      {orderToggleableColumns.map(col => (
+                                        <DropdownMenuCheckboxItem
+                                          key={col.key}
+                                          checked={orderColumnVisibility[col.key]}
+                                          onCheckedChange={(checked) => {
+                                            setOrderColumnVisibility(prev => ({ ...prev, [col.key]: !!checked }))
+                                          }}
+                                          onSelect={(e) => e.preventDefault()}
+                                          className="text-xs rounded-lg cursor-pointer py-1.5 hover:bg-slate-50 dark:hover:bg-slate-800"
+                                        >
+                                          {col.label}
+                                        </DropdownMenuCheckboxItem>
+                                      ))}
+                                    </DropdownMenuContent>
+                                  </DropdownMenu>
+
+                                  {/* Add Dropdown */}
+                                  <DropdownMenu>
+                                    <DropdownMenuTrigger asChild>
+                                      <Button
+                                        variant="outline"
+                                        size="sm"
+                                        className="flex items-center gap-1.5 h-8 px-3 rounded-lg border border-slate-200 text-slate-700 hover:bg-slate-50 dark:border-slate-800 dark:text-slate-400 dark:hover:text-slate-200 transition-colors cursor-pointer text-xs font-semibold"
+                                      >
+                                        <span>Add</span>
+                                        <ChevronDown size={12} />
                                       </Button>
                                     </DropdownMenuTrigger>
                                     <DropdownMenuContent align="end" className="w-56 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-1 shadow-md z-50">
+                                      {/* Add Supplier */}
+                                      <DropdownMenuItem
+                                        onClick={() => {
+                                          setManualForm({
+                                            supplierName: '',
+                                            email: '',
+                                            phone: '',
+                                            address: '',
+                                            orderId: selectedOrderId || '',
+                                            website: '',
+                                            contactPerson: '',
+                                            taxId: '',
+                                            businessType: ''
+                                          })
+                                          setCapabilities([])
+                                          if (selectedOrderId) {
+                                            handleSelectOrder(selectedOrderId)
+                                          } else {
+                                            setItemBids({})
+                                          }
+                                          setIsAddOpen(true)
+                                          setErrorMessage(null)
+                                        }}
+                                        className="flex items-center gap-2 px-2.5 py-1.5 text-xs rounded-lg cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-800 font-semibold text-slate-700 dark:text-slate-300"
+                                      >
+                                        <Plus size={12} className="text-[#5c59e9]" />
+                                        <span>Add Supplier</span>
+                                      </DropdownMenuItem>
+
+                                      {/* Import Excel/CSV */}
+                                      <DropdownMenuItem
+                                        onClick={() => {
+                                          setCsvPreview([])
+                                          setImportStatus(null)
+                                          setPasteText('')
+                                          setPastePreview([])
+                                          setPasteImportStatus(null)
+                                          setPasteErrorMessage(null)
+                                          setImportTab('file')
+                                          setIsImportOpen(true)
+                                          setErrorMessage(null)
+                                        }}
+                                        className="flex items-center gap-2 px-2.5 py-1.5 text-xs rounded-lg cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-800 font-semibold text-slate-700 dark:text-slate-355"
+                                      >
+                                        <Upload size={12} className="text-[#5c59e9]" />
+                                        <span>Import Excel/CSV</span>
+                                      </DropdownMenuItem>
+
+                                      <DropdownMenuSeparator className="my-1 border-t border-slate-100 dark:border-slate-800" />
+
+                                      {/* Select & Delete */}
+                                      <DropdownMenuItem
+                                        onClick={() => setIsManageMode(true)}
+                                        className="flex items-center gap-2 px-2.5 py-1.5 text-xs rounded-lg cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-800 font-semibold text-slate-700 dark:text-slate-300"
+                                      >
+                                        <Trash2 size={12} className="text-red-500" />
+                                        <span>Select & Delete</span>
+                                      </DropdownMenuItem>
+
+                                      {/* Shortlisted Only Toggle */}
+                                      <DropdownMenuCheckboxItem
+                                        checked={orderShortlistFilterOnly}
+                                        onCheckedChange={(checked) => {
+                                          setOrderShortlistFilterOnly(!!checked)
+                                        }}
+                                        onSelect={(e) => e.preventDefault()}
+                                        className="text-xs rounded-lg cursor-pointer py-1.5 hover:bg-slate-50 dark:hover:bg-slate-800 font-semibold text-[#5c59e9]"
+                                      >
+                                        Shortlisted Only
+                                      </DropdownMenuCheckboxItem>
+
+                                      <DropdownMenuSeparator className="my-1 border-t border-slate-100 dark:border-slate-800" />
+
                                       {/* Send Shortlist to QC */}
                                       <DropdownMenuItem
                                         disabled={
@@ -1785,151 +2901,8 @@ export function SourcingClient({ initialOrders, initialSuppliers, initialAudits 
                                         <Package size={12} className="text-emerald-500" />
                                         <span>Edit Classification</span>
                                       </DropdownMenuItem>
-
-                                      {/* Selection-specific Actions */}
-                                      {selectedSupplierIds.length > 0 && (
-                                        <>
-                                          <DropdownMenuSeparator className="my-1 border-t border-slate-100 dark:border-slate-800" />
-                                          <div className="px-2.5 py-1 text-[10px] font-bold text-slate-400 uppercase tracking-wider">
-                                            Selection ({selectedSupplierIds.length})
-                                          </div>
-
-                                          {/* Create PO (only if 1 is selected and QC passed) */}
-                                          {selectedSupplierIds.length === 1 && (() => {
-                                            const supplier = suppliers.find(s => s.id === selectedSupplierIds[0])
-                                            if (!supplier) return null
-                                            const audit = audits.find(a => a.supplier_id === supplier.supplier_id && a.order_id === supplier.order_id)
-                                            const hasPassedQC = audit && 
-                                              audit.audit_status === 'Completed' && 
-                                              (audit.audit_verdict === 'PASS' || audit.audit_verdict === 'PASS WITH CONDITIONS')
-                                            
-                                            return (
-                                              <DropdownMenuItem
-                                                disabled={!hasPassedQC || (selectedOrder?.stage !== 'Sourcing' && selectedOrder?.stage !== 'Ready for PO')}
-                                                onClick={() => {
-                                                  setPoSupplier(supplier)
-                                                  const qty = selectedOrder?.order_items?.find(item => item.id === supplier.order_item_id)?.quantity || 1
-                                                  setPoContractValue(Number(supplier.quoted_price) * qty)
-                                                  setIsPoConfirming(false)
-                                                  setErrorMessage(null)
-                                                }}
-                                                className="flex items-center gap-2 px-2.5 py-1.5 text-xs rounded-lg cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-800 font-semibold text-slate-755 dark:text-slate-300 disabled:opacity-50 disabled:cursor-not-allowed"
-                                              >
-                                                <PlusCircle size={12} className="text-emerald-500" />
-                                                <span>Create PO</span>
-                                              </DropdownMenuItem>
-                                            )
-                                          })()}
-
-                                          {/* Toggle Shortlist */}
-                                          {selectedSupplierIds.length === 1 && (() => {
-                                            const supplier = suppliers.find(s => s.id === selectedSupplierIds[0])
-                                             if (!supplier) return null
-                                             const hasQcAudit = audits.some(a => a.supplier_id === supplier.supplier_id && a.order_id === supplier.order_id)
-                                            return (
-                                               <DropdownMenuItem
-                                                 disabled={hasQcAudit}
-                                                onClick={() => handleToggleShortlist(supplier)}
-                                                className="flex items-center gap-2 px-2.5 py-1.5 text-xs rounded-lg cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-800 font-semibold text-slate-700 dark:text-slate-300 disabled:opacity-50 disabled:cursor-not-allowed"
-                                              >
-                                                <Check size={12} className="text-indigo-500" />
-                                                <span>{supplier.is_shortlisted ? 'Remove Shortlist' : 'Shortlist'}</span>
-                                              </DropdownMenuItem>
-                                            )
-                                          })()}
-
-                                          {/* Delete selected */}
-                                          <DropdownMenuItem
-                                            onClick={() => setIsBulkDeleteConfirmOpen(true)}
-                                            className="flex items-center gap-2 px-2.5 py-1.5 text-xs rounded-lg cursor-pointer hover:bg-red-50 dark:hover:bg-red-950/20 font-semibold text-red-650 dark:text-red-400"
-                                          >
-                                            <Trash2 size={12} className="text-red-500" />
-                                            <span>Delete Selected ({selectedSupplierIds.length})</span>
-                                          </DropdownMenuItem>
-
-                                          <DropdownMenuItem
-                                            onClick={() => setSelectedSupplierIds([])}
-                                            className="flex items-center gap-2 px-2.5 py-1.5 text-xs rounded-lg cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-800 font-semibold text-slate-500"
-                                          >
-                                            <XCircle size={12} className="text-slate-400" />
-                                            <span>Clear Selection</span>
-                                          </DropdownMenuItem>
-                                        </>
-                                      )}
-
-                                      <DropdownMenuSeparator className="my-1 border-t border-slate-100 dark:border-slate-800" />
-
-                                      <DropdownMenuCheckboxItem
-                                        checked={orderShortlistFilterOnly}
-                                        onCheckedChange={(checked) => {
-                                          setOrderShortlistFilterOnly(!!checked)
-                                        }}
-                                        onSelect={(e) => e.preventDefault()}
-                                        className="text-xs rounded-lg cursor-pointer py-1.5 hover:bg-slate-50 dark:hover:bg-slate-800 font-semibold text-[#5c59e9]"
-                                      >
-                                        Shortlisted Only
-                                      </DropdownMenuCheckboxItem>
-
-                                      <DropdownMenuSeparator className="my-1 border-t border-slate-100 dark:border-slate-800" />
-
-                                      <div className="px-2.5 py-1 text-[10px] font-bold text-slate-400 uppercase tracking-wider">
-                                        Toggle Columns
-                                      </div>
-
-                                      {orderToggleableColumns.map(col => (
-                                        <DropdownMenuCheckboxItem
-                                          key={col.key}
-                                          checked={orderColumnVisibility[col.key]}
-                                          onCheckedChange={(checked) => {
-                                            setOrderColumnVisibility(prev => ({ ...prev, [col.key]: !!checked }))
-                                          }}
-                                          onSelect={(e) => e.preventDefault()}
-                                          className="text-xs rounded-lg cursor-pointer py-1.5 hover:bg-slate-50 dark:hover:bg-slate-800"
-                                        >
-                                          {col.label}
-                                        </DropdownMenuCheckboxItem>
-                                      ))}
                                     </DropdownMenuContent>
                                   </DropdownMenu>
-
-                                  <Button
-                                    onClick={() => {
-                                      setCsvPreview([])
-                                      setImportStatus(null)
-                                      setIsImportOpen(true)
-                                      setErrorMessage(null)
-                                    }}
-                                    variant="outline"
-                                    size="sm"
-                                    className="gap-2 border-slate-200 text-slate-700 hover:bg-slate-50 dark:border-slate-800 dark:text-slate-350 cursor-pointer"
-                                  >
-                                    <Upload size={14} />
-                                    <span>Import Excel/CSV</span>
-                                  </Button>
-                                  <Button
-                                    onClick={() => {
-                                      setManualForm({
-                                        supplierName: '',
-                                        email: '',
-                                        phone: '',
-                                        address: '',
-                                        orderId: selectedOrderId || ''
-                                      })
-                                      setCapabilities([])
-                                      if (selectedOrderId) {
-                                        handleSelectOrder(selectedOrderId)
-                                      } else {
-                                        setItemBids({})
-                                      }
-                                      setIsAddOpen(true)
-                                      setErrorMessage(null)
-                                    }}
-                                    size="sm"
-                                    className="gap-2 bg-[#5c59e9] hover:bg-[#4a47d2] cursor-pointer"
-                                  >
-                                    <Plus size={14} />
-                                    <span>Add Supplier</span>
-                                  </Button>
                                 </>
                               )}
                             </div>
@@ -1947,7 +2920,11 @@ export function SourcingClient({ initialOrders, initialSuppliers, initialAudits 
                                       email: '',
                                       phone: '',
                                       address: '',
-                                      orderId: selectedOrderId || ''
+                                      orderId: selectedOrderId || '',
+                                      website: '',
+                                      contactPerson: '',
+                                      taxId: '',
+                                      businessType: ''
                                     })
                                     setCapabilities([])
                                     if (selectedOrderId) {
@@ -1993,6 +2970,11 @@ export function SourcingClient({ initialOrders, initialSuppliers, initialAudits 
                                       {orderColumnVisibility.email && <th className="px-6 py-4">Email</th>}
                                       {orderColumnVisibility.phone && <th className="px-6 py-4">Phone</th>}
                                       {orderColumnVisibility.address && <th className="px-6 py-4">Address</th>}
+                                      {orderColumnVisibility.website && <th className="px-6 py-4">Website</th>}
+                                      {orderColumnVisibility.contactPerson && <th className="px-6 py-4">Contact Person</th>}
+                                      {orderColumnVisibility.taxId && <th className="px-6 py-4">Tax ID</th>}
+                                      {orderColumnVisibility.businessType && <th className="px-6 py-4">Business Type</th>}
+                                      {orderColumnVisibility.certifications && <th className="px-6 py-4">Certifications</th>}
                                       {orderColumnVisibility.productItem && <th className="px-6 py-4">Product Item</th>}
                                       {orderColumnVisibility.quotedPrice && <th className="px-6 py-4">Quoted Price</th>}
                                       {orderColumnVisibility.leadTime && <th className="px-6 py-4">Lead Time</th>}
@@ -2054,6 +3036,54 @@ export function SourcingClient({ initialOrders, initialSuppliers, initialAudits 
                                             <td className="px-6 py-4">
                                               <div className="text-slate-600 dark:text-slate-400 truncate max-w-xs" title={supplier.suppliers?.address || ''}>
                                                 {supplier.suppliers?.address || '—'}
+                                              </div>
+                                            </td>
+                                          )}
+                                          {orderColumnVisibility.website && (
+                                            <td className="px-6 py-4">
+                                              {supplier.suppliers?.website ? (
+                                                <a 
+                                                  href={supplier.suppliers.website.startsWith('http') ? supplier.suppliers.website : `https://${supplier.suppliers.website}`}
+                                                  target="_blank"
+                                                  rel="noopener noreferrer"
+                                                  className="text-indigo-600 dark:text-indigo-400 hover:underline font-medium"
+                                                >
+                                                  {supplier.suppliers.website}
+                                                </a>
+                                              ) : '—'}
+                                            </td>
+                                          )}
+                                          {orderColumnVisibility.contactPerson && (
+                                            <td className="px-6 py-4">
+                                              <div className="text-slate-600 dark:text-slate-400">
+                                                {supplier.suppliers?.contact_person || '—'}
+                                              </div>
+                                            </td>
+                                          )}
+                                          {orderColumnVisibility.taxId && (
+                                            <td className="px-6 py-4">
+                                              <div className="text-slate-600 dark:text-slate-400 font-mono">
+                                                {supplier.suppliers?.tax_id || '—'}
+                                              </div>
+                                            </td>
+                                          )}
+                                          {orderColumnVisibility.businessType && (
+                                            <td className="px-6 py-4">
+                                              <div className="text-slate-600 dark:text-slate-400">
+                                                {supplier.suppliers?.business_type || '—'}
+                                              </div>
+                                            </td>
+                                          )}
+                                          {orderColumnVisibility.certifications && (
+                                            <td className="px-6 py-4">
+                                              <div className="flex flex-wrap gap-1">
+                                                {supplier.suppliers?.certifications && supplier.suppliers.certifications.length > 0 ? (
+                                                  supplier.suppliers.certifications.map((cert, idx) => (
+                                                    <Badge key={idx} variant="outline" className="text-[10px] font-medium bg-slate-50 text-slate-600 dark:bg-slate-900/50 dark:text-slate-400">
+                                                      {cert}
+                                                    </Badge>
+                                                  ))
+                                                ) : '—'}
                                               </div>
                                             </td>
                                           )}
@@ -2131,9 +3161,12 @@ export function SourcingClient({ initialOrders, initialSuppliers, initialAudits 
                                               badgeStyle = "bg-blue-50 text-blue-700 border-blue-200 dark:bg-blue-950/20 dark:text-blue-450 dark:border-blue-900"
                                               label = "QC In Progress"
                                             }
+
+                                            const hasPassedQC = audit.audit_status === 'Completed' && 
+                                            (audit.audit_verdict === 'PASS' || audit.audit_verdict === 'PASS WITH CONDITIONS')
                                             
                                             return (
-                                              <td className="px-6 py-4">
+                                              <td className="px-6 py-4 flex items-center gap-2">
                                                 <span className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-bold border ${badgeStyle}`}>
                                                   {label}
                                                 </span>
@@ -2179,12 +3212,54 @@ export function SourcingClient({ initialOrders, initialSuppliers, initialAudits 
                     : 'Add a new supplier to the system'}
                 </p>
               </div>
-              <button
-                onClick={() => { setIsAddOpen(false); setErrorMessage(null) }}
-                className="h-8 w-8 flex items-center justify-center rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-400 transition-colors cursor-pointer"
-              >
-                <X size={16} />
-              </button>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    const headers = [
+                      'Supplier Name*', 'Email', 'Phone', 'Address', 'Website', 'Contact Person', 'Tax ID', 'Business Type',
+                      'Supplier Code', 'Legal Name', 'Year Founded', 'Company Size', 'Industry', 'Main Products (comma-separated)', 'Short Description',
+                      'Primary Contact Name', 'Position', 'Alternative Contact', 'Street', 'District', 'City', 'Country', 'Postal Code', 'LinkedIn', 'Social Contact (Zalo/WeChat)',
+                      'Payment Terms', 'Currency', 'Bank Info', 'Credit Limit', 'Tax Status', 'Business License', 'Certifications (comma-separated)',
+                      'Sourcing Category', 'Lead Time Average (days)', 'MOQ', 'Pricing Tier', 'Quality Rating', 'Reliability Score (%)', 'On-Time Delivery Rate (%)', 'Defect Rate (%)', 'Last Sourced Date (YYYY-MM-DD)', 'Total Spend', 'Total Orders', 'Is Preferred (TRUE/FALSE)',
+                      'Status (Prospect/Active/Inactive/Blacklisted)', 'Sourcing Stage', 'Approval Date (YYYY-MM-DD)', 'Reviewed By', 'Next Review Date (YYYY-MM-DD)', 'Risk Level (Low/Medium/High)', 'Risk Notes', 'Created By', 'Owner PIC', 'Tags (comma-separated)',
+                      'ESG Score', 'Social Responsibility Notes', 'Max Monthly Capacity', 'Main Markets (comma-separated)', 'Competitors', 'Internal Notes', 'Communication History',
+                      'Product 1 Name', 'Product 1 Price', 'Product 1 Lead Time (days)', 'Product 1 MOQ', 'Product 1 SKU', 'Product 1 Description',
+                      'Product 2 Name', 'Product 2 Price', 'Product 2 Lead Time (days)', 'Product 2 MOQ', 'Product 2 SKU', 'Product 2 Description',
+                    ]
+                    const exampleRow = [
+                      'Viet My Woodworking Ltd', 'contact@vietmy.com', '+84 901 234 567', '12 Industrial Zone, Binh Duong', 'https://vietmy.com', 'Nguyen Van A', '0123456789', 'Manufacturer',
+                      'SUP-001', 'Cong Ty TNHH Viet My', '2010', '51-200', 'Furniture', 'Wooden Chair, Table, Cabinet', 'High quality furniture manufacturer with ISO 9001',
+                      'Mr. Nguyen Van A', 'CEO', 'Ms. Le Thi B - +84 912 345 678', '12 Industrial Zone', 'Thu Dau Mot', 'Binh Duong', 'Vietnam', '820000', 'linkedin.com/company/vietmy', 'Zalo: 0901234567',
+                      'Net 30', 'USD', 'VietcomBank - 1234567890 - BFTVVNVX', '50000', 'VAT Registered', 'BRC-001234', 'ISO 9001, BSCI, SEDEX',
+                      'Furniture', '45', '500', 'Mid-range', 'A', '95', '98', '0.5', '2024-01-15', '250000', '12', 'FALSE',
+                      'Active', 'Approved', '2023-06-01', 'John Doe', '2025-06-01', 'Low', '', 'Admin', 'Sarah Lee', 'wood, furniture, export',
+                      '85', 'Factory audited 2024. BSCI certified.', '5000 units/month', 'US, EU, Australia', 'VN Wood Co., HaNoi Timber', 'Reliable long-term partner', '2024-02-10 Discussed new collection',
+                      'Wooden Chair Model A', '25.00', '30', '200', 'CHR-A-001', 'Solid oak, natural finish',
+                      'Dining Table 6-seat', '180.00', '45', '50', 'TBL-D-006', 'Teak wood, lacquer finish',
+                    ]
+                    const csvContent = '\uFEFF' + headers.map(h => `"${h}"`).join(',') + '\r\n' + exampleRow.map(v => `"${String(v).replace(/"/g, '""')}"`).join(',') + '\r\n'
+                    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' })
+                    const url = URL.createObjectURL(blob)
+                    const a = document.createElement('a')
+                    a.href = url
+                    a.download = 'supplier_import_template.csv'
+                    a.click()
+                    URL.revokeObjectURL(url)
+                  }}
+                  title="Download Excel/CSV Template"
+                  className="h-8 px-3 flex items-center gap-1.5 rounded-lg border border-emerald-200 dark:border-emerald-800 bg-emerald-50 dark:bg-emerald-950/25 text-emerald-700 dark:text-emerald-400 text-[11px] font-semibold hover:bg-emerald-100 dark:hover:bg-emerald-900/30 transition-colors cursor-pointer"
+                >
+                  <Download size={13} />
+                  <span>Template</span>
+                </button>
+                <button
+                  onClick={() => { setIsAddOpen(false); setErrorMessage(null) }}
+                  className="h-8 w-8 flex items-center justify-center rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-400 transition-colors cursor-pointer"
+                >
+                  <X size={16} />
+                </button>
+              </div>
             </div>
 
             <form onSubmit={handleAddSupplier} className="p-6 space-y-4 max-h-[80vh] overflow-y-auto">
@@ -2253,6 +3328,67 @@ export function SourcingClient({ initialOrders, initialSuppliers, initialAudits 
                     onChange={e => setManualForm(f => ({ ...f, address: e.target.value }))}
                     className="text-xs h-9"
                   />
+                </div>
+
+                <div className="grid grid-cols-2 gap-3.5 pt-1.5">
+                  <div className="space-y-1.5">
+                    <Label htmlFor="supplier-website" className="text-xs font-semibold text-slate-700 dark:text-slate-300">
+                      Supplier Website
+                    </Label>
+                    <Input
+                      id="supplier-website"
+                      placeholder="e.g. www.vietmy.com"
+                      value={manualForm.website}
+                      onChange={e => setManualForm(f => ({ ...f, website: e.target.value }))}
+                      className="text-xs h-9"
+                    />
+                  </div>
+
+                  <div className="space-y-1.5">
+                    <Label htmlFor="supplier-contact" className="text-xs font-semibold text-slate-700 dark:text-slate-300">
+                      Contact Person
+                    </Label>
+                    <Input
+                      id="supplier-contact"
+                      placeholder="e.g. Nguyen Van A"
+                      value={manualForm.contactPerson}
+                      onChange={e => setManualForm(f => ({ ...f, contactPerson: e.target.value }))}
+                      className="text-xs h-9"
+                    />
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-3.5 pt-1.5">
+                  <div className="space-y-1.5">
+                    <Label htmlFor="supplier-taxid" className="text-xs font-semibold text-slate-700 dark:text-slate-300">
+                      Tax ID / Reg No.
+                    </Label>
+                    <Input
+                      id="supplier-taxid"
+                      placeholder="e.g. 0102030405"
+                      value={manualForm.taxId}
+                      onChange={e => setManualForm(f => ({ ...f, taxId: e.target.value }))}
+                      className="text-xs h-9"
+                    />
+                  </div>
+
+                  <div className="space-y-1.5">
+                    <Label htmlFor="supplier-businesstype" className="text-xs font-semibold text-slate-700 dark:text-slate-300">
+                      Business Type
+                    </Label>
+                    <select
+                      id="supplier-businesstype"
+                      value={manualForm.businessType}
+                      onChange={e => setManualForm(f => ({ ...f, businessType: e.target.value }))}
+                      className="flex w-full h-9 rounded-md border border-slate-200 bg-white px-3 py-2 text-xs text-slate-800 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-200 cursor-pointer"
+                    >
+                      <option value="">Select Business Type</option>
+                      <option value="Manufacturer">Manufacturer</option>
+                      <option value="Distributor">Distributor</option>
+                      <option value="Wholesaler">Wholesaler</option>
+                      <option value="Agent / Trader">Agent / Trader</option>
+                    </select>
+                  </div>
                 </div>
               </div>
 
@@ -2403,7 +3539,16 @@ export function SourcingClient({ initialOrders, initialSuppliers, initialAudits 
                       size="sm"
                       onClick={() => setCapabilities(prev => [
                         ...prev, 
-                        { id: Math.random().toString(), productName: '', targetPrice: '' }
+                        { 
+                          id: Math.random().toString(), 
+                          productName: '', 
+                          targetPrice: '',
+                          leadTimeDays: '',
+                          description: '',
+                          moq: '',
+                          sku: '',
+                          monthlyCapacity: ''
+                        }
                       ])}
                       className="h-7 text-[10px] px-2 gap-1 border-indigo-200 text-[#5c59e9] hover:bg-indigo-50 dark:border-indigo-900/50 cursor-pointer"
                     >
@@ -2417,38 +3562,114 @@ export function SourcingClient({ initialOrders, initialSuppliers, initialAudits 
                       No external product capabilities added.
                     </div>
                   ) : (
-                    <div className="space-y-2 max-h-40 overflow-y-auto pr-1">
+                    <div className="space-y-3.5 max-h-80 overflow-y-auto pr-1">
                       {capabilities.map((cap, idx) => (
-                        <div key={cap.id} className="flex items-center gap-2">
-                          <Input 
-                            placeholder="e.g. Dining Chair"
-                            value={cap.productName}
-                            onChange={e => setCapabilities(prev => prev.map(c => 
-                              c.id === cap.id ? { ...c, productName: e.target.value } : c
-                            ))}
-                            className="text-xs h-8 flex-1"
-                            required
-                          />
-                          <Input 
-                            type="number"
-                            step="0.01"
-                            placeholder="Target Price"
-                            value={cap.targetPrice}
-                            onChange={e => setCapabilities(prev => prev.map(c => 
-                              c.id === cap.id ? { ...c, targetPrice: e.target.value } : c
-                            ))}
-                            className="text-xs h-8 w-28"
-                            required
-                          />
-                          <Button
-                            type="button"
-                            variant="outline"
-                            size="icon"
-                            onClick={() => setCapabilities(prev => prev.filter(c => c.id !== cap.id))}
-                            className="h-8 w-8 text-slate-400 hover:text-red-500 hover:border-red-200 cursor-pointer"
-                          >
-                            <Trash2 size={13} />
-                          </Button>
+                        <div key={cap.id} className="p-3 border border-slate-100 dark:border-slate-800/80 rounded-xl bg-slate-50/20 dark:bg-slate-900/10 space-y-2.5 relative">
+                          <div className="flex items-center justify-between">
+                            <span className="text-[9px] font-extrabold text-slate-400 dark:text-slate-500 uppercase tracking-wider">Product #{idx + 1}</span>
+                            <button
+                              type="button"
+                              onClick={() => setCapabilities(prev => prev.filter(c => c.id !== cap.id))}
+                              className="h-5 w-5 flex items-center justify-center text-slate-400 hover:text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-955/20 rounded transition-colors cursor-pointer"
+                              title="Delete capability"
+                            >
+                              <Trash2 size={11} />
+                            </button>
+                          </div>
+
+                          {/* Grid 1: Name & SKU */}
+                          <div className="grid grid-cols-3 gap-2">
+                            <div className="col-span-2 space-y-1">
+                              <Label className="text-[9px] font-semibold text-slate-500">Product Name *</Label>
+                              <Input 
+                                placeholder="e.g. Dining Chair"
+                                value={cap.productName}
+                                onChange={e => setCapabilities(prev => prev.map(c => 
+                                  c.id === cap.id ? { ...c, productName: e.target.value } : c
+                                ))}
+                                className="text-xs h-7"
+                                required
+                              />
+                            </div>
+                            <div className="space-y-1">
+                              <Label className="text-[9px] font-semibold text-slate-500">Product SKU</Label>
+                              <Input 
+                                placeholder="e.g. DC-101"
+                                value={cap.sku || ''}
+                                onChange={e => setCapabilities(prev => prev.map(c => 
+                                  c.id === cap.id ? { ...c, sku: e.target.value } : c
+                                ))}
+                                className="text-xs h-7"
+                              />
+                            </div>
+                          </div>
+
+                          {/* Grid 2: Price, Lead Time & MOQ */}
+                          <div className="grid grid-cols-3 gap-2">
+                            <div className="space-y-1">
+                              <Label className="text-[9px] font-semibold text-slate-500">Target Price ($) *</Label>
+                              <Input 
+                                type="number"
+                                step="0.01"
+                                placeholder="120.00"
+                                value={cap.targetPrice}
+                                onChange={e => setCapabilities(prev => prev.map(c => 
+                                  c.id === cap.id ? { ...c, targetPrice: e.target.value } : c
+                                ))}
+                                className="text-xs h-7"
+                                required
+                              />
+                            </div>
+                            <div className="space-y-1">
+                              <Label className="text-[9px] font-semibold text-slate-500">Lead Time (days)</Label>
+                              <Input 
+                                placeholder="e.g. 7-10"
+                                value={cap.leadTimeDays || ''}
+                                onChange={e => setCapabilities(prev => prev.map(c => 
+                                  c.id === cap.id ? { ...c, leadTimeDays: e.target.value } : c
+                                ))}
+                                className="text-xs h-7"
+                              />
+                            </div>
+                            <div className="space-y-1">
+                              <Label className="text-[9px] font-semibold text-slate-500">Min Order (MOQ)</Label>
+                              <Input 
+                                type="number"
+                                placeholder="e.g. 50"
+                                value={cap.moq || ''}
+                                onChange={e => setCapabilities(prev => prev.map(c => 
+                                  c.id === cap.id ? { ...c, moq: e.target.value } : c
+                                ))}
+                                className="text-xs h-7"
+                              />
+                            </div>
+                          </div>
+
+                          {/* Grid 3: Capacity & Description */}
+                          <div className="grid grid-cols-3 gap-2">
+                            <div className="space-y-1">
+                              <Label className="text-[9px] font-semibold text-slate-500">Capacity</Label>
+                              <Input 
+                                placeholder="e.g. 1k/month"
+                                value={cap.monthlyCapacity || ''}
+                                onChange={e => setCapabilities(prev => prev.map(c => 
+                                  c.id === cap.id ? { ...c, monthlyCapacity: e.target.value } : c
+                                ))}
+                                className="text-xs h-7"
+                              />
+                            </div>
+                            <div className="col-span-2 space-y-1">
+                              <Label className="text-[9px] font-semibold text-slate-500">Description</Label>
+                              <Input 
+                                placeholder="Material, specs..."
+                                value={cap.description || ''}
+                                onChange={e => setCapabilities(prev => prev.map(c => 
+                                  c.id === cap.id ? { ...c, description: e.target.value } : c
+                                ))}
+                                className="text-xs h-7"
+                              />
+                            </div>
+                          </div>
                         </div>
                       ))}
                     </div>
@@ -2692,155 +3913,351 @@ export function SourcingClient({ initialOrders, initialSuppliers, initialAudits 
         </div>
       )}
 
-      {/* CSV Import Modal */}
+      {/* CSV & Sheets Import Modal */}
       {isImportOpen && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
           <div
             className="absolute inset-0 bg-black/40 backdrop-blur-sm"
-            onClick={() => { if (!isImporting) { setIsImportOpen(false); setCsvPreview([]); setImportStatus(null); } }}
+            onClick={() => { if (!isImporting && !isPasteImporting) { setIsImportOpen(false); setCsvPreview([]); setPastePreview([]); setImportStatus(null); setPasteImportStatus(null); } }}
           />
-          <div className="relative z-10 w-full max-w-2xl bg-white dark:bg-slate-900 rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-800">
+          <div className="relative z-10 w-full max-w-2xl bg-white dark:bg-slate-900 rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-800 animate-in zoom-in-95 duration-205">
             <div className="flex items-center justify-between px-6 py-5 border-b border-slate-100 dark:border-slate-800">
               <div>
-                <h2 className="text-base font-bold text-slate-900 dark:text-white">📥 Bulk Import Suppliers</h2>
-                <p className="text-xs text-slate-400 mt-0.5">Upload a CSV file to import supplier information, quotes and capabilities</p>
+                <h2 className="text-base font-bold text-slate-900 dark:text-white flex items-center gap-2">
+                  <Upload className="h-5 w-5 text-[#5c59e9]" />
+                  <span>📥 Bulk Import Suppliers</span>
+                </h2>
+                <p className="text-xs text-slate-400 mt-0.5">Import supplier information, quotes and capabilities from file or clipboard</p>
               </div>
               <button
-                onClick={() => { if (!isImporting) { setIsImportOpen(false); setCsvPreview([]); setImportStatus(null); } }}
+                onClick={() => { if (!isImporting && !isPasteImporting) { setIsImportOpen(false); setCsvPreview([]); setPastePreview([]); setImportStatus(null); setPasteImportStatus(null); } }}
                 className="h-8 w-8 flex items-center justify-center rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-400 transition-colors cursor-pointer"
               >
                 <X size={16} />
               </button>
             </div>
+
+            {/* Tab switcher inside the modal */}
+            {!importStatus && !pasteImportStatus && (
+              <div className="px-6 pt-4">
+                <div className="flex border-b border-slate-200 dark:border-slate-800">
+                  <button
+                    onClick={() => {
+                      setImportTab('file')
+                      setCsvPreview([])
+                      setPastePreview([])
+                      setPasteErrorMessage(null)
+                    }}
+                    className={`pb-2.5 text-xs font-bold px-4 -mb-px transition-colors cursor-pointer border-b-2 ${
+                      importTab === 'file'
+                        ? 'border-[#5c59e9] text-[#5c59e9]'
+                        : 'border-transparent text-slate-500 hover:text-slate-900 dark:hover:text-white'
+                    }`}
+                  >
+                    Upload CSV/Excel File
+                  </button>
+                  <button
+                    onClick={() => {
+                      setImportTab('paste')
+                      setCsvPreview([])
+                      setPastePreview([])
+                      setPasteErrorMessage(null)
+                    }}
+                    className={`pb-2.5 text-xs font-bold px-4 -mb-px transition-colors cursor-pointer border-b-2 ${
+                      importTab === 'paste'
+                        ? 'border-[#5c59e9] text-[#5c59e9]'
+                        : 'border-transparent text-slate-500 hover:text-slate-900 dark:hover:text-white'
+                    }`}
+                  >
+                    Paste from Sheets
+                  </button>
+                </div>
+              </div>
+            )}
             
             <div className="p-6 space-y-4">
-              {importStatus ? (
-                <div className="space-y-4 text-center py-6">
-                  {importStatus.success ? (
-                    <div className="flex flex-col items-center gap-2">
-                      <div className="h-12 w-12 rounded-full bg-emerald-100 dark:bg-emerald-950/30 flex items-center justify-center text-emerald-600">
-                        <Check size={24} />
+              {importTab === 'file' ? (
+                /* CSV file upload tab */
+                importStatus ? (
+                  <div className="space-y-4 text-center py-6">
+                    {importStatus.success ? (
+                      <div className="flex flex-col items-center gap-2">
+                        <div className="h-12 w-12 rounded-full bg-emerald-100 dark:bg-emerald-950/30 flex items-center justify-center text-emerald-600">
+                          <Check size={24} />
+                        </div>
+                        <h3 className="text-sm font-bold text-slate-900 dark:text-white">Import Completed Successfully</h3>
+                        <p className="text-xs text-slate-500 max-w-md">{importStatus.msg}</p>
                       </div>
-                      <h3 className="text-sm font-bold text-slate-900 dark:text-white">Import Completed Successfully</h3>
-                      <p className="text-xs text-slate-500 max-w-md">{importStatus.msg}</p>
-                    </div>
-                  ) : (
-                    <div className="flex flex-col items-center gap-2">
-                      <div className="h-12 w-12 rounded-full bg-red-100 dark:bg-red-950/30 flex items-center justify-center text-red-600">
-                        <AlertCircle size={24} />
+                    ) : (
+                      <div className="flex flex-col items-center gap-2">
+                        <div className="h-12 w-12 rounded-full bg-red-100 dark:bg-red-950/30 flex items-center justify-center text-red-600">
+                          <AlertCircle size={24} />
+                        </div>
+                        <h3 className="text-sm font-bold text-slate-900 dark:text-white">Import Failed</h3>
+                        <p className="text-xs text-red-600">{importStatus.error}</p>
                       </div>
-                      <h3 className="text-sm font-bold text-slate-900 dark:text-white">Import Failed</h3>
-                      <p className="text-xs text-red-600">{importStatus.error}</p>
+                    )}
+                    
+                    <div className="pt-2">
+                      <Button 
+                        onClick={() => {
+                          setIsImportOpen(false)
+                          setCsvPreview([])
+                          setImportStatus(null)
+                          router.refresh()
+                        }}
+                        className="bg-[#5c59e9] hover:bg-[#4a47d2] px-6 cursor-pointer"
+                      >
+                        Close &amp; Refresh
+                      </Button>
                     </div>
-                  )}
-                  
-                  <div className="pt-2">
-                    <Button 
-                      onClick={() => {
-                        setIsImportOpen(false)
-                        setCsvPreview([])
-                        setImportStatus(null)
-                        router.refresh()
-                      }}
-                      className="bg-[#5c59e9] hover:bg-[#4a47d2] px-6 cursor-pointer"
-                    >
-                      Close &amp; Refresh
-                    </Button>
                   </div>
-                </div>
-              ) : (
-                <>
-                  <div className="border-2 border-dashed border-slate-200 dark:border-slate-800 rounded-2xl p-6 text-center bg-slate-50/50 dark:bg-slate-950/10">
-                    <input 
-                      type="file"
-                      accept=".csv"
-                      id="csv-file-input"
-                      onChange={handleCsvUpload}
-                      className="hidden"
-                    />
-                    <label 
-                      htmlFor="csv-file-input"
-                      className="cursor-pointer flex flex-col items-center gap-2"
-                    >
-                      <Upload className="h-8 w-8 text-slate-400 hover:text-[#5c59e9] transition-colors" />
-                      <span className="text-xs font-semibold text-slate-700 dark:text-slate-300">Click to upload CSV template</span>
-                      <span className="text-[10px] text-slate-400">Columns: supplier_name, email, phone, address, product_name, quoted_price, lead_time (order_code is optional)</span>
-                    </label>
-                  </div>
+                ) : (
+                  <>
+                    <div className="border-2 border-dashed border-slate-200 dark:border-slate-800 rounded-2xl p-6 text-center bg-slate-50/50 dark:bg-slate-950/10">
+                      <input 
+                        type="file"
+                        accept=".csv"
+                        id="csv-file-input"
+                        onChange={handleCsvUpload}
+                        className="hidden"
+                      />
+                      <label 
+                        htmlFor="csv-file-input"
+                        className="cursor-pointer flex flex-col items-center gap-2"
+                      >
+                        <Upload className="h-8 w-8 text-slate-400 hover:text-[#5c59e9] transition-colors" />
+                        <span className="text-xs font-semibold text-slate-700 dark:text-slate-300">Click to upload CSV template</span>
+                        <span className="text-[10px] text-slate-400">Columns: supplier_name, email, phone, address, product_name, quoted_price, lead_time (order_code is optional)</span>
+                      </label>
+                    </div>
 
-                  {csvPreview.length > 0 && (
-                    <div className="space-y-2">
-                      <div className="flex justify-between items-center">
-                        <span className="text-xs font-semibold text-slate-700 dark:text-slate-300">
-                          Previewing {Math.min(5, csvPreview.length)} of {csvPreview.length} rows:
-                        </span>
-                      </div>
-                      <div className="border border-slate-100 dark:border-slate-800 rounded-xl overflow-x-auto">
-                        <table className="w-full text-left border-collapse text-[10px]">
-                          <thead>
-                            <tr className="bg-slate-50 dark:bg-slate-950 border-b border-slate-100 dark:border-slate-800 font-bold uppercase text-slate-500">
-                              <th className="px-4 py-2">Supplier Name</th>
-                              <th className="px-4 py-2">Email</th>
-                              <th className="px-4 py-2">Order Code</th>
-                              <th className="px-4 py-2">Product Name</th>
-                              <th className="px-4 py-2 text-right">Price</th>
-                              <th className="px-4 py-2 text-right">Lead Time</th>
-                            </tr>
-                          </thead>
-                          <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-                            {csvPreview.slice(0, 5).map((row, idx) => (
-                              <tr key={idx} className="text-slate-700 dark:text-slate-300">
-                                <td className="px-4 py-2 font-semibold">{row.supplierName}</td>
-                                <td className="px-4 py-2">{row.email || '—'}</td>
-                                <td className="px-4 py-2 font-bold text-[#5c59e9]">{row.orderCode || '—'}</td>
-                                <td className="px-4 py-2 font-medium">{row.productName || '—'}</td>
-                                <td className="px-4 py-2 text-right font-bold text-slate-900 dark:text-white">${row.quotedPrice}</td>
-                                <td className="px-4 py-2 text-right">{row.leadTime} days</td>
+                    {csvPreview.length > 0 && (
+                      <div className="space-y-2">
+                        <div className="flex justify-between items-center">
+                          <span className="text-xs font-semibold text-slate-700 dark:text-slate-300">
+                            Previewing {Math.min(5, csvPreview.length)} of {csvPreview.length} rows:
+                          </span>
+                        </div>
+                        <div className="border border-slate-100 dark:border-slate-800 rounded-xl overflow-x-auto">
+                          <table className="w-full text-left border-collapse text-[10px]">
+                            <thead>
+                              <tr className="bg-slate-50 dark:bg-slate-950 border-b border-slate-100 dark:border-slate-800 font-bold uppercase text-slate-500">
+                                <th className="px-4 py-2">Supplier Name</th>
+                                <th className="px-4 py-2">Email</th>
+                                <th className="px-4 py-2">Order Code</th>
+                                <th className="px-4 py-2">Product Name</th>
+                                <th className="px-4 py-2 text-right">Price</th>
+                                <th className="px-4 py-2 text-right">Lead Time</th>
                               </tr>
-                            ))}
-                          </tbody>
-                        </table>
+                            </thead>
+                            <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                              {csvPreview.slice(0, 5).map((row, idx) => (
+                                <tr key={idx} className="text-slate-700 dark:text-slate-300">
+                                  <td className="px-4 py-2 font-semibold">{row.supplierName}</td>
+                                  <td className="px-4 py-2">{row.email || '—'}</td>
+                                  <td className="px-4 py-2 font-bold text-[#5c59e9]">{row.orderCode || '—'}</td>
+                                  <td className="px-4 py-2 font-medium">{row.productName || '—'}</td>
+                                  <td className="px-4 py-2 text-right font-bold text-slate-900 dark:text-white">${row.quotedPrice}</td>
+                                  <td className="px-4 py-2 text-right">{row.leadTime} days</td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                        
+                        <div className="flex gap-3 pt-2">
+                          <Button
+                            variant="outline"
+                            onClick={() => setCsvPreview([])}
+                            disabled={isImporting}
+                            className="flex-1 h-9 text-sm cursor-pointer"
+                          >
+                            Clear
+                          </Button>
+                          <Button
+                            onClick={async () => {
+                              setIsImporting(true)
+                              const res = await bulkImportSuppliersAction(csvPreview)
+                              setIsImporting(false)
+                              if (res.success) {
+                                setImportStatus({
+                                  success: true,
+                                  msg: `Imported ${res.importedSuppliersCount} unique suppliers, ${res.importedBidsCount} active bids, and ${res.importedCapabilitiesCount} capability records.`
+                                })
+                              } else if (res.duplicateDetected) {
+                                setPendingActionType('csv')
+                                setPendingPayload(csvPreview)
+                                setConflictingDuplicates(res.duplicates)
+                                setIsConflictDialogOpen(true)
+                              } else {
+                                setImportStatus({
+                                  success: false,
+                                  error: res.error || 'Import failed.'
+                                })
+                              }
+                            }}
+                            disabled={isImporting}
+                            className="flex-1 h-9 text-sm bg-[#5c59e9] hover:bg-[#4a47d2] cursor-pointer gap-2"
+                          >
+                            {isImporting ? (
+                              <><Loader2 size={14} className="animate-spin" /> Importing...</>
+                            ) : (
+                              <>Confirm Import ({csvPreview.length} rows)</>
+                            )}
+                          </Button>
+                        </div>
                       </div>
-                      
-                      <div className="flex gap-3 pt-2">
-                        <Button
-                          variant="outline"
-                          onClick={() => setCsvPreview([])}
-                          disabled={isImporting}
-                          className="flex-1 h-9 text-sm cursor-pointer"
-                        >
-                          Clear
-                        </Button>
-                        <Button
-                          onClick={async () => {
-                            setIsImporting(true)
-                            const res = await bulkImportSuppliersAction(csvPreview)
-                            setIsImporting(false)
-                            if (res.success) {
-                              setImportStatus({
-                                success: true,
-                                msg: `Imported ${res.importedSuppliersCount} unique suppliers, ${res.importedBidsCount} active bids, and ${res.importedCapabilitiesCount} capability records.`
-                              })
-                            } else {
-                              setImportStatus({
-                                success: false,
-                                error: res.error || 'Import failed.'
-                              })
-                            }
-                          }}
-                          disabled={isImporting}
-                          className="flex-1 h-9 text-sm bg-[#5c59e9] hover:bg-[#4a47d2] cursor-pointer gap-2"
-                        >
-                          {isImporting ? (
-                            <><Loader2 size={14} className="animate-spin" /> Importing...</>
-                          ) : (
-                            <>Confirm Import ({csvPreview.length} rows)</>
-                          )}
-                        </Button>
+                    )}
+                  </>
+                )
+              ) : (
+                /* Clipboard paste tab */
+                pasteImportStatus ? (
+                  <div className="space-y-4 text-center py-6">
+                    {pasteImportStatus.success ? (
+                      <div className="flex flex-col items-center gap-2">
+                        <div className="h-12 w-12 rounded-full bg-emerald-100 dark:bg-emerald-950/30 flex items-center justify-center text-emerald-600">
+                          <Check size={24} />
+                        </div>
+                        <h3 className="text-sm font-bold text-slate-900 dark:text-white">Import Completed Successfully</h3>
+                        <p className="text-xs text-slate-500 max-w-md">{pasteImportStatus.msg}</p>
                       </div>
+                    ) : (
+                      <div className="flex flex-col items-center gap-2">
+                        <div className="h-12 w-12 rounded-full bg-red-100 dark:bg-red-950/30 flex items-center justify-center text-red-600">
+                          <AlertCircle size={24} />
+                        </div>
+                        <h3 className="text-sm font-bold text-slate-900 dark:text-white">Import Failed</h3>
+                        <p className="text-xs text-red-600">{pasteImportStatus.error}</p>
+                      </div>
+                    )}
+                    
+                    <div className="pt-2">
+                      <Button 
+                        onClick={() => {
+                          setIsImportOpen(false)
+                          setPasteText('')
+                          setPastePreview([])
+                          setPasteImportStatus(null)
+                          router.refresh()
+                        }}
+                        className="bg-[#5c59e9] hover:bg-[#4a47d2] px-6 cursor-pointer"
+                      >
+                        Close &amp; Refresh
+                      </Button>
                     </div>
-                  )}
-                </>
+                  </div>
+                ) : (
+                  <>
+                    <div className="space-y-2">
+                      <Label htmlFor="paste-textarea" className="text-xs font-semibold text-slate-700 dark:text-slate-300">
+                        Paste Excel/Sheets data here (Ctrl+V):
+                      </Label>
+                      <textarea
+                        id="paste-textarea"
+                        placeholder="Click here and press Ctrl+V to paste cells copied from Excel/Google Sheets.&#10;&#10;Supported columns: Supplier Name, Email, Product Item, Quoted Price, Lead Time."
+                        value={pasteText}
+                        onPaste={handleClipboardPaste}
+                        onChange={handlePasteTextChange}
+                        rows={5}
+                        className="w-full text-xs p-3 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-55/20 dark:bg-slate-950 focus:outline-none focus:ring-2 focus:ring-[#5c59e9] dark:text-slate-100 resize-none font-medium animate-in fade-in"
+                      />
+                    </div>
+
+                    {pasteErrorMessage && (
+                      <div className="p-3 bg-red-50 text-red-600 dark:bg-red-950/20 dark:text-red-400 rounded-xl text-xs font-medium border border-red-200 dark:border-red-900/50 flex items-center gap-2">
+                        <AlertCircle size={14} className="flex-shrink-0" />
+                        <span>{pasteErrorMessage}</span>
+                      </div>
+                    )}
+
+                    {pastePreview.length > 0 && (
+                      <div className="space-y-2 animate-in fade-in slide-in-from-top-2 duration-200">
+                        <div className="flex justify-between items-center">
+                          <span className="text-xs font-semibold text-slate-700 dark:text-slate-300">
+                            Parsed Preview ({pastePreview.length} rows):
+                          </span>
+                        </div>
+                        <div className="border border-slate-100 dark:border-slate-800 rounded-xl overflow-x-auto max-h-60">
+                          <table className="w-full text-left border-collapse text-[10px]">
+                            <thead>
+                              <tr className="bg-slate-50 dark:bg-slate-950 border-b border-slate-100 dark:border-slate-800 font-bold uppercase text-slate-500 sticky top-0">
+                                <th className="px-4 py-2">Supplier Name</th>
+                                <th className="px-4 py-2">Email</th>
+                                <th className="px-4 py-2">Order Code</th>
+                                <th className="px-4 py-2">Product Item</th>
+                                <th className="px-4 py-2 text-right">Quoted Price</th>
+                                <th className="px-4 py-2 text-right">Lead Time</th>
+                              </tr>
+                            </thead>
+                            <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                              {pastePreview.map((row, idx) => (
+                                <tr key={idx} className="text-slate-700 dark:text-slate-305 hover:bg-slate-50/50 dark:hover:bg-slate-900/10">
+                                  <td className="px-4 py-2 font-semibold">{row.supplierName}</td>
+                                  <td className="px-4 py-2">{row.email || '—'}</td>
+                                  <td className="px-4 py-2 font-bold text-[#5c59e9]">{row.orderCode || '—'}</td>
+                                  <td className="px-4 py-2 font-medium">{row.productName || '—'}</td>
+                                  <td className="px-4 py-2 text-right font-bold text-slate-900 dark:text-white">
+                                    ${Number(row.quotedPrice).toLocaleString('en-US', { minimumFractionDigits: 2 })}
+                                  </td>
+                                  <td className="px-4 py-2 text-right">{row.leadTime} days</td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                        
+                        <div className="flex gap-3 pt-2">
+                          <Button
+                            variant="outline"
+                            onClick={() => {
+                              setPasteText('')
+                              setPastePreview([])
+                              setPasteErrorMessage(null)
+                            }}
+                            disabled={isPasteImporting}
+                            className="flex-1 h-9 text-sm cursor-pointer"
+                          >
+                            Clear
+                          </Button>
+                          <Button
+                            onClick={async () => {
+                              setIsPasteImporting(true)
+                              setPasteErrorMessage(null)
+                              const res = await bulkImportSuppliersAction(pastePreview)
+                              setIsPasteImporting(false)
+                              if (res.success) {
+                                setPasteImportStatus({
+                                  success: true,
+                                  msg: `Imported ${res.importedSuppliersCount} unique suppliers, ${res.importedBidsCount} active bids, and ${res.importedCapabilitiesCount} capability records.`
+                                })
+                              } else if (res.duplicateDetected) {
+                                setPendingActionType('paste')
+                                setPendingPayload(pastePreview)
+                                setConflictingDuplicates(res.duplicates)
+                                setIsConflictDialogOpen(true)
+                              } else {
+                                setPasteImportStatus({
+                                  success: false,
+                                  error: res.error || 'Import failed.'
+                                })
+                              }
+                            }}
+                            disabled={isPasteImporting}
+                            className="flex-1 h-9 text-sm bg-[#5c59e9] hover:bg-[#4a47d2] cursor-pointer gap-2"
+                          >
+                            {isPasteImporting ? (
+                              <><Loader2 size={14} className="animate-spin" /> Appending...</>
+                            ) : (
+                              <>Append to Order</>
+                            )}
+                          </Button>
+                        </div>
+                      </div>
+                    )}
+                  </>
+                )
               )}
             </div>
           </div>
@@ -2985,263 +4402,566 @@ export function SourcingClient({ initialOrders, initialSuppliers, initialAudits 
       </div>
 
       {/* Supplier Profile Modal */}
-      {isProfileOpen && selectedSupplierId && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm animate-in fade-in duration-200">
-          <div
-            className="absolute inset-0 cursor-pointer"
-            onClick={() => {
-              if (!isSavingProfile) setIsProfileOpen(false)
-            }}
-          />
-          <div className="relative z-10 w-full max-w-xl bg-white dark:bg-slate-900 rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-800 flex flex-col max-h-[85vh] overflow-hidden animate-in zoom-in-95 duration-200">
-            {/* Modal Header */}
-            <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100 dark:border-slate-800">
-              <div>
-                <h3 className="text-base font-bold text-slate-900 dark:text-white flex items-center gap-2">
-                  <Users2 className="h-5 w-5 text-[#5c59e9]" />
-                  <span>Supplier Profile: {profileForm.name}</span>
-                </h3>
-                <p className="text-[11px] text-slate-400 mt-0.5">
-                  {isProfileEditMode ? 'Modify supplier contact info and product capabilities' : 'Detailed information and comparison specs'}
-                </p>
-              </div>
-              <button
-                type="button"
-                onClick={() => setIsProfileOpen(false)}
-                className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 transition-colors cursor-pointer"
-                disabled={isSavingProfile}
-              >
-                <X size={18} />
-              </button>
-            </div>
-
-            {/* Modal Body (Scrollable) */}
-            <div className="flex-1 overflow-y-auto p-6 space-y-6">
-              {profileErrorMessage && (
-                <div className="p-3 bg-rose-50 dark:bg-rose-950/20 text-rose-600 dark:text-rose-400 text-xs rounded-xl flex items-center gap-2 font-medium">
-                  <AlertCircle size={14} />
-                  <span>{profileErrorMessage}</span>
+      {isProfileOpen && selectedSupplierId && (() => {
+        const renderProfileField = (
+          label: string,
+          key: string,
+          type: 'text' | 'number' | 'textarea' | 'select' | 'checkbox' | 'date' = 'text',
+          options?: string[]
+        ) => {
+          const val = (profileForm as any)[key]
+          
+          if (isProfileEditMode) {
+            if (type === 'checkbox') {
+              return (
+                <div className="flex items-center gap-2 py-2">
+                  <input
+                    type="checkbox"
+                    id={`edit-${key}`}
+                    checked={!!val}
+                    onChange={e => setProfileForm(prev => ({ ...prev, [key]: e.target.checked }))}
+                    className="h-4 w-4 rounded border-slate-350 dark:border-slate-750 text-[#5c59e9] focus:ring-[#5c59e9]"
+                  />
+                  <Label htmlFor={`edit-${key}`} className="text-xs font-semibold text-slate-700 dark:text-slate-300 cursor-pointer">{label}</Label>
                 </div>
-              )}
+              )
+            }
 
-              {/* SECTION 1: Basic & Contact Info */}
-              <div className="space-y-4">
-                <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wider">Contact & Basic Details</h4>
-                
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  {/* Email */}
-                  <div className="space-y-1">
-                    <Label className="text-xs text-slate-500 font-semibold">Email Address</Label>
-                    {isProfileEditMode ? (
-                      <Input
-                        type="email"
-                        value={profileForm.email}
-                        onChange={e => setProfileForm(prev => ({ ...prev, email: e.target.value }))}
-                        placeholder="e.g. contact@supplier.com"
-                        className="h-9 text-xs rounded-xl"
-                      />
-                    ) : (
-                      <p className="text-xs font-semibold text-slate-800 dark:text-slate-200 bg-slate-50 dark:bg-slate-950/50 p-2.5 rounded-xl border border-slate-100/50 dark:border-slate-800">
-                        {profileForm.email || '—'}
-                      </p>
-                    )}
-                  </div>
-
-                  {/* Phone */}
-                  <div className="space-y-1">
-                    <Label className="text-xs text-slate-500 font-semibold">Phone Number</Label>
-                    {isProfileEditMode ? (
-                      <Input
-                        type="text"
-                        value={profileForm.phone}
-                        onChange={e => setProfileForm(prev => ({ ...prev, phone: e.target.value }))}
-                        placeholder="e.g. +84 901 234 567"
-                        className="h-9 text-xs rounded-xl"
-                      />
-                    ) : (
-                      <p className="text-xs font-semibold text-slate-800 dark:text-slate-200 bg-slate-50 dark:bg-slate-950/50 p-2.5 rounded-xl border border-slate-100/50 dark:border-slate-800">
-                        {profileForm.phone || '—'}
-                      </p>
-                    )}
-                  </div>
-                </div>
-
-                {/* Address */}
+            if (type === 'select') {
+              return (
                 <div className="space-y-1">
-                  <Label className="text-xs text-slate-500 font-semibold">Factory / Office Address</Label>
-                  {isProfileEditMode ? (
-                    <textarea
-                      value={profileForm.address}
-                      onChange={e => setProfileForm(prev => ({ ...prev, address: e.target.value }))}
-                      placeholder="e.g. 123 Industrial Zone, Binh Duong, Vietnam"
-                      rows={2}
-                      className="flex w-full rounded-xl border border-slate-200 bg-transparent px-3 py-2 text-xs shadow-sm transition-colors placeholder:text-slate-400 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[#5c59e9] dark:border-slate-800 dark:bg-slate-950 resize-none"
-                    />
-                  ) : (
-                    <p className="text-xs font-semibold text-slate-800 dark:text-slate-200 bg-slate-50 dark:bg-slate-950/50 p-2.5 rounded-xl border border-slate-100/50 dark:border-slate-800 leading-relaxed">
-                      {profileForm.address || '—'}
-                    </p>
-                  )}
+                  <Label className="text-xs text-slate-500 font-semibold">{label}</Label>
+                  <select
+                    value={val}
+                    onChange={e => setProfileForm(prev => ({ ...prev, [key]: e.target.value }))}
+                    className="flex w-full h-9 rounded-xl border border-slate-200 bg-transparent px-3 py-1 text-xs shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[#5c59e9] dark:border-slate-800 dark:bg-slate-950 cursor-pointer"
+                  >
+                    <option value="">Select {label}</option>
+                    {options?.map(opt => (
+                      <option key={opt} value={opt}>{opt}</option>
+                    ))}
+                  </select>
                 </div>
+              )
+            }
+
+            if (type === 'textarea') {
+              return (
+                <div className="space-y-1 col-span-full">
+                  <Label className="text-xs text-slate-500 font-semibold">{label}</Label>
+                  <textarea
+                    value={val}
+                    onChange={e => setProfileForm(prev => ({ ...prev, [key]: e.target.value }))}
+                    rows={2}
+                    className="flex w-full rounded-xl border border-slate-200 bg-transparent px-3 py-2 text-xs shadow-sm transition-colors placeholder:text-slate-400 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[#5c59e9] dark:border-slate-800 dark:bg-slate-950 resize-none font-medium"
+                  />
+                </div>
+              )
+            }
+
+            return (
+              <div className="space-y-1">
+                <Label className="text-xs text-slate-500 font-semibold">{label}</Label>
+                <Input
+                  type={type}
+                  value={val}
+                  onChange={e => setProfileForm(prev => ({ ...prev, [key]: e.target.value }))}
+                  className="h-9 text-xs rounded-xl"
+                />
+              </div>
+            )
+          }
+
+          // View Mode
+          if (type === 'checkbox') {
+            return (
+              <div className="flex items-center gap-2 py-2">
+                <span className={`inline-flex items-center justify-center h-4 w-4 rounded border text-[10px] font-extrabold ${
+                  val ? 'bg-emerald-50 border-emerald-200 text-emerald-600 dark:bg-emerald-950/20 dark:border-emerald-900/50' : 'bg-slate-50 border-slate-200 text-slate-400 dark:bg-slate-950/20 dark:border-slate-800'
+                }`}>
+                  {val ? '✓' : '✗'}
+                </span>
+                <span className="text-xs font-semibold text-slate-800 dark:text-slate-200">{label}</span>
+              </div>
+            )
+          }
+
+          let displayVal: React.ReactNode = val || '—'
+          
+          if (key === 'website' && val) {
+            displayVal = (
+              <a
+                href={val.startsWith('http') ? val : `https://${val}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-[#5c59e9] hover:underline"
+              >
+                {val}
+              </a>
+            )
+          }
+
+          if (key === 'email' && val) {
+            displayVal = (
+              <a href={`mailto:${val}`} className="text-[#5c59e9] hover:underline">
+                {val}
+              </a>
+            )
+          }
+
+          // Format numeric values for display
+          if (type === 'number' && val) {
+            if (key.toLowerCase().includes('spend') || key.toLowerCase().includes('limit')) {
+              displayVal = `$${parseFloat(val).toLocaleString('en-US')}`
+            } else if (key.toLowerCase().includes('rate') || key.toLowerCase().includes('score')) {
+              displayVal = `${val}${key.toLowerCase().includes('rate') ? '%' : ''}`
+            } else {
+              displayVal = parseFloat(val).toLocaleString('en-US')
+            }
+          }
+
+          return (
+            <div className={`space-y-1 ${type === 'textarea' ? 'col-span-full' : ''}`}>
+              <Label className="text-xs text-slate-500 font-semibold">{label}</Label>
+              <p className="text-xs font-semibold text-slate-800 dark:text-slate-200 bg-slate-55/40 dark:bg-slate-950/40 p-2.5 rounded-xl border border-slate-100/50 dark:border-slate-800/80 min-h-[36px] flex items-center leading-relaxed">
+                {displayVal}
+              </p>
+            </div>
+          )
+        }
+
+        return (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm animate-in fade-in duration-200">
+            <div
+              className="absolute inset-0 cursor-pointer"
+              onClick={() => {
+                if (!isSavingProfile) setIsProfileOpen(false)
+              }}
+            />
+            <div className="relative z-10 w-full max-w-3xl bg-white dark:bg-slate-900 rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-800 flex flex-col max-h-[85vh] overflow-hidden animate-in zoom-in-95 duration-200">
+              {/* Modal Header */}
+              <div className="flex items-center justify-between px-6 py-4 border-b border-slate-100 dark:border-slate-800">
+                <div>
+                  <h3 className="text-base font-bold text-slate-900 dark:text-white flex items-center gap-2">
+                    <Users2 className="h-5 w-5 text-[#5c59e9]" />
+                    <span>Supplier Profile: {profileForm.name}</span>
+                  </h3>
+                  <p className="text-[11px] text-slate-400 mt-0.5">
+                    {isProfileEditMode ? 'Modify supplier contact info and product capabilities' : 'Detailed information and comparison specs'}
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setIsProfileOpen(false)}
+                  className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 transition-colors cursor-pointer"
+                  disabled={isSavingProfile}
+                >
+                  <X size={18} />
+                </button>
               </div>
 
-              {/* SECTION 2: Associated Order Details */}
-              {profileOrderDetails && (
-                <div className="space-y-4">
-                  <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wider">Associated Order Context</h4>
-                  <div className="grid grid-cols-3 gap-4 bg-indigo-50/20 dark:bg-indigo-950/5 p-4 rounded-2xl border border-indigo-100/30 dark:border-indigo-900/20">
-                    <div className="space-y-1">
-                      <span className="text-[10px] text-slate-400 font-semibold block">Order Reference</span>
-                      <span className="text-xs font-extrabold text-[#5c59e9]">{profileOrderDetails.orderCode}</span>
+              {/* Tab Bar */}
+              <div className="flex border-b border-slate-100 dark:border-slate-800 bg-slate-50/50 dark:bg-slate-950/20 px-6 py-1 gap-1">
+                {[
+                  { id: 'overview', label: 'Overview & Contacts' },
+                  { id: 'sourcing', label: 'Sourcing & Performance' },
+                  { id: 'financials', label: 'Financials & Systems' },
+                  { id: 'documents', label: 'Documents & ESG' }
+                ].map(tab => (
+                  <button
+                    key={tab.id}
+                    type="button"
+                    onClick={() => setActiveProfileTab(tab.id as any)}
+                    className={`px-3 py-2.5 text-xs font-bold transition-all relative border-b-2 -mb-[2px] cursor-pointer ${
+                      activeProfileTab === tab.id
+                        ? 'border-[#5c59e9] text-[#5c59e9]'
+                        : 'border-transparent text-slate-450 hover:text-slate-600 dark:text-slate-400 dark:hover:text-slate-250'
+                    }`}
+                  >
+                    {tab.label}
+                  </button>
+                ))}
+              </div>
+
+              {/* Modal Body (Scrollable) */}
+              <div className="flex-1 overflow-y-auto p-6 space-y-6">
+                {profileErrorMessage && (
+                  <div className="p-3 bg-rose-50 dark:bg-rose-950/20 text-rose-600 dark:text-rose-400 text-xs rounded-xl flex items-center gap-2 font-medium">
+                    <AlertCircle size={14} />
+                    <span>{profileErrorMessage}</span>
+                  </div>
+                )}
+
+                {/* Tab content */}
+                {activeProfileTab === 'overview' && (
+                  <div className="space-y-6">
+                    <div className="space-y-4">
+                      <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wider">Company Identity</h4>
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        {renderProfileField('Legal Company Name', 'legalName')}
+                        {renderProfileField('Supplier Unique Code', 'supplierCode')}
+                        {renderProfileField('Year Founded', 'yearFounded', 'number')}
+                        {renderProfileField('Company Size (Employees)', 'companySize', 'select', ['1-10', '11-50', '51-200', '201-500', '500+'])}
+                        {renderProfileField('Industry / Sector', 'industry')}
+                        {renderProfileField('Main Products / Services Offered (Comma Separated)', 'mainProducts')}
+                        {renderProfileField('Short Description', 'shortDescription', 'textarea')}
+                      </div>
                     </div>
-                    <div className="space-y-1">
-                      <span className="text-[10px] text-slate-400 font-semibold block">Quoted Price</span>
-                      <span className="text-xs font-extrabold text-slate-850 dark:text-white">
-                        ${profileOrderDetails.quotedPrice.toLocaleString('en-US', { minimumFractionDigits: 2 })}
-                      </span>
-                    </div>
-                    <div className="space-y-1">
-                      <span className="text-[10px] text-slate-400 font-semibold block">Lead Time</span>
-                      <span className="text-xs font-extrabold text-slate-850 dark:text-white">{profileOrderDetails.leadTimeDays} days</span>
+
+                    <div className="space-y-4 pt-4 border-t border-slate-100 dark:border-slate-800">
+                      <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wider">Contact Channels</h4>
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        {renderProfileField('Primary Contact Person', 'primaryContactName')}
+                        {renderProfileField('Position / Title', 'position')}
+                        {renderProfileField('Email Address', 'email')}
+                        {renderProfileField('Phone Number', 'phone')}
+                        {renderProfileField('Alternative Contact Info', 'alternativeContact')}
+                        {renderProfileField('Website', 'website')}
+                        {renderProfileField('Street Address', 'street')}
+                        {renderProfileField('District / Ward', 'district')}
+                        {renderProfileField('City / Province', 'city')}
+                        {renderProfileField('Country', 'country')}
+                        {renderProfileField('Postal Code', 'postalCode')}
+                        {renderProfileField('LinkedIn Link', 'linkedin')}
+                        {renderProfileField('Zalo / WeChat / WhatsApp ID', 'socialContact')}
+                      </div>
                     </div>
                   </div>
-                </div>
-              )}
+                )}
 
-              {/* SECTION 3: Additional Capabilities */}
-              <div className="space-y-4">
-                <div className="flex items-center justify-between">
-                  <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wider">Product Capabilities</h4>
-                  {isProfileEditMode && (
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      onClick={handleAddProfileCapability}
-                      className="h-7 px-2 text-[10px] border-dashed border-slate-300 dark:border-slate-700 hover:bg-slate-50 rounded-lg cursor-pointer flex items-center gap-1"
-                    >
-                      <Plus size={10} />
-                      Add Product
-                    </Button>
-                  )}
-                </div>
+                {activeProfileTab === 'sourcing' && (
+                  <div className="space-y-6">
+                    <div className="space-y-4">
+                      <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wider">Sourcing Metrics</h4>
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        {renderProfileField('Sourcing Category', 'sourcingCategory')}
+                        {renderProfileField('Lead Time Average (Days)', 'leadTimeAverage', 'number')}
+                        {renderProfileField('Minimum Order Quantity (MOQ)', 'moq', 'number')}
+                        {renderProfileField('Pricing Tier', 'pricingTier', 'select', ['Budget', 'Standard', 'Premium'])}
+                        {renderProfileField('Preferred Supplier Status', 'isPreferred', 'checkbox')}
+                      </div>
+                    </div>
 
-                {isFetchingCapabilities ? (
-                  <div className="flex flex-col items-center justify-center py-6 gap-2">
-                    <Loader2 size={16} className="animate-spin text-slate-400" />
-                    <span className="text-[10px] text-slate-400">Loading capabilities...</span>
-                  </div>
-                ) : profileCapabilities.length === 0 ? (
-                  <p className="text-xs italic text-slate-450 dark:text-slate-500 py-2">No additional product capabilities cataloged for this supplier.</p>
-                ) : (
-                  <div className="space-y-3">
-                    {profileCapabilities.map((cap) => (
-                      <div key={cap.id} className="flex items-center gap-3">
-                        {isProfileEditMode ? (
-                          <>
-                            <div className="flex-1">
-                              <Input
-                                placeholder="Product Name (e.g. Cardboard Packaging)"
-                                value={cap.productName}
-                                onChange={e => handleProfileCapabilityChange(cap.id, 'productName', e.target.value)}
-                                className="h-8 text-xs rounded-xl"
-                              />
-                            </div>
-                            <div className="w-28 relative">
-                              <span className="absolute left-2.5 top-2 text-xs text-slate-400">$</span>
-                              <Input
-                                type="number"
-                                step="any"
-                                placeholder="Target Price"
-                                value={cap.targetPrice}
-                                onChange={e => handleProfileCapabilityChange(cap.id, 'targetPrice', e.target.value)}
-                                className="h-8 text-xs pl-5 pr-2 rounded-xl"
-                              />
-                            </div>
-                            <Button
-                              type="button"
-                              onClick={() => handleDeleteProfileCapability(cap.id)}
-                              variant="outline"
-                              size="sm"
-                              className="h-8 w-8 p-0 text-red-500 border-slate-200 dark:border-slate-800 hover:bg-red-50 rounded-xl cursor-pointer"
-                            >
-                              <Trash2 size={12} />
-                            </Button>
-                          </>
-                        ) : (
-                          <div className="flex-1 flex items-center justify-between p-2.5 bg-slate-50 dark:bg-slate-950/30 rounded-xl border border-slate-100/50 dark:border-slate-800 text-xs">
-                            <span className="font-semibold text-slate-700 dark:text-slate-300">{cap.productName}</span>
-                            <span className="font-bold text-[#5c59e9]">
-                              ${parseFloat(cap.targetPrice || '0').toLocaleString('en-US', { minimumFractionDigits: 2 })}
+                    <div className="space-y-4 pt-4 border-t border-slate-100 dark:border-slate-800">
+                      <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wider">Performance Tracking</h4>
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        {renderProfileField('Quality Rating (1-5)', 'qualityRating', 'select', ['1', '2', '3', '4', '5'])}
+                        {renderProfileField('Reliability Score (0-100)', 'reliabilityScore', 'number')}
+                        {renderProfileField('On-Time Delivery Rate (%)', 'onTimeDeliveryRate', 'number')}
+                        {renderProfileField('Defect Rate (%)', 'defectRate', 'number')}
+                        {renderProfileField('Total Orders Placed', 'totalOrders', 'number')}
+                        {renderProfileField('Total Spend Accumulation ($)', 'totalSpend', 'number')}
+                        {renderProfileField('Last Sourced Date', 'lastSourcedDate', 'date')}
+                      </div>
+                    </div>
+
+                    {/* SECTION 2: Associated Order Details */}
+                    {profileOrderDetails && (
+                      <div className="space-y-4 pt-4 border-t border-slate-100 dark:border-slate-800">
+                        <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wider">Active Sourcing Context</h4>
+                        <div className="grid grid-cols-3 gap-4 bg-indigo-50/20 dark:bg-indigo-950/5 p-4 rounded-2xl border border-indigo-100/30 dark:border-indigo-900/20">
+                          <div className="space-y-1">
+                            <span className="text-[10px] text-slate-400 font-semibold block">Order Reference</span>
+                            <span className="text-xs font-extrabold text-[#5c59e9]">{profileOrderDetails.orderCode}</span>
+                          </div>
+                          <div className="space-y-1">
+                            <span className="text-[10px] text-slate-400 font-semibold block">Quoted Price</span>
+                            <span className="text-xs font-extrabold text-slate-850 dark:text-white">
+                              ${profileOrderDetails.quotedPrice.toLocaleString('en-US', { minimumFractionDigits: 2 })}
                             </span>
                           </div>
+                          <div className="space-y-1">
+                            <span className="text-[10px] text-slate-400 font-semibold block">Lead Time</span>
+                            <span className="text-xs font-extrabold text-slate-850 dark:text-white">{profileOrderDetails.leadTimeDays} days</span>
+                          </div>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* SECTION 3: Additional Capabilities */}
+                    <div className="space-y-4 pt-4 border-t border-slate-100 dark:border-slate-800">
+                      <div className="flex items-center justify-between">
+                        <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wider">Product Capabilities</h4>
+                        {isProfileEditMode && (
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            onClick={handleAddProfileCapability}
+                            className="h-7 px-2 text-[10px] border-dashed border-slate-300 dark:border-slate-700 hover:bg-slate-50 rounded-lg cursor-pointer flex items-center gap-1"
+                          >
+                            <Plus size={10} />
+                            Add Product
+                          </Button>
                         )}
                       </div>
-                    ))}
+
+                      {isFetchingCapabilities ? (
+                        <div className="flex flex-col items-center justify-center py-6 gap-2">
+                          <Loader2 size={16} className="animate-spin text-slate-400" />
+                          <span className="text-[10px] text-slate-400">Loading capabilities...</span>
+                        </div>
+                      ) : profileCapabilities.length === 0 ? (
+                        <p className="text-xs italic text-slate-450 dark:text-slate-500 py-2">No additional product capabilities cataloged for this supplier.</p>
+                      ) : (
+                        <div className="space-y-3">
+                          {profileCapabilities.map((cap) => (
+                            <div key={cap.id} className="flex items-center gap-3">
+                              {isProfileEditMode ? (
+                                <>
+                                  <div className="flex-1">
+                                    <Input
+                                      placeholder="Product Name (e.g. Cardboard Packaging)"
+                                      value={cap.productName}
+                                      onChange={e => handleProfileCapabilityChange(cap.id, 'productName', e.target.value)}
+                                      className="h-8 text-xs rounded-xl"
+                                    />
+                                  </div>
+                                  <div className="w-28 relative">
+                                    <span className="absolute left-2.5 top-2 text-xs text-slate-400">$</span>
+                                    <Input
+                                      type="number"
+                                      step="any"
+                                      placeholder="Target Price"
+                                      value={cap.targetPrice}
+                                      onChange={e => handleProfileCapabilityChange(cap.id, 'targetPrice', e.target.value)}
+                                      className="h-8 text-xs pl-5 pr-2 rounded-xl"
+                                    />
+                                  </div>
+                                  <Button
+                                    type="button"
+                                    onClick={() => handleDeleteProfileCapability(cap.id)}
+                                    variant="outline"
+                                    size="sm"
+                                    className="h-8 w-8 p-0 text-red-500 border-slate-200 dark:border-slate-800 hover:bg-red-50 rounded-xl cursor-pointer"
+                                  >
+                                    <Trash2 size={12} />
+                                  </Button>
+                                </>
+                              ) : (
+                                <div className="flex-1 flex items-center justify-between p-2.5 bg-slate-50 dark:bg-slate-955/30 rounded-xl border border-slate-100/50 dark:border-slate-800 text-xs">
+                                  <span className="font-semibold text-slate-700 dark:text-slate-305">{cap.productName}</span>
+                                  <span className="font-bold text-[#5c59e9]">
+                                    ${parseFloat(cap.targetPrice || '0').toLocaleString('en-US', { minimumFractionDigits: 2 })}
+                                  </span>
+                                </div>
+                              )}
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
+
+                {activeProfileTab === 'financials' && (
+                  <div className="space-y-6">
+                    <div className="space-y-4">
+                      <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wider">Financial Setup</h4>
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        {renderProfileField('Payment Terms', 'paymentTerms', 'select', ['Prepayment', 'COD', 'Net 15', 'Net 30', 'Net 45', 'Net 60', 'EOM'])}
+                        {renderProfileField('Currency Code', 'currency', 'select', ['USD', 'VND', 'CNY', 'EUR'])}
+                        {renderProfileField('Credit Limit ($)', 'creditLimit', 'number')}
+                        {renderProfileField('Tax / VAT Status', 'taxStatus', 'select', ['Standard Taxable', 'Tax Exempt', 'Zero Rated'])}
+                        {renderProfileField('Business Registration License', 'businessLicense')}
+                        {renderProfileField('Bank Details (SWIFT, A/C Info)', 'bankInfo', 'textarea')}
+                      </div>
+                    </div>
+
+                    <div className="space-y-4 pt-4 border-t border-slate-100 dark:border-slate-800">
+                      <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wider">Systems Tracking</h4>
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        {renderProfileField('System Status', 'status', 'select', ['Prospect', 'Active', 'Suspended', 'Blacklisted'])}
+                        {renderProfileField('Sourcing Stage', 'sourcingStage', 'select', ['New', 'Identified', 'Contacted', 'Negotiating', 'Approved', 'Rejected'])}
+                        {renderProfileField('Risk Level Assessment', 'riskLevel', 'select', ['Low', 'Medium', 'High'])}
+                        {renderProfileField('Approval Date', 'approvalDate', 'date')}
+                        {renderProfileField('Reviewed By PIC', 'reviewedBy')}
+                        {renderProfileField('Next Scheduled Review Date', 'nextReviewDate', 'date')}
+                        {renderProfileField('Owner / Sourcing Manager PIC', 'ownerPic')}
+                        {renderProfileField('Tags / Keywords (Comma Separated)', 'tags')}
+                        {renderProfileField('Certifications Held (Comma Separated)', 'certifications')}
+                        {renderProfileField('Risk Level Explanation Notes', 'riskNotes', 'textarea')}
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {activeProfileTab === 'documents' && (
+                  <div className="space-y-6">
+                    <div className="space-y-4">
+                      <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wider">Sustainability &amp; Capacity</h4>
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        {renderProfileField('ESG Compliance Score (0-100)', 'esgScore', 'number')}
+                        {renderProfileField('Monthly Manufacturing Capacity', 'maxCapacityMonthly')}
+                        {renderProfileField('Primary Export Markets (Comma Separated)', 'mainMarkets')}
+                        {renderProfileField('Major Competitors Recognized', 'competitors')}
+                        {renderProfileField('Social Responsibility Assessment Notes', 'socialResponsibilityNotes', 'textarea')}
+                      </div>
+                    </div>
+
+                    <div className="space-y-4 pt-4 border-t border-slate-100 dark:border-slate-800">
+                      <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wider">File Attachments &amp; Folders</h4>
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        {renderProfileField('Company Profile Link', 'docCompanyProfile')}
+                        {renderProfileField('Product Catalog Link', 'docCatalog')}
+                        {renderProfileField('Contract Document Link', 'docContract')}
+                        {renderProfileField('NDA Agreement Link', 'docNda')}
+                        {renderProfileField('ISO/Quality Certificates Links (Comma Separated)', 'docCertificates')}
+                        {renderProfileField('Audit Reports Links (Comma Separated)', 'docAuditReports')}
+                        {renderProfileField('Sample Approval Docs Links (Comma Separated)', 'docSampleApprovals')}
+                      </div>
+                    </div>
+
+                    <div className="space-y-4 pt-4 border-t border-slate-100 dark:border-slate-800">
+                      <h4 className="text-xs font-bold text-slate-400 uppercase tracking-wider">Supplier Context Notes</h4>
+                      <div className="grid grid-cols-1 gap-4">
+                        {renderProfileField('Internal Sourcing Comments', 'notes', 'textarea')}
+                        {renderProfileField('Communication & Call History Log', 'communicationHistory', 'textarea')}
+                      </div>
+                    </div>
                   </div>
                 )}
               </div>
-            </div>
 
-            {/* Modal Footer */}
-            <div className="px-6 py-4 bg-slate-50 dark:bg-slate-900/50 border-t border-slate-100 dark:border-slate-800 flex items-center justify-end gap-3">
-              {isProfileEditMode ? (
-                <>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    onClick={() => {
-                      setIsProfileEditMode(false)
-                      setProfileErrorMessage(null)
-                      // Reset details back to the active record values
-                      const matched = suppliers.find(s => s.supplier_id === selectedSupplierId)
-                      if (matched) {
-                        setProfileForm({
-                          name: matched.supplier_name || '',
-                          email: matched.suppliers?.email || '',
-                          phone: matched.suppliers?.phone || '',
-                          address: matched.suppliers?.address || ''
-                        })
-                      }
-                    }}
-                    disabled={isSavingProfile}
-                    className="h-9 text-xs rounded-xl font-semibold cursor-pointer"
-                  >
-                    Cancel
-                  </Button>
-                  <Button
-                    type="button"
-                    onClick={handleProfileSave}
-                    disabled={isSavingProfile}
-                    className="h-9 text-xs bg-[#5c59e9] hover:bg-[#4a47d2] text-white rounded-xl font-semibold cursor-pointer flex items-center gap-1.5"
-                  >
-                    {isSavingProfile && <Loader2 size={13} className="animate-spin" />}
-                    <span>Save Changes</span>
-                  </Button>
-                </>
-              ) : (
-                <>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    onClick={() => setIsProfileOpen(false)}
-                    className="h-9 text-xs rounded-xl font-semibold cursor-pointer"
-                  >
-                    Close
-                  </Button>
-                  <Button
-                    type="button"
-                    onClick={() => setIsProfileEditMode(true)}
-                    className="h-9 text-xs bg-[#5c59e9] hover:bg-[#4a47d2] text-white rounded-xl font-semibold cursor-pointer"
-                  >
-                    Edit / Update
-                  </Button>
-                </>
-              )}
+              {/* Modal Footer */}
+              <div className="px-6 py-4 bg-slate-50 dark:bg-slate-900/50 border-t border-slate-100 dark:border-slate-800 flex items-center justify-end gap-3">
+                {isProfileEditMode ? (
+                  <>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={() => {
+                        setIsProfileEditMode(false)
+                        setProfileErrorMessage(null)
+                        // Reset details back to the active record values
+                        const matched = suppliers.find(s => s.supplier_id === selectedSupplierId)
+                        if (matched) {
+                          const sDetails: any = matched.suppliers || {}
+                          setProfileForm({
+                            name: matched.supplier_name || '',
+                            email: sDetails.email || '',
+                            phone: sDetails.phone || '',
+                            address: sDetails.address || '',
+                            website: sDetails.website || '',
+                            contactPerson: sDetails.contact_person || '',
+                            taxId: sDetails.tax_id || '',
+                            businessType: sDetails.business_type || '',
+
+                            // Basic Information
+                            supplierCode: sDetails.supplier_code || '',
+                            legalName: sDetails.legal_name || '',
+                            yearFounded: sDetails.year_founded ? String(sDetails.year_founded) : '',
+                            companySize: sDetails.company_size || '',
+                            industry: sDetails.industry || '',
+                            mainProducts: sDetails.main_products ? sDetails.main_products.join(', ') : '',
+                            shortDescription: sDetails.short_description || '',
+
+                            // Contact Information
+                            primaryContactName: sDetails.primary_contact_name || '',
+                            position: sDetails.position || '',
+                            alternativeContact: sDetails.alternative_contact || '',
+                            street: sDetails.street || '',
+                            district: sDetails.district || '',
+                            city: sDetails.city || '',
+                            country: sDetails.country || '',
+                            postalCode: sDetails.postal_code || '',
+                            linkedin: sDetails.linkedin || '',
+                            socialContact: sDetails.social_contact || '',
+
+                            // Financial & Legal
+                            paymentTerms: sDetails.payment_terms || '',
+                            currency: sDetails.currency || '',
+                            bankInfo: sDetails.bank_info || '',
+                            creditLimit: sDetails.credit_limit ? String(sDetails.credit_limit) : '',
+                            taxStatus: sDetails.tax_status || '',
+                            businessLicense: sDetails.business_license || '',
+                            certifications: sDetails.certifications ? sDetails.certifications.join(', ') : '',
+
+                            // Sourcing & Performance
+                            sourcingCategory: sDetails.sourcing_category || '',
+                            leadTimeAverage: sDetails.lead_time_average ? String(sDetails.lead_time_average) : '',
+                            moq: sDetails.moq ? String(sDetails.moq) : '',
+                            pricingTier: sDetails.pricing_tier || '',
+                            qualityRating: sDetails.quality_rating || '',
+                            reliabilityScore: sDetails.reliability_score ? String(sDetails.reliability_score) : '',
+                            onTimeDeliveryRate: sDetails.on_time_delivery_rate ? String(sDetails.on_time_delivery_rate) : '',
+                            defectRate: sDetails.defect_rate ? String(sDetails.defect_rate) : '',
+                            lastSourcedDate: sDetails.last_sourced_date || '',
+                            totalSpend: sDetails.total_spend ? String(sDetails.total_spend) : '',
+                            totalOrders: sDetails.total_orders ? String(sDetails.total_orders) : '',
+                            isPreferred: sDetails.is_preferred || false,
+
+                            // Metadata & Tracking
+                            status: sDetails.status || 'Prospect',
+                            sourcingStage: sDetails.sourcing_stage || 'New',
+                            approvalDate: sDetails.approval_date ? sDetails.approval_date.substring(0, 10) : '',
+                            reviewedBy: sDetails.reviewed_by || '',
+                            nextReviewDate: sDetails.next_review_date || '',
+                            riskLevel: sDetails.risk_level || '',
+                            riskNotes: sDetails.risk_notes || '',
+                            createdBy: sDetails.created_by || '',
+                            ownerPic: sDetails.owner_pic || '',
+                            tags: sDetails.tags ? sDetails.tags.join(', ') : '',
+
+                            // Attachments
+                            docCompanyProfile: sDetails.doc_company_profile || '',
+                            docCatalog: sDetails.doc_catalog || '',
+                            docContract: sDetails.doc_contract || '',
+                            docCertificates: sDetails.doc_certificates ? sDetails.doc_certificates.join(', ') : '',
+                            docAuditReports: sDetails.doc_audit_reports ? sDetails.doc_audit_reports.join(', ') : '',
+                            docSampleApprovals: sDetails.doc_sample_approvals ? sDetails.doc_sample_approvals.join(', ') : '',
+                            docNda: sDetails.doc_nda || '',
+
+                            // Advanced
+                            esgScore: sDetails.esg_score ? String(sDetails.esg_score) : '',
+                            socialResponsibilityNotes: sDetails.social_responsibility_notes || '',
+                            maxCapacityMonthly: sDetails.max_capacity_monthly || '',
+                            mainMarkets: sDetails.main_markets ? sDetails.main_markets.join(', ') : '',
+                            competitors: sDetails.competitors || '',
+                            notes: sDetails.notes || '',
+                            communicationHistory: sDetails.communication_history || ''
+                          })
+                        }
+                      }}
+                      disabled={isSavingProfile}
+                      className="h-9 text-xs rounded-xl font-semibold cursor-pointer"
+                    >
+                      Cancel
+                    </Button>
+                    <Button
+                      type="button"
+                      onClick={handleProfileSave}
+                      disabled={isSavingProfile}
+                      className="h-9 text-xs bg-[#5c59e9] hover:bg-[#4a47d2] text-white rounded-xl font-semibold cursor-pointer flex items-center gap-1.5"
+                    >
+                      {isSavingProfile && <Loader2 size={13} className="animate-spin" />}
+                      <span>Save Changes</span>
+                    </Button>
+                  </>
+                ) : (
+                  <>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={() => setIsProfileOpen(false)}
+                      className="h-9 text-xs rounded-xl font-semibold cursor-pointer"
+                    >
+                      Close
+                    </Button>
+                    <Button
+                      type="button"
+                      onClick={() => setIsProfileEditMode(true)}
+                      className="h-9 text-xs bg-[#5c59e9] hover:bg-[#4a47d2] text-white rounded-xl font-semibold cursor-pointer"
+                    >
+                      Edit / Update
+                    </Button>
+                  </>
+                )}
+              </div>
             </div>
           </div>
-        </div>
-      )}
+        )
+      })()}
 
       {/* QC Success Modal */}
       {qcSuccessCount !== null && (
@@ -3268,6 +4988,106 @@ export function SourcingClient({ initialOrders, initialSuppliers, initialAudits 
         </div>
       )}
 
+      {/* Duplicate Conflict Resolution Dialog */}
+      {isConflictDialogOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-sm transition-all duration-300 animate-in fade-in">
+          <div
+            className="absolute inset-0"
+            onClick={() => {
+              if (!isResolvingDuplicates) {
+                setIsConflictDialogOpen(false)
+                setPendingActionType(null)
+                setPendingPayload(null)
+                setConflictingDuplicates([])
+              }
+            }}
+          />
+          <div className="relative z-10 w-full max-w-lg bg-white dark:bg-slate-900 rounded-3xl shadow-2xl border border-slate-200 dark:border-slate-800 p-6 flex flex-col max-h-[85vh] animate-in zoom-in-95 duration-200">
+            <div className="flex items-center gap-3 text-amber-600 dark:text-amber-400 mb-4">
+              <AlertCircle size={24} className="flex-shrink-0" />
+              <div>
+                <h3 className="text-base font-bold text-slate-950 dark:text-white">Duplicate Supplier Records Detected</h3>
+                <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
+                  The following supplier configurations already exist for these specific order-item combinations.
+                </p>
+              </div>
+            </div>
+
+            {/* List of conflicting items */}
+            <div className="flex-1 overflow-y-auto my-4 border border-slate-100 dark:border-slate-800 rounded-2xl max-h-60 bg-slate-50/20 dark:bg-slate-950/20">
+              <table className="w-full text-left border-collapse text-[11px]">
+                <thead>
+                  <tr className="bg-slate-50 dark:bg-slate-950 border-b border-slate-100 dark:border-slate-800 font-bold uppercase text-slate-500 sticky top-0">
+                    <th className="px-4 py-2.5">Supplier / Email</th>
+                    <th className="px-4 py-2.5">Order</th>
+                    <th className="px-4 py-2.5">Product Item</th>
+                    <th className="px-4 py-2.5 text-right">Current Bid</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                  {conflictingDuplicates.map((dup, idx) => (
+                    <tr key={idx} className="text-slate-700 dark:text-slate-300 hover:bg-slate-50/50 dark:hover:bg-slate-900/10">
+                      <td className="px-4 py-2">
+                        <div className="font-semibold text-slate-800 dark:text-slate-200">{dup.supplierName}</div>
+                        <div className="text-[9px] text-slate-400">{dup.email}</div>
+                      </td>
+                      <td className="px-4 py-2 font-bold text-[#5c59e9]">{dup.orderCode || '—'}</td>
+                      <td className="px-4 py-2 font-medium">{dup.productName}</td>
+                      <td className="px-4 py-2 text-right">
+                        <div className="font-bold text-slate-950 dark:text-white">${Number(dup.quotedPrice).toLocaleString()}</div>
+                        <div className="text-[9px] text-slate-400">{dup.leadTime} days</div>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+
+            {/* Action Buttons */}
+            <div className="flex flex-col sm:flex-row gap-3 pt-3 mt-auto border-t border-slate-100 dark:border-slate-800">
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => {
+                  setIsConflictDialogOpen(false)
+                  setPendingActionType(null)
+                  setPendingPayload(null)
+                  setConflictingDuplicates([])
+                }}
+                disabled={isResolvingDuplicates}
+                className="flex-1 h-9 text-xs font-semibold cursor-pointer border-slate-200 dark:border-slate-800 rounded-xl"
+              >
+                Cancel
+              </Button>
+              <Button
+                type="button"
+                onClick={() => handleResolveDuplicates('skip')}
+                disabled={isResolvingDuplicates}
+                className="flex-1 h-9 text-xs font-semibold bg-slate-800 hover:bg-slate-700 text-white cursor-pointer gap-1.5 rounded-xl"
+              >
+                {isResolvingDuplicates ? (
+                  <Loader2 size={12} className="animate-spin" />
+                ) : (
+                  <span>Skip Duplicates</span>
+                )}
+              </Button>
+              <Button
+                type="button"
+                onClick={() => handleResolveDuplicates('overwrite')}
+                disabled={isResolvingDuplicates}
+                className="flex-1 h-9 text-xs font-semibold bg-[#5c59e9] hover:bg-[#4a47d2] text-white cursor-pointer gap-1.5 rounded-xl shadow-md shadow-indigo-250/20 dark:shadow-none"
+              >
+                {isResolvingDuplicates ? (
+                  <Loader2 size={12} className="animate-spin" />
+                ) : (
+                  <span>Overwrite / Update</span>
+                )}
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* QC Error Modal */}
       {qcErrorText !== null && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 backdrop-blur-sm transition-all duration-300 animate-in fade-in">
@@ -3277,12 +5097,12 @@ export function SourcingClient({ initialOrders, initialSuppliers, initialAudits 
             <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-rose-50 text-rose-600 dark:bg-rose-950/40 dark:text-rose-400 mx-auto mb-4 border border-rose-100/30">
               <AlertCircle size={24} className="stroke-[2.2]" />
             </div>
-
+ 
             <h3 className="text-base font-bold text-slate-950 dark:text-white mb-2">Transmission Failed</h3>
             <p className="text-xs text-slate-500 dark:text-slate-400 leading-relaxed mb-6">
               {qcErrorText}
             </p>
-
+ 
             <Button
               onClick={() => setQcErrorText(null)}
               className="w-full h-9 rounded-xl bg-rose-600 hover:bg-rose-500 text-white font-semibold text-xs transition-colors cursor-pointer shadow-md shadow-rose-200/40 dark:shadow-none"

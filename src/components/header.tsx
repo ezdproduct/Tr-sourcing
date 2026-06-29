@@ -105,18 +105,9 @@ export function Header() {
 
   return (
     <header className="flex h-16 w-full items-center justify-between border-b border-slate-200 bg-white px-6 dark:border-indigo-950/20 dark:bg-slate-950">
-      {/* Search Input Area */}
+      {/* Search Input Area Removed */}
       <div className="relative w-72">
-        <Search className="absolute top-2.5 left-3 h-4 w-4 text-slate-400" />
-        <Input
-          type="text"
-          placeholder="Search in Sourcing Hub..."
-          value={searchQuery}
-          onChange={(e) => setSearchQuery(e.target.value)}
-          className="h-9 w-full rounded-lg pl-9 pr-4 text-xs bg-slate-50 border-slate-200 focus:bg-white dark:bg-slate-900 dark:border-slate-800"
-        />
       </div>
-
     </header>
   )
 }

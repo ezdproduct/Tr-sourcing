@@ -56,9 +56,8 @@ async function SourcingLoader() {
           orders: null,
           order_items: null,
           suppliers: {
-            email: s.email,
-            phone: s.phone,
-            address: s.address
+            ...s,
+            order_suppliers: undefined
           }
         })
       } else {
@@ -77,9 +76,8 @@ async function SourcingLoader() {
             orders: bid.orders,
             order_items: bid.order_items,
             suppliers: {
-              email: s.email,
-              phone: s.phone,
-              address: s.address
+              ...s,
+              order_suppliers: undefined
             }
           })
         })

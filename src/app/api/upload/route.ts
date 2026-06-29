@@ -15,13 +15,29 @@ export async function POST(req: NextRequest) {
   try {
     const formData = await req.formData()
     const file = formData.get('file') as File | null
+    const supplierId = formData.get('supplierId') as string | null
+    const customName = formData.get('customName') as string | null
 
     if (!file) {
       return NextResponse.json({ error: 'No file uploaded' }, { status: 400 })
     }
 
     const buffer = Buffer.from(await file.arrayBuffer())
-    const filename = `${Date.now()}-${Math.random().toString(36).substring(2, 15)}-${file.name.replace(/[^a-zA-Z0-9.-]/g, '_')}`
+    
+    let rawName = customName || file.name
+    // Ensure we keep the original extension if the custom name lacks it
+    const lastDotIdx = file.name.lastIndexOf('.')
+    if (lastDotIdx !== -1) {
+      const originalExt = file.name.substring(lastDotIdx)
+      if (customName && !customName.toLowerCase().endsWith(originalExt.toLowerCase())) {
+        rawName = customName + originalExt
+      }
+    }
+
+    const filename = `${Date.now()}-${Math.random().toString(36).substring(2, 15)}-${rawName.replace(/[^a-zA-Z0-9.-]/g, '_')}`
+    
+    // Group files in "Supplier profile/{supplierId}" directory if supplierId is provided
+    const key = supplierId ? `Supplier profile/${supplierId}/${filename}` : filename
 
     const bucketName = process.env.R2_BUCKET_NAME || 'sourcing'
 
@@ -29,14 +45,14 @@ export async function POST(req: NextRequest) {
     await s3.send(
       new PutObjectCommand({
         Bucket: bucketName,
-        Key: filename,
+        Key: key,
         Body: buffer,
         ContentType: file.type,
       })
     )
 
     // Return the local proxy URL to load/download the image securely
-    const imageUrl = `/api/images?key=${filename}`
+    const imageUrl = `/api/images?key=${encodeURIComponent(key)}`
     return NextResponse.json({ url: imageUrl })
   } catch (error: any) {
     console.error('Error uploading file to R2:', error)

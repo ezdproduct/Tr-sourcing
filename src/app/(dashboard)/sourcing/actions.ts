@@ -276,11 +276,145 @@ export interface BulkSupplierRow {
   productName: string
   quotedPrice: number
   leadTime: number
+  website?: string
+  contactPerson?: string
+  taxId?: string
+  businessType?: string
 }
 
-export async function bulkImportSuppliersAction(rows: BulkSupplierRow[]) {
+function normalizeEmail(email: string | null | undefined): string {
+  return email ? email.trim().toLowerCase() : ''
+}
+
+function normalizeOrderCode(code: string | null | undefined): string {
+  if (!code) return ''
+  const c = code.trim().toLowerCase()
+  if (c === '—' || c === '-' || c === 'unassigned' || c === 'potential') return ''
+  return c
+}
+
+function normalizeProductName(name: string | null | undefined): string {
+  return name ? name.trim().toLowerCase() : ''
+}
+
+export interface DuplicateRecord {
+  id: string
+  supplierName: string
+  email: string
+  orderCode: string
+  productName: string
+  quotedPrice: number
+  leadTime: number
+  incomingIndex: number
+}
+
+async function detectDuplicates(
+  supabase: any,
+  incomingRows: { email: string; orderCode: string; productName: string }[]
+): Promise<DuplicateRecord[]> {
+  const { data: existingBids, error } = await supabase
+    .from('order_suppliers')
+    .select(`
+      id,
+      supplier_name,
+      quoted_price,
+      lead_time_days,
+      suppliers(email),
+      orders(order_code),
+      order_items(item_name)
+    `)
+
+  if (error || !existingBids) {
+    console.error('Error fetching bids for duplicate check:', error?.message)
+    return []
+  }
+
+  const duplicates: DuplicateRecord[] = []
+
+  incomingRows.forEach((incoming, idx) => {
+    const incEmail = normalizeEmail(incoming.email)
+    const incOrderCode = normalizeOrderCode(incoming.orderCode)
+    const incProductName = normalizeProductName(incoming.productName)
+
+    if (!incEmail || !incProductName) return
+
+    const match = existingBids.find((existing: any) => {
+      const extEmail = normalizeEmail(existing.suppliers?.email)
+      const extOrderCode = normalizeOrderCode(existing.orders?.order_code)
+      const extProductName = normalizeProductName(existing.order_items?.item_name)
+
+      return extEmail === incEmail && extOrderCode === incOrderCode && extProductName === incProductName
+    })
+
+    if (match) {
+      duplicates.push({
+        id: match.id,
+        supplierName: match.supplier_name,
+        email: match.suppliers?.email || '',
+        orderCode: match.orders?.order_code || '',
+        productName: match.order_items?.item_name || '',
+        quotedPrice: match.quoted_price,
+        leadTime: match.lead_time_days,
+        incomingIndex: idx
+      })
+    }
+  })
+
+  return duplicates
+}
+
+export async function bulkImportSuppliersAction(rows: BulkSupplierRow[], resolution?: 'skip' | 'overwrite' | null) {
   try {
     const supabase = await createClient()
+
+    const incomingRows = rows.map(r => ({
+      email: r.email,
+      orderCode: r.orderCode || '',
+      productName: r.productName || ''
+    }))
+
+    const duplicates = await detectDuplicates(supabase, incomingRows)
+
+    if (resolution === undefined || resolution === null) {
+      if (duplicates.length > 0) {
+        return {
+          success: false,
+          duplicateDetected: true,
+          duplicates
+        }
+      }
+    }
+
+    let rowsToProcess = rows
+
+    if (resolution === 'skip') {
+      const duplicateIndices = new Set(duplicates.map(d => d.incomingIndex))
+      rowsToProcess = rows.filter((_, idx) => !duplicateIndices.has(idx))
+    } else if (resolution === 'overwrite') {
+      const duplicateMap = new Map<number, DuplicateRecord>()
+      duplicates.forEach(d => {
+        duplicateMap.set(d.incomingIndex, d)
+      })
+
+      // Overwrite the duplicates
+      for (const [incomingIndex, dup] of duplicateMap.entries()) {
+        const row = rows[incomingIndex]
+        const { error: updateErr } = await supabase
+          .from('order_suppliers')
+          .update({
+            quoted_price: row.quotedPrice,
+            lead_time_days: row.leadTime
+          })
+          .eq('id', dup.id)
+        if (updateErr) {
+          console.error(`Error overwriting duplicate for ${row.supplierName}:`, updateErr.message)
+        }
+      }
+
+      // Filter out overwritten rows so they are not inserted
+      const duplicateIndices = new Set(duplicates.map(d => d.incomingIndex))
+      rowsToProcess = rows.filter((_, idx) => !duplicateIndices.has(idx))
+    }
 
     let importedSuppliersCount = 0
     let importedBidsCount = 0
@@ -289,7 +423,7 @@ export async function bulkImportSuppliersAction(rows: BulkSupplierRow[]) {
     // Cache supplier IDs by name in this batch to prevent duplicate checks
     const supplierCache: Record<string, string> = {}
 
-    for (const row of rows) {
+    for (const row of rowsToProcess) {
       if (!row.supplierName) continue
 
       let supplierId = supplierCache[row.supplierName]
@@ -301,7 +435,11 @@ export async function bulkImportSuppliersAction(rows: BulkSupplierRow[]) {
             name: row.supplierName.trim(),
             email: row.email ? row.email.trim() : null,
             phone: row.phone ? row.phone.trim() : null,
-            address: row.address ? row.address.trim() : null
+            address: row.address ? row.address.trim() : null,
+            website: row.website ? row.website.trim() : null,
+            contact_person: row.contactPerson ? row.contactPerson.trim() : null,
+            tax_id: row.taxId ? row.taxId.trim() : null,
+            business_type: row.businessType ? row.businessType.trim() : null
           }, { onConflict: 'name' })
           .select('id')
           .single()
@@ -332,23 +470,12 @@ export async function bulkImportSuppliersAction(rows: BulkSupplierRow[]) {
         if (!orderError && order && order.length > 0) {
           matchedOrder = order[0] as any
         } else {
-          // Auto-create order if it doesn't exist
-          const { data: newOrder, error: newOrderErr } = await supabase
-            .from('orders')
-            .insert({
-              order_code: targetOrderCode,
-              stage: 'sourcing',
-              order_type: 'PRODUCT',
-              order_date: new Date().toISOString().split('T')[0]
-            })
-            .select('id')
-            .single()
-
-          if (!newOrderErr && newOrder) {
-            matchedOrder = { id: newOrder.id, order_items: [], isNew: true }
-          } else {
-            console.error('Error auto-creating order during import:', newOrderErr?.message)
-          }
+          // BUG 8 FIX: do NOT auto-create phantom orders when the code isn't found.
+          // A typo in the CSV would silently create garbage orders. Instead, skip
+          // the order-binding step — the row will fall through to "unassigned".
+          console.warn(
+            `Bulk import: order_code '${targetOrderCode}' not found in database. Row for supplier '${row.supplierName}' will be saved as unassigned.`
+          )
         }
       }
 
@@ -405,25 +532,41 @@ export async function bulkImportSuppliersAction(rows: BulkSupplierRow[]) {
         }
       } else {
         // No match found in the target order's requirements: divert to unassigned!
-        // 1. Create an unassigned order item first to hold the product name
+        // BUG 4 FIX: instead of always inserting a new order_items row (which creates
+        // orphaned duplicates on every re-import), upsert by item_name where order_id IS NULL.
+        // This prevents the DB from accumulating duplicate unassigned items.
         let orderItemId = null
         if (row.productName && row.productName.trim()) {
-          const { data: newOrderItem, error: newOrderItemErr } = await supabase
+          // Check if an unassigned order_item with this name already exists
+          const { data: existingItem } = await supabase
             .from('order_items')
-            .insert({
-              order_id: null,
-              item_name: row.productName.trim(),
-              quantity: 100, // default placeholder quantity
-              item_type: 'PRODUCT',
-              item_status: 'PENDING'
-            })
             .select('id')
-            .single()
+            .is('order_id', null)
+            .eq('item_name', row.productName.trim())
+            .maybeSingle()
 
-          if (!newOrderItemErr && newOrderItem) {
-            orderItemId = newOrderItem.id
+          if (existingItem) {
+            // Reuse the existing unassigned item — no duplicate
+            orderItemId = existingItem.id
           } else {
-            console.error('Error auto-creating unassigned order item during import:', newOrderItemErr?.message)
+            // Create a new unassigned item only when it truly doesn't exist yet
+            const { data: newOrderItem, error: newOrderItemErr } = await supabase
+              .from('order_items')
+              .insert({
+                order_id: null,
+                item_name: row.productName.trim(),
+                quantity: 100, // default placeholder quantity
+                item_type: 'PRODUCT',
+                item_status: 'PENDING'
+              })
+              .select('id')
+              .single()
+
+            if (!newOrderItemErr && newOrderItem) {
+              orderItemId = newOrderItem.id
+            } else {
+              console.error('Error auto-creating unassigned order item during import:', newOrderItemErr?.message)
+            }
           }
         }
 
@@ -487,6 +630,11 @@ export interface ManualNormalizedItemBid {
 export interface ManualNormalizedCapability {
   productName: string
   targetPrice: number
+  leadTimeDays?: string
+  description?: string
+  moq?: number
+  sku?: string
+  monthlyCapacity?: string
 }
 
 export interface ManualNormalizedInput {
@@ -497,11 +645,89 @@ export interface ManualNormalizedInput {
   orderId: string | null
   items: ManualNormalizedItemBid[]
   capabilities: ManualNormalizedCapability[]
+  website?: string
+  contactPerson?: string
+  taxId?: string
+  businessType?: string
 }
 
-export async function addSupplierNormalizedAction(input: ManualNormalizedInput) {
+export async function addSupplierNormalizedAction(input: ManualNormalizedInput, resolution?: 'skip' | 'overwrite' | null) {
   try {
     const supabase = await createClient()
+
+    // 1. Resolve orderCode and itemNames
+    let orderCode = ''
+    if (input.orderId) {
+      const { data: order } = await supabase
+        .from('orders')
+        .select('order_code')
+        .eq('id', input.orderId)
+        .single()
+      orderCode = order?.order_code || ''
+    }
+
+    const itemIds = input.items.map(item => item.orderItemId)
+    let itemNames: Record<string, string> = {}
+    if (itemIds.length > 0) {
+      const { data: items } = await supabase
+        .from('order_items')
+        .select('id, item_name')
+        .in('id', itemIds)
+      if (items) {
+        items.forEach((item: any) => {
+          itemNames[item.id] = item.item_name
+        })
+      }
+    }
+
+    const incomingRows = input.items.map(item => ({
+      email: input.email,
+      orderCode,
+      productName: itemNames[item.orderItemId] || ''
+    }))
+
+    const duplicates = await detectDuplicates(supabase, incomingRows)
+
+    if (resolution === undefined || resolution === null) {
+      if (duplicates.length > 0) {
+        return {
+          success: false,
+          duplicateDetected: true,
+          duplicates
+        }
+      }
+    }
+
+    let itemsToProcess = input.items
+
+    if (resolution === 'skip') {
+      const duplicateIndices = new Set(duplicates.map(d => d.incomingIndex))
+      itemsToProcess = input.items.filter((_, idx) => !duplicateIndices.has(idx))
+    } else if (resolution === 'overwrite') {
+      const duplicateMap = new Map<number, DuplicateRecord>()
+      duplicates.forEach(d => {
+        duplicateMap.set(d.incomingIndex, d)
+      })
+
+      // Overwrite the duplicates
+      for (const [incomingIndex, dup] of duplicateMap.entries()) {
+        const item = input.items[incomingIndex]
+        const { error: updateErr } = await supabase
+          .from('order_suppliers')
+          .update({
+            quoted_price: item.quotedPrice,
+            lead_time_days: item.leadTimeDays
+          })
+          .eq('id', dup.id)
+        if (updateErr) {
+          console.error(`Error overwriting manual duplicate:`, updateErr.message)
+        }
+      }
+
+      // Filter out overwritten items from itemsToProcess so they are not inserted as duplicates
+      const duplicateIndices = new Set(duplicates.map(d => d.incomingIndex))
+      itemsToProcess = input.items.filter((_, idx) => !duplicateIndices.has(idx))
+    }
 
     // 1. Upsert supplier basic details
     const { data: supplier, error: supplierError } = await supabase
@@ -510,7 +736,11 @@ export async function addSupplierNormalizedAction(input: ManualNormalizedInput) 
         name: input.supplierName.trim(),
         email: input.email ? input.email.trim() : null,
         phone: input.phone ? input.phone.trim() : null,
-        address: input.address ? input.address.trim() : null
+        address: input.address ? input.address.trim() : null,
+        website: input.website ? input.website.trim() : null,
+        contact_person: input.contactPerson ? input.contactPerson.trim() : null,
+        tax_id: input.taxId ? input.taxId.trim() : null,
+        business_type: input.businessType ? input.businessType.trim() : null
       }, { onConflict: 'name' })
       .select('id')
       .single()
@@ -523,8 +753,8 @@ export async function addSupplierNormalizedAction(input: ManualNormalizedInput) 
     const supplierId = supplier.id
 
     // 2. Insert order items bids
-    if (input.orderId && input.items.length > 0) {
-      const bidsToInsert = input.items.map(item => ({
+    if (input.orderId && itemsToProcess.length > 0) {
+      const bidsToInsert = itemsToProcess.map(item => ({
         order_id: input.orderId,
         order_item_id: item.orderItemId,
         supplier_id: supplierId,
@@ -549,7 +779,12 @@ export async function addSupplierNormalizedAction(input: ManualNormalizedInput) 
       const capsToInsert = input.capabilities.map(cap => ({
         supplier_id: supplierId,
         product_name: cap.productName.trim(),
-        target_price: cap.targetPrice
+        target_price: cap.targetPrice,
+        lead_time_days: cap.leadTimeDays?.trim() || null,
+        description: cap.description?.trim() || null,
+        moq: cap.moq || null,
+        sku: cap.sku?.trim() || null,
+        monthly_capacity: cap.monthlyCapacity?.trim() || null
       }))
 
       const { error: capsError } = await supabase
@@ -569,7 +804,6 @@ export async function addSupplierNormalizedAction(input: ManualNormalizedInput) 
     return { success: false, error: error.message || 'An unexpected error occurred' }
   }
 }
-
 export async function deleteSuppliersBatchAction(ids: string[]) {
   try {
     const supabase = await createClient()
@@ -586,8 +820,9 @@ export async function deleteSuppliersBatchAction(ids: string[]) {
         if (b.supplier_id) supplierIds.add(b.supplier_id)
       })
     }
-    // Also add any IDs that are directly supplier profiles
-    ids.forEach(id => supplierIds.add(id))
+    // BUG 12 FIX: removed incorrect `ids.forEach(id => supplierIds.add(id))` which was
+    // adding raw order_suppliers bid IDs (not supplier profile IDs) into the delete set.
+    // The bid ID and supplier_id are different UUIDs; mixing them caused undefined behavior.
 
     // 2. Delete all these suppliers from the suppliers table (will cascade delete order_suppliers)
     const { error: sError } = await supabase
@@ -739,23 +974,176 @@ export interface UpdateSupplierCapabilitiesInput {
 
 export interface UpdateSupplierProfileInput {
   supplierId: string
+  name?: string
   email: string
   phone: string
   address: string
   capabilities: UpdateSupplierCapabilitiesInput[]
+  website?: string
+  contactPerson?: string
+  taxId?: string
+  businessType?: string
+  logoUrl?: string
+
+  // Basic Information
+  supplierCode?: string
+  legalName?: string
+  yearFounded?: number
+  companySize?: string
+  industry?: string
+  mainProducts?: string[]
+  shortDescription?: string
+
+  // Contact Information
+  primaryContactName?: string
+  position?: string
+  alternativeContact?: string
+  street?: string
+  district?: string
+  city?: string
+  country?: string
+  postalCode?: string
+  linkedin?: string
+  socialContact?: string
+
+  // Financial & Legal
+  paymentTerms?: string
+  currency?: string
+  bankInfo?: string
+  creditLimit?: number
+  taxStatus?: string
+  businessLicense?: string
+  certifications?: string[]
+
+  // Sourcing & Performance
+  sourcingCategory?: string
+  leadTimeAverage?: number
+  moq?: number
+  pricingTier?: string
+  qualityRating?: string
+  reliabilityScore?: number
+  onTimeDeliveryRate?: number
+  defectRate?: number
+  lastSourcedDate?: string
+  totalSpend?: number
+  totalOrders?: number
+  isPreferred?: boolean
+
+  // Metadata & Tracking
+  status?: string
+  sourcingStage?: string
+  approvalDate?: string
+  reviewedBy?: string
+  nextReviewDate?: string
+  riskLevel?: string
+  riskNotes?: string
+  createdBy?: string
+  ownerPic?: string
+  tags?: string[]
+
+  // Attachments
+  docCompanyProfile?: string
+  docCatalog?: string
+  docContract?: string
+  docCertificates?: string[]
+  docAuditReports?: string[]
+  docSampleApprovals?: string[]
+  docNda?: string
+
+  // Advanced
+  esgScore?: number
+  socialResponsibilityNotes?: string
+  maxCapacityMonthly?: string
+  mainMarkets?: string[]
+  competitors?: string
+  notes?: string
+  communicationHistory?: string
 }
 
 export async function updateSupplierProfileAction(input: UpdateSupplierProfileInput) {
   try {
     const supabase = await createClient()
 
-    // 1. Update basic contact info in 'suppliers'
+    // 1. Update basic contact info and extended columns in 'suppliers'
     const { error: supplierError } = await supabase
       .from('suppliers')
       .update({
+        name: input.name?.trim() || undefined,
         email: input.email.trim() || null,
         phone: input.phone.trim() || null,
-        address: input.address.trim() || null
+        address: input.address.trim() || null,
+        website: input.website?.trim() || null,
+        contact_person: input.contactPerson?.trim() || null,
+        tax_id: input.taxId?.trim() || null,
+        business_type: input.businessType?.trim() || null,
+        logo_url: input.logoUrl?.trim() || null,
+
+        supplier_code: input.supplierCode?.trim() || null,
+        legal_name: input.legalName?.trim() || null,
+        year_founded: input.yearFounded || null,
+        company_size: input.companySize?.trim() || null,
+        industry: input.industry?.trim() || null,
+        main_products: input.mainProducts || [],
+        short_description: input.shortDescription?.trim() || null,
+
+        primary_contact_name: input.primaryContactName?.trim() || null,
+        position: input.position?.trim() || null,
+        alternative_contact: input.alternativeContact?.trim() || null,
+        street: input.street?.trim() || null,
+        district: input.district?.trim() || null,
+        city: input.city?.trim() || null,
+        country: input.country?.trim() || null,
+        postal_code: input.postalCode?.trim() || null,
+        linkedin: input.linkedin?.trim() || null,
+        social_contact: input.socialContact?.trim() || null,
+
+        payment_terms: input.paymentTerms?.trim() || null,
+        currency: input.currency?.trim() || null,
+        bank_info: input.bankInfo?.trim() || null,
+        credit_limit: input.creditLimit || null,
+        tax_status: input.taxStatus?.trim() || null,
+        business_license: input.businessLicense?.trim() || null,
+        certifications: input.certifications || [],
+
+        sourcing_category: input.sourcingCategory?.trim() || null,
+        lead_time_average: input.leadTimeAverage || null,
+        moq: input.moq || null,
+        pricing_tier: input.pricingTier?.trim() || null,
+        quality_rating: input.qualityRating?.trim() || null,
+        reliability_score: input.reliabilityScore || null,
+        on_time_delivery_rate: input.onTimeDeliveryRate || null,
+        defect_rate: input.defectRate || null,
+        last_sourced_date: input.lastSourcedDate || null,
+        total_spend: input.totalSpend || null,
+        total_orders: input.totalOrders || null,
+        is_preferred: input.isPreferred !== undefined ? input.isPreferred : false,
+
+        status: input.status?.trim() || 'Prospect',
+        sourcing_stage: input.sourcingStage?.trim() || 'New',
+        approval_date: input.approvalDate || null,
+        reviewed_by: input.reviewedBy?.trim() || null,
+        next_review_date: input.nextReviewDate || null,
+        risk_level: input.riskLevel?.trim() || null,
+        risk_notes: input.riskNotes?.trim() || null,
+        created_by: input.createdBy?.trim() || null,
+        owner_pic: input.ownerPic?.trim() || null,
+        tags: input.tags || [],
+
+        doc_company_profile: input.docCompanyProfile?.trim() || null,
+        doc_catalog: input.docCatalog?.trim() || null,
+        doc_contract: input.docContract?.trim() || null,
+        doc_certificates: input.docCertificates || [],
+        doc_audit_reports: input.docAuditReports || [],
+        doc_sample_approvals: input.docSampleApprovals || [],
+        doc_nda: input.docNda?.trim() || null,
+
+        esg_score: input.esgScore || null,
+        social_responsibility_notes: input.socialResponsibilityNotes?.trim() || null,
+        max_capacity_monthly: input.maxCapacityMonthly?.trim() || null,
+        main_markets: input.mainMarkets || [],
+        competitors: input.competitors?.trim() || null,
+        notes: input.notes?.trim() || null,
+        communication_history: input.communicationHistory?.trim() || null
       })
       .eq('id', input.supplierId)
 

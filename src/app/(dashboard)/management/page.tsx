@@ -41,8 +41,17 @@ async function ManagementLoader() {
     console.error('Error loading profiles:', error.message)
   }
 
+  const { data: suppliers, error: suppliersError } = await supabase
+    .from('suppliers')
+    .select('*, order_suppliers(*, orders(order_code), order_items(item_name)), factory_audits(*)')
+    .order('name', { ascending: true })
+
+  if (suppliersError) {
+    console.error('Error loading suppliers for management:', suppliersError.message)
+  }
+
   return (
-    <ManagementClient initialProfiles={profiles || []} />
+    <ManagementClient initialProfiles={profiles || []} initialSuppliers={suppliers || []} />
   )
 }
 

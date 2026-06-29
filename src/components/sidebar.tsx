@@ -289,9 +289,11 @@ export function Sidebar() {
       }`}
     >
         {/* Brand Header */}
-        <div className="flex h-16 items-center gap-3 px-4 border-b border-slate-200/60 dark:border-slate-800/80 overflow-hidden">
+        <div className={`flex items-center pt-6 pb-2 overflow-hidden transition-all duration-300 ${
+          shouldExpand ? 'px-6 gap-3' : 'px-[15px] justify-center'
+        }`}>
           {/* Brand Logo Image */}
-          <div className="flex h-10 w-10 flex-shrink-0 items-center justify-center overflow-hidden bg-white text-slate-955 shadow-sm border border-slate-200/50 dark:border-slate-800">
+          <div className="flex h-10 w-10 flex-shrink-0 items-center justify-center overflow-hidden bg-transparent">
             <img 
               src="/logo.jpg" 
               alt="Transformer Robotics Logo" 
@@ -310,11 +312,11 @@ export function Sidebar() {
 
 
         {/* Navigation Menus */}
-        <nav className="flex-1 space-y-1.5 px-3 py-6 overflow-y-auto">
+        <nav className="flex-1 space-y-1.5 px-3 pt-3 pb-6 overflow-y-auto">
           {filteredNavItems.map((item) => {
             const isActive = pathname === item.href || (item.href !== '/' && pathname.startsWith(item.href))
             const Icon = item.icon
-            const hasSubtabs = ['/orders', '/sourcing', '/audit', '/inspection', '/logistics', '/production'].includes(item.href)
+            const hasSubtabs = ['/orders', '/sourcing', '/audit', '/inspection', '/logistics', '/production', '/management'].includes(item.href)
 
             return (
               <div key={item.href} className="space-y-1">
@@ -342,11 +344,23 @@ export function Sidebar() {
                 {/* Subtabs tree branches structure */}
                 {isActive && hasSubtabs && shouldExpand && (
                   <div className="pl-9 pr-2 py-1 space-y-1 animate-in slide-in-from-top-2 duration-200">
-                    {[
-                      { label: 'Overview', subtabVal: 'overview' },
-                      { label: 'Workplace', subtabVal: 'workplace' }
-                    ].map((sub, idx) => {
-                      const isSubActive = subtabParam === sub.subtabVal || (!subtabParam && sub.subtabVal === 'overview')
+                    {(item.href === '/management'
+                      ? [
+                          { label: 'System Profiles', subtabVal: 'system' }
+                        ]
+                      : item.href === '/sourcing'
+                      ? [
+                          { label: 'Overview', subtabVal: 'overview' },
+                          { label: 'Supplier Profiles', subtabVal: 'suppliers' },
+                          { label: 'Workplace', subtabVal: 'workplace' }
+                        ]
+                      : [
+                          { label: 'Overview', subtabVal: 'overview' },
+                          { label: 'Workplace', subtabVal: 'workplace' }
+                        ]
+                    ).map((sub, idx, arr) => {
+                      const isSubActive = subtabParam === sub.subtabVal || 
+                        (!subtabParam && sub.subtabVal === (item.href === '/management' ? 'system' : 'overview'))
                       return (
                         <Link
                           key={sub.subtabVal}
@@ -357,7 +371,7 @@ export function Sidebar() {
                               : 'text-slate-400 hover:text-slate-700 hover:bg-slate-50/50 dark:text-slate-500 dark:hover:text-slate-355 dark:hover:bg-slate-900/30'
                           }`}
                         >
-                          <TreeConnector isLast={idx === 1} />
+                          <TreeConnector isLast={idx === arr.length - 1} />
                           <span>{sub.label}</span>
                           {isSubActive && (
                             <ChevronRight size={12} className="ml-auto text-slate-400 dark:text-slate-500" />

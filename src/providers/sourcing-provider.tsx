@@ -79,9 +79,10 @@ export function SourcingProvider({ children }: { children: React.ReactNode }) {
             }
           })
       } else {
-        // Fallback for anonymous
-        setUserRole('admin')
-        setUserDepartment('all')
+        // BUG 19 FIX: was setting userRole='admin' on sign-out which granted admin
+        // access to whoever viewed the page next until the component unmounted.
+        // Instead redirect to login so no privileged state is ever left behind.
+        window.location.href = '/auth/login'
       }
     })
 

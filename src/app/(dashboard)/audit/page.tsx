@@ -16,6 +16,9 @@ async function AuditLoader() {
     console.error('Error fetching shortlisted suppliers:', bidsError.message)
   }
 
+  // BUG 14 FIX: was .filter(s => s.id && s.order_id) which excluded ALL unassigned
+  // shortlisted suppliers (order_id = null) from the audit queue. Changed to only
+  // require the supplier id so unassigned shortlisted bids can enter the QC pipeline.
   const shortlistedSuppliers = shortlistedBids ? shortlistedBids.map((bid: any) => ({
     id: bid.suppliers?.id,
     name: bid.suppliers?.name,
@@ -26,7 +29,7 @@ async function AuditLoader() {
     order_code: bid.orders?.order_code,
     item_name: bid.order_items?.item_name || '—',
     unique_key: `${bid.order_id}-${bid.suppliers?.id}`
-  })).filter(s => s.id && s.order_id) : []
+  })).filter(s => s.id) : []
 
   // 2. Fetch all orders for the sidebar
   const { data: orders, error: ordersError } = await supabase
