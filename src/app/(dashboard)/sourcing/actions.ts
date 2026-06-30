@@ -8,6 +8,82 @@ export type OrderType = 'MATERIAL' | 'PRODUCT'
 import { createClient } from '@/supabase/server'
 import { revalidatePath } from 'next/cache'
 import { recordSupplierProductHistory } from '../management/actions'
+import type { DatabaseOrder, DatabaseSupplier } from './types'
+
+// ─── Read Actions (used as TanStack Query queryFn) ────────────────────────────
+
+export async function fetchSuppliersAction(): Promise<DatabaseSupplier[]> {
+  const supabase = await createClient()
+  const { data: dbSuppliers, error } = await supabase
+    .from('suppliers')
+    .select('*, order_suppliers(*, orders(order_code), order_items(item_name)), supplier_capabilities(*)')
+    .order('created_at', { ascending: false })
+
+  if (error) throw new Error(error.message)
+
+  const transformed: DatabaseSupplier[] = []
+  if (dbSuppliers) {
+    dbSuppliers.forEach((s: any) => {
+      const validBids = s.order_suppliers || []
+      if (validBids.length === 0) {
+        transformed.push({
+          id: s.id,
+          supplier_id: s.id,
+          order_id: null,
+          order_item_id: null,
+          supplier_name: s.name,
+          quoted_price: 0,
+          lead_time_days: 0,
+          is_shortlisted: false,
+          is_bid: false,
+          created_at: s.created_at,
+          created_by: s.created_by,
+          orders: null,
+          order_items: null,
+          suppliers: { ...s, order_suppliers: undefined },
+        })
+      } else {
+        validBids.forEach((bid: any) => {
+          transformed.push({
+            id: bid.id,
+            supplier_id: s.id,
+            order_id: bid.order_id,
+            order_item_id: bid.order_item_id,
+            supplier_name: s.name,
+            quoted_price: bid.quoted_price,
+            lead_time_days: bid.lead_time_days,
+            is_shortlisted: bid.is_shortlisted,
+            is_bid: true,
+            created_at: bid.created_at,
+            created_by: bid.created_by || s.created_by,
+            orders: bid.orders,
+            order_items: bid.order_items,
+            suppliers: { ...s, order_suppliers: undefined },
+          })
+        })
+      }
+    })
+  }
+  return transformed
+}
+
+export async function fetchOrdersAction(): Promise<DatabaseOrder[]> {
+  const supabase = await createClient()
+  const { data, error } = await supabase
+    .from('orders')
+    .select('*, order_items(*)')
+    .order('created_at', { ascending: false })
+
+  if (error) throw new Error(error.message)
+  return (data as DatabaseOrder[]) || []
+}
+
+export async function fetchAuditsAction(): Promise<any[]> {
+  const supabase = await createClient()
+  const { data, error } = await supabase.from('factory_audits').select('*')
+  if (error) throw new Error(error.message)
+  return data || []
+}
 
 export interface AddSupplierInput {
   orderId: string | null

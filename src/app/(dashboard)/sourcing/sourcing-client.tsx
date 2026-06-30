@@ -3,6 +3,11 @@
 /* eslint-disable react-hooks/set-state-in-effect */
 
 import React, { useState, useTransition, useEffect } from 'react'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { suppliersQueryOptions, ordersQueryOptions, auditsQueryOptions } from './api/queries'
+import { SourcingAnalytics } from './components/sourcing-analytics'
+import { OrderSidebar } from './components/order-sidebar'
+import { AssignSupplierModal } from './components/assign-supplier-modal'
 import * as XLSX from 'xlsx'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
@@ -181,7 +186,7 @@ export function SourcingClient({ initialOrders, initialSuppliers, initialAudits 
   const router = useRouter()
 
   const [overviewMode, setOverviewMode] = useState<'analytics' | 'kanban'>('analytics')
-  const [audits, setAudits] = useState<any[]>(initialAudits)
+  const [audits, setAudits] = useState<any[]>(initialAudits || [])
   const isStaffOrAdmin = userRole === 'staff' || userRole === 'admin'
 
   const handleStageChange = async (orderId: string, newStage: string) => {
@@ -201,29 +206,54 @@ export function SourcingClient({ initialOrders, initialSuppliers, initialAudits 
   const [orderShortlistFilterOnly, setOrderShortlistFilterOnly] = useState(false)
 
   const [selectedOrderId, setSelectedOrderId] = useState<string | null>(null)
-  const [suppliers, setSuppliers] = useState<DatabaseSupplier[]>(initialSuppliers)
+  const [suppliers, setSuppliers] = useState<DatabaseSupplier[]>(initialSuppliers || [])
   // Local orders list to allow optimistic updates
-  const [orders, setOrders] = useState<DatabaseOrder[]>(initialOrders)
+  const [orders, setOrders] = useState<DatabaseOrder[]>(initialOrders || [])
 
-  // Sync props to state when initialOrders or initialSuppliers change
+  const queryClient = useQueryClient()
+
+  // Invalidate all sourcing queries — replaces scattered invalidateSourcingData() calls
+  const invalidateSourcingData = async () => {
+    await Promise.all([
+      queryClient.invalidateQueries({ queryKey: ['sourcing', 'suppliers'] }),
+      queryClient.invalidateQueries({ queryKey: ['sourcing', 'orders'] }),
+      queryClient.invalidateQueries({ queryKey: ['sourcing', 'audits'] }),
+    ])
+  }
+
+  const { data: suppliersData } = useQuery({
+    ...suppliersQueryOptions(),
+    initialData: initialSuppliers && initialSuppliers.length > 0 ? initialSuppliers : undefined,
+  })
+  const { data: ordersData } = useQuery({
+    ...ordersQueryOptions(),
+    initialData: initialOrders && initialOrders.length > 0 ? initialOrders : undefined,
+  })
+  const { data: auditsData } = useQuery({
+    ...auditsQueryOptions(),
+    initialData: initialAudits && initialAudits.length > 0 ? initialAudits : undefined,
+  })
+
+  // Sync query data to state
   useEffect(() => {
-    setOrders(initialOrders)
-  }, [initialOrders])
+    if (suppliersData) {
+      setSuppliers(suppliersData)
+    }
+  }, [suppliersData])
 
   useEffect(() => {
-    setSuppliers(initialSuppliers)
-  }, [initialSuppliers])
+    if (ordersData) {
+      setOrders(ordersData)
+    }
+  }, [ordersData])
 
   useEffect(() => {
-    setAudits(initialAudits || [])
-  }, [initialAudits])
+    if (auditsData) {
+      setAudits(auditsData)
+    }
+  }, [auditsData])
 
-  // Trigger router refresh once on mount only to clear Next.js client router cache
-  // BUG 1 FIX: was [router] dep which caused infinite refresh loop
-  useEffect(() => {
-    router.refresh()
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
+
 
   // Sync selectedOrderId and viewMode with orders list (handling deletions/empty states)
   useEffect(() => {
@@ -260,7 +290,6 @@ export function SourcingClient({ initialOrders, initialSuppliers, initialAudits 
   }
   const [isAddOpen, setIsAddOpen] = useState(false)
   const [isPending, startTransition] = useTransition()
-  const [isSubmitting, setIsSubmitting] = useState(false)
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
   const [deletingId, setDeletingId] = useState<string | null>(null)
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null)
@@ -273,48 +302,7 @@ export function SourcingClient({ initialOrders, initialSuppliers, initialAudits 
   const [poDeliveryAddress, setPoDeliveryAddress] = useState<string>('')
   const [poContractFile, setPoContractFile] = useState<File | null>(null)
 
-  // Upgraded manual normalized form states
-  const [manualForm, setManualForm] = useState({
-    supplierName: '',
-    email: '',
-    phone: '',
-    address: '',
-    orderId: '',
-    website: '',
-    contactPerson: '',
-    taxId: '',
-    businessType: ''
-  })
-  
-  // Case 2 checklist bids: orderItemId -> { checked, price, leadTime }
-  const [itemBids, setItemBids] = useState<Record<string, { checked: boolean; price: string; leadTime: string }>>({})
 
-  // Case 1 & 2 repeating capability rows
-  const [capabilities, setCapabilities] = useState<Array<{ 
-    id: string
-    productName: string 
-    targetPrice: string 
-    leadTimeDays?: string
-    description?: string
-    moq?: string
-    sku?: string
-    monthlyCapacity?: string
-  }>>([])
-
-  // Searchable order combobox states
-  const [orderSearchQuery, setOrderSearchQuery] = useState('')
-  const [isOrderDropdownOpen, setIsOrderDropdownOpen] = useState(false)
-
-  // Searchable supplier combobox states
-  const [supplierSearchQuery, setSupplierSearchQuery] = useState('')
-  const [isSupplierDropdownOpen, setIsSupplierDropdownOpen] = useState(false)
-
-  useEffect(() => {
-    if (!isAddOpen) {
-      setSupplierSearchQuery('')
-      setIsSupplierDropdownOpen(false)
-    }
-  }, [isAddOpen])
 
   // CSV Bulk Import states
   const [isImportOpen, setIsImportOpen] = useState(false)
@@ -402,25 +390,12 @@ export function SourcingClient({ initialOrders, initialSuppliers, initialAudits 
       if (pendingActionType === 'manual') {
         const res = await addSupplierNormalizedAction(pendingPayload, resolution)
         if (res.success) {
-          setManualForm({
-            supplierName: '',
-            email: '',
-            phone: '',
-            address: '',
-            orderId: '',
-            website: '',
-            contactPerson: '',
-            taxId: '',
-            businessType: ''
-          })
-          setItemBids({})
-          setCapabilities([])
           setIsAddOpen(false)
           setIsConflictDialogOpen(false)
           setPendingActionType(null)
           setPendingPayload(null)
           setConflictingDuplicates([])
-          router.refresh()
+          await invalidateSourcingData()
         } else {
           setErrorMessage(res.error || 'Failed to add supplier.')
           setIsConflictDialogOpen(false)
@@ -436,10 +411,11 @@ export function SourcingClient({ initialOrders, initialSuppliers, initialAudits 
           setPendingActionType(null)
           setPendingPayload(null)
           setConflictingDuplicates([])
+          await invalidateSourcingData()
         } else {
           setImportStatus({
             success: false,
-            error: res.error || 'Import failed.'
+            error: res.error || 'Failed to resolve and import.'
           })
           setIsConflictDialogOpen(false)
         }
@@ -454,17 +430,17 @@ export function SourcingClient({ initialOrders, initialSuppliers, initialAudits 
           setPendingActionType(null)
           setPendingPayload(null)
           setConflictingDuplicates([])
+          await invalidateSourcingData()
         } else {
           setPasteImportStatus({
             success: false,
-            error: res.error || 'Import failed.'
+            error: res.error || 'Failed to resolve and import.'
           })
           setIsConflictDialogOpen(false)
         }
       }
     } catch (err: any) {
-      console.error('Error resolving duplicates:', err)
-      setErrorMessage(err.message || 'An unexpected error occurred.')
+      setErrorMessage(err.message || 'An error occurred during resolution.')
     } finally {
       setIsResolvingDuplicates(false)
     }
@@ -784,28 +760,6 @@ export function SourcingClient({ initialOrders, initialSuppliers, initialAudits 
     { key: 'qcStatus', label: 'QC Status' },
   ]
 
-  // Select order handler
-  const handleSelectOrder = (orderId: string) => {
-    setManualForm(prev => ({ ...prev, orderId }))
-    setIsOrderDropdownOpen(false)
-    setOrderSearchQuery('')
-    
-    if (orderId) {
-      const selectedOrd = orders.find(o => o.id === orderId)
-      if (selectedOrd?.order_items) {
-        const initialBids: Record<string, { checked: boolean; price: string; leadTime: string }> = {}
-        selectedOrd.order_items.forEach(item => {
-          initialBids[item.id] = { checked: false, price: '', leadTime: '' }
-        })
-        setItemBids(initialBids)
-      } else {
-        setItemBids({})
-      }
-    } else {
-      setItemBids({})
-    }
-  }
-
   // Local state for item type classification dropdowns
   const [localTypes, setLocalTypes] = useState<Record<string, string>>({})
   const [isBatchSaving, setIsBatchSaving] = useState(false)
@@ -943,32 +897,6 @@ export function SourcingClient({ initialOrders, initialSuppliers, initialAudits 
     )
   })
 
-  // Find suggested suppliers based on selected items checklist
-  const currentOrderForSuggestions = orders.find(o => o.id === manualForm.orderId)
-  const checkedItemNames = currentOrderForSuggestions?.order_items
-    ?.filter(item => itemBids[item.id]?.checked)
-    ?.map(item => item.item_name.toLowerCase().trim()) || []
-
-  const suggestedSuppliers = checkedItemNames.length > 0
-    ? uniqueSuppliers.filter(sup => {
-        const hasMatchingCapability = (sup.supplier_capabilities as any[])?.some((cap: any) => {
-          const capName = (cap.product_name || '').toLowerCase().trim()
-          return checkedItemNames.some(itemName => 
-            capName.includes(itemName) || itemName.includes(capName)
-          )
-        })
-
-        const hasMatchingMainProduct = (sup.main_products as string[])?.some((prod: string) => {
-          const prodName = (prod || '').toLowerCase().trim()
-          return checkedItemNames.some(itemName => 
-            prodName.includes(itemName) || itemName.includes(prodName)
-          )
-        })
-
-        return hasMatchingCapability || hasMatchingMainProduct
-      })
-    : []
-
   // ─── Handlers ────────────────────────────────────────────────────────────────
 
   const handleSaveAllClassifications = async () => {
@@ -1009,145 +937,6 @@ export function SourcingClient({ initialOrders, initialSuppliers, initialAudits 
     }
   }
 
-
-  const handleAddSupplier = async (e: React.FormEvent) => {
-    e.preventDefault()
-    const { supplierName, email, phone, address, orderId, website, contactPerson, taxId, businessType } = manualForm
-
-    if (!supplierName) {
-      setErrorMessage('Supplier Name is required.')
-      return
-    }
-
-    const bids: Array<{ orderItemId: string; quotedPrice: number; leadTimeDays: number }> = []
-    if (orderId) {
-      const matchedSupplier = uniqueSuppliers.find(sup => sup.name === supplierName)
-      const selectedOrdObj = orders.find(o => o.id === orderId)
-
-      for (const [itemId, bidVal] of Object.entries(itemBids)) {
-        if (bidVal.checked) {
-          const currentItem = selectedOrdObj?.order_items?.find(item => item.id === itemId)
-          const itemName = currentItem ? currentItem.item_name.toLowerCase().trim() : ''
-          
-          let price = 0
-          let leadTime = 0
-
-          if (matchedSupplier) {
-            const cap = (matchedSupplier.supplier_capabilities as any[])?.find((c: any) => {
-              const capName = (c.product_name || '').toLowerCase().trim()
-              return capName === itemName || capName.includes(itemName) || itemName.includes(capName)
-            })
-            if (cap) {
-              price = Number(cap.target_price || 0)
-              leadTime = parseInt(cap.lead_time_days || '0', 10) || 0
-            }
-          }
-
-          bids.push({
-            orderItemId: itemId,
-            quotedPrice: price,
-            leadTimeDays: leadTime
-          })
-        }
-      }
-      if (bids.length === 0 && capabilities.length === 0) {
-        setErrorMessage('Please check at least one order item.')
-        return
-      }
-    } else {
-      if (capabilities.length === 0) {
-        setErrorMessage('Please add at least one product capability for unassigned suppliers.')
-        return
-      }
-    }
-
-    const caps: Array<{
-      productName: string
-      targetPrice: number
-      leadTimeDays?: string
-      description?: string
-      moq?: number
-      sku?: string
-      monthlyCapacity?: string
-    }> = []
-    for (const cap of capabilities) {
-      if (!cap.productName) {
-        setErrorMessage('Product Name is required for all capabilities.')
-        return
-      }
-      const price = parseFloat(cap.targetPrice)
-      if (isNaN(price) || price < 0) {
-        setErrorMessage('Please enter a valid target price for all capabilities.')
-        return
-      }
-      const moqVal = cap.moq ? parseInt(cap.moq, 10) : undefined
-      caps.push({
-        productName: cap.productName.trim(),
-        targetPrice: price,
-        leadTimeDays: cap.leadTimeDays || undefined,
-        description: cap.description || undefined,
-        moq: moqVal,
-        sku: cap.sku || undefined,
-        monthlyCapacity: cap.monthlyCapacity || undefined
-      })
-    }
-
-    setIsSubmitting(true)
-    setErrorMessage(null)
-
-    const result = await addSupplierNormalizedAction({
-      supplierName,
-      email,
-      phone,
-      address,
-      orderId: orderId || null,
-      items: bids,
-      capabilities: caps,
-      website,
-      contactPerson,
-      taxId,
-      businessType
-    })
-
-    setIsSubmitting(false)
-
-    if (result.success) {
-      setManualForm({
-        supplierName: '',
-        email: '',
-        phone: '',
-        address: '',
-        orderId: '',
-        website: '',
-        contactPerson: '',
-        taxId: '',
-        businessType: ''
-      })
-      setItemBids({})
-      setCapabilities([])
-      setIsAddOpen(false)
-      router.refresh()
-    } else if (result.duplicateDetected) {
-      setPendingActionType('manual')
-      setPendingPayload({
-        supplierName,
-        email,
-        phone,
-        address,
-        orderId: orderId || null,
-        items: bids,
-        capabilities: caps,
-        website,
-        contactPerson,
-        taxId,
-        businessType
-      })
-      setConflictingDuplicates(result.duplicates)
-      setIsConflictDialogOpen(true)
-    } else {
-      setErrorMessage(result.error || 'Failed to add supplier.')
-    }
-  }
 
   const handleCsvUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
@@ -1781,119 +1570,12 @@ export function SourcingClient({ initialOrders, initialSuppliers, initialAudits 
 
 
           {overviewMode === 'analytics' ? (
-            <div className="space-y-6">
-          {/* KPI Grid */}
-          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-            <Card className="border-slate-200/60 dark:border-slate-800">
-              <CardHeader className="pb-2 flex flex-row items-center justify-between">
-                <CardTitle className="text-xs font-bold text-slate-500 uppercase tracking-wider">Total Suppliers</CardTitle>
-                <Users2 className="h-4 w-4 text-indigo-500" />
-              </CardHeader>
-              <CardContent>
-                {/* BUG 15 FIX: use live suppliers state, not the stale initial prop */}
-                <div className="text-2xl font-black text-slate-900 dark:text-white">{suppliers.length}</div>
-                <p className="text-[10px] text-slate-400 mt-1">Registered suppliers in database</p>
-              </CardContent>
-            </Card>
-
-            <Card className="border-slate-200/60 dark:border-slate-800">
-              <CardHeader className="pb-2 flex flex-row items-center justify-between">
-                <CardTitle className="text-xs font-bold text-slate-500 uppercase tracking-wider">With Pricing Bids</CardTitle>
-                <Package className="h-4 w-4 text-emerald-500" />
-              </CardHeader>
-              <CardContent>
-                <div className="text-2xl font-black text-slate-900 dark:text-white">
-                  {/* BUG 16 FIX: use live suppliers state */}
-                  {suppliers.filter(s => s.quoted_price > 0).length}
-                </div>
-                <p className="text-[10px] text-slate-400 mt-1">Suppliers with active bids</p>
-              </CardContent>
-            </Card>
-
-            <Card className="border-slate-200/60 dark:border-slate-800">
-              <CardHeader className="pb-2 flex flex-row items-center justify-between">
-                <CardTitle className="text-xs font-bold text-slate-500 uppercase tracking-wider">Active Campaigns</CardTitle>
-                <Package className="h-4 w-4 text-blue-500" />
-              </CardHeader>
-              <CardContent>
-                {/* BUG 17 FIX: use live orders state */}
-                <div className="text-2xl font-black text-slate-900 dark:text-white">{orders.length}</div>
-                <p className="text-[10px] text-slate-400 mt-1">Sourcing campaigns running</p>
-              </CardContent>
-            </Card>
-
-            <Card className="border-slate-200/60 dark:border-slate-800">
-              <CardHeader className="pb-2 flex flex-row items-center justify-between">
-                <CardTitle className="text-xs font-bold text-slate-500 uppercase tracking-wider">Avg Quality Grade</CardTitle>
-                <Shield className="h-4 w-4 text-indigo-500" />
-              </CardHeader>
-              <CardContent>
-                <div className="text-2xl font-black text-slate-900 dark:text-white">A- Grade</div>
-                <p className="text-[10px] text-emerald-600 mt-1 font-medium">92% Compliance pass rate</p>
-              </CardContent>
-            </Card>
-          </div>
-
-          {/* Sourcing Distribution and Recent actions */}
-          <div className="grid gap-6 md:grid-cols-2">
-            <Card className="border-slate-200/60 dark:border-slate-800">
-              <CardHeader>
-                <CardTitle className="text-sm font-bold text-slate-900 dark:text-white">Sourcing Category Division</CardTitle>
-                <CardDescription className="text-xs">Shortlist allocation across wood/metal components</CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                {[
-                  { label: 'Binh Duong Woodworks (Oakwood)', pct: '85%' },
-                  { label: 'Dong Nai Metalware (Fasteners)', pct: '70%' },
-                  { label: 'Long An Plastics (Cases)', pct: '45%' },
-                  { label: 'Da Nang Electronics (Cables)', pct: '60%' }
-                ].map((item, idx) => (
-                  <div key={idx} className="space-y-1.5">
-                    <div className="flex items-center justify-between text-xs font-semibold">
-                      <span className="text-slate-700 dark:text-slate-300">{item.label}</span>
-                      <span className="text-[#5c59e9] dark:text-indigo-400">{item.pct}</span>
-                    </div>
-                    <div className="h-1.5 w-full bg-slate-100 rounded-full dark:bg-slate-900">
-                      <div className="h-full bg-indigo-500 rounded-full" style={{ width: item.pct }} />
-                    </div>
-                  </div>
-                ))}
-              </CardContent>
-            </Card>
-
-            <Card className="border-slate-200/60 dark:border-slate-800">
-              <CardHeader>
-                <CardTitle className="text-sm font-bold text-slate-900 dark:text-white">Recent Shortlists & Bids</CardTitle>
-                <CardDescription className="text-xs">Latest supplier entries added to sourcing matrix</CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                {initialSuppliers.length === 0 ? (
-                  <p className="text-xs text-slate-400">No suppliers registered.</p>
-                ) : (
-                  initialSuppliers.slice(0, 3).map((supplier, idx) => (
-                    <div key={idx} className="flex items-start gap-4 border-b border-slate-100 pb-3 last:border-0 last:pb-0 dark:border-slate-900">
-                      <button
-                        onClick={() => {
-                          setSubtab('workplace')
-                        }}
-                        className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-indigo-100 text-indigo-800 dark:bg-indigo-950/40 dark:text-indigo-400 hover:underline cursor-pointer"
-                      >
-                        {supplier.supplier_name}
-                      </button>
-                      <div className="flex-1 space-y-0.5">
-                        <p className="text-xs text-slate-800 dark:text-slate-200 font-medium">
-                          Created at {new Date(supplier.created_at).toLocaleDateString()}
-                        </p>
-                        <p className="text-[10px] text-slate-400">Contact: {supplier.suppliers?.email || supplier.suppliers?.phone || 'N/A'}</p>
-                      </div>
-                    </div>
-                  ))
-                )}
-              </CardContent>
-            </Card>
-            </div>
-          </div>
-        ) : (
+            <SourcingAnalytics
+              suppliers={suppliers}
+              orders={orders}
+              setSubtab={setSubtab}
+            />
+          ) : (
             <div className="animate-in fade-in duration-300">
               <KanbanBoard
                 orders={initialOrders}
@@ -1957,22 +1639,9 @@ export function SourcingClient({ initialOrders, initialSuppliers, initialAudits 
               <DropdownMenuContent align="end" className="w-56 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-1 shadow-md z-50">
                 <DropdownMenuItem
                   onClick={() => {
-                    setManualForm({
-                      supplierName: '',
-                      email: '',
-                      phone: '',
-                      address: '',
-                      orderId: '',
-                      website: '',
-                      contactPerson: '',
-                      taxId: '',
-                      businessType: ''
-                    })
-                    setItemBids({})
-                    setCapabilities([])
-                    setIsAddOpen(true)
-                    setErrorMessage(null)
-                  }}
+                                      setIsAddOpen(true)
+                                      setErrorMessage(null)
+                                    }}
                   className="flex items-center gap-2 px-2.5 py-1.5 text-xs rounded-lg cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-800 font-semibold text-slate-700 dark:text-slate-300"
                 >
                   <Plus size={12} className="text-[#5c59e9]" />
@@ -2157,96 +1826,14 @@ export function SourcingClient({ initialOrders, initialSuppliers, initialAudits 
       <div className="grid lg:grid-cols-[280px_1fr] -mx-8 -mt-8 -mb-8 h-[calc(100vh-4rem)] overflow-hidden">
 
         {/* Left column: Purchase Orders sidebar */}
-        <div className="border-r border-slate-200/60 dark:border-slate-800 bg-white dark:bg-slate-950 flex flex-col h-full overflow-hidden">
-          <div className="p-2 border-b border-slate-100 dark:border-slate-800 flex-shrink-0 space-y-1.5">
-            <div>
-              <h3 className="text-xs font-bold text-slate-900 dark:text-white">Purchase Orders</h3>
-            </div>
-            <div className="relative">
-              <Search size={12} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" />
-              <input
-                type="text"
-                placeholder="Search orders..."
-                value={sidebarOrderSearch}
-                onChange={(e) => setSidebarOrderSearch(e.target.value)}
-                className="w-full pl-7.5 pr-2.5 py-0.5 text-[11px] rounded-md border border-slate-200 focus:outline-none focus:ring-1 focus:ring-indigo-500 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-100"
-              />
-            </div>
-          </div>
-          <div className="flex-1 overflow-y-auto">
-            {/* All Suppliers button */}
-            <div className="border-b border-slate-100 dark:border-slate-800/80">
-              <button
-                id="btn-all-suppliers"
-                onClick={() => {
-                  setSelectedOrderId(null);
-                  setViewMode('all');
-                }}
-                className={`w-full text-left px-2.5 py-3 flex items-center justify-between gap-1 transition-colors cursor-pointer ${
-                  viewMode === 'all'
-                    ? 'bg-indigo-50 dark:bg-indigo-950/30'
-                    : 'hover:bg-slate-50/80 dark:hover:bg-slate-900/20'
-                }`}
-              >
-                <div className="flex items-center gap-2 min-w-0">
-                  <Globe size={13} className={viewMode === 'all' ? 'text-indigo-600 dark:text-indigo-400' : 'text-slate-400 dark:text-slate-500'} />
-                  <span className={`text-xs font-bold ${viewMode === 'all' ? 'text-indigo-700 dark:text-indigo-400' : 'text-slate-800 dark:text-slate-200'}`}>
-                    All Suppliers
-                  </span>
-                </div>
-                <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-md ${
-                  viewMode === 'all'
-                    ? 'bg-indigo-200/50 dark:bg-indigo-900/50 text-indigo-700 dark:text-indigo-400'
-                    : 'bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400'
-                }`}>
-                  {filteredAllSuppliers.length}
-                </span>
-              </button>
-            </div>
-
-            {filteredOrders.length === 0 ? (
-              <div className="p-3 text-center text-xs text-slate-400">
-                No orders found.
-              </div>
-            ) : (
-              <ul className="divide-y divide-slate-100 dark:divide-slate-800">
-                {filteredOrders.map(order => (
-                  <li key={order.id}>
-                    <button
-                      id={`order-select-${order.id}`}
-                      onClick={() => {
-                        if (selectedOrderId === order.id) {
-                          setSelectedOrderId(null);
-                          setViewMode('all');
-                        } else {
-                          setSelectedOrderId(order.id);
-                          setViewMode('order');
-                        }
-                      }}
-                      className={`w-full text-left px-2.5 py-3 flex items-center justify-between gap-1 transition-colors cursor-pointer ${
-                        viewMode === 'order' && selectedOrderId === order.id
-                          ? 'bg-indigo-50 dark:bg-indigo-950/30'
-                          : 'hover:bg-slate-50/80 dark:hover:bg-slate-900/20'
-                      }`}
-                    >
-                      <div className="flex items-center gap-2 min-w-0">
-                        <FileText size={13} className={viewMode === 'order' && selectedOrderId === order.id ? 'text-indigo-600 dark:text-indigo-400' : 'text-slate-400 dark:text-slate-500'} />
-                        <span className={`text-xs font-bold truncate ${
-                          viewMode === 'order' && selectedOrderId === order.id
-                            ? 'text-indigo-700 dark:text-indigo-400'
-                            : 'text-slate-800 dark:text-slate-200'
-                        }`}>
-                          {order.order_code}
-                        </span>
-                      </div>
-                      <ChevronRight size={12} className={viewMode === 'order' && selectedOrderId === order.id ? 'text-indigo-500' : 'text-slate-300'} />
-                    </button>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </div>
-        </div>
+        <OrderSidebar
+          orders={orders}
+          viewMode={viewMode}
+          selectedOrderId={selectedOrderId}
+          setViewMode={setViewMode}
+          setSelectedOrderId={setSelectedOrderId}
+          allSuppliersCount={suppliers.filter(s => s.is_bid).length}
+        />
 
         {/* Right column: main workplace panel */}
         <div className="flex flex-col h-full overflow-y-auto p-3">
@@ -2339,22 +1926,9 @@ export function SourcingClient({ initialOrders, initialSuppliers, initialAudits 
                           {/* Add Supplier */}
                           <DropdownMenuItem
                             onClick={() => {
-                              setManualForm({
-                                supplierName: '',
-                                email: '',
-                                phone: '',
-                                address: '',
-                                orderId: '',
-                                website: '',
-                                contactPerson: '',
-                                taxId: '',
-                                businessType: ''
-                              })
-                              setItemBids({})
-                              setCapabilities([])
-                              setIsAddOpen(true)
-                              setErrorMessage(null)
-                            }}
+                                      setIsAddOpen(true)
+                                      setErrorMessage(null)
+                                    }}
                             className="flex items-center gap-2 px-2.5 py-1.5 text-xs rounded-lg cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-800 font-semibold text-slate-700 dark:text-slate-300"
                           >
                             <Plus size={12} className="text-[#5c59e9]" />
@@ -2903,23 +2477,6 @@ export function SourcingClient({ initialOrders, initialSuppliers, initialAudits 
                                     variant="outline"
                                     size="sm"
                                     onClick={() => {
-                                      setManualForm({
-                                        supplierName: '',
-                                        email: '',
-                                        phone: '',
-                                        address: '',
-                                        orderId: selectedOrderId || '',
-                                        website: '',
-                                        contactPerson: '',
-                                        taxId: '',
-                                        businessType: ''
-                                      })
-                                      setCapabilities([])
-                                      if (selectedOrderId) {
-                                        handleSelectOrder(selectedOrderId)
-                                      } else {
-                                        setItemBids({})
-                                      }
                                       setIsAddOpen(true)
                                       setErrorMessage(null)
                                     }}
@@ -2945,26 +2502,9 @@ export function SourcingClient({ initialOrders, initialSuppliers, initialAudits 
                                       {/* Add Supplier */}
                                       <DropdownMenuItem
                                         onClick={() => {
-                                          setManualForm({
-                                            supplierName: '',
-                                            email: '',
-                                            phone: '',
-                                            address: '',
-                                            orderId: selectedOrderId || '',
-                                            website: '',
-                                            contactPerson: '',
-                                            taxId: '',
-                                            businessType: ''
-                                          })
-                                          setCapabilities([])
-                                          if (selectedOrderId) {
-                                            handleSelectOrder(selectedOrderId)
-                                          } else {
-                                            setItemBids({})
-                                          }
-                                          setIsAddOpen(true)
-                                          setErrorMessage(null)
-                                        }}
+                                      setIsAddOpen(true)
+                                      setErrorMessage(null)
+                                    }}
                                         className="flex items-center gap-2 px-2.5 py-1.5 text-xs rounded-lg cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-800 font-semibold text-slate-700 dark:text-slate-300"
                                       >
                                         <Plus size={12} className="text-[#5c59e9]" />
@@ -3065,26 +2605,9 @@ export function SourcingClient({ initialOrders, initialSuppliers, initialAudits 
                                 <p className="text-xs text-slate-400">Click &quot;Add Supplier&quot; to start building your comparison matrix</p>
                                 <Button
                                   onClick={() => {
-                                    setManualForm({
-                                      supplierName: '',
-                                      email: '',
-                                      phone: '',
-                                      address: '',
-                                      orderId: selectedOrderId || '',
-                                      website: '',
-                                      contactPerson: '',
-                                      taxId: '',
-                                      businessType: ''
-                                    })
-                                    setCapabilities([])
-                                    if (selectedOrderId) {
-                                      handleSelectOrder(selectedOrderId)
-                                    } else {
-                                      setItemBids({})
-                                    }
-                                    setIsAddOpen(true)
-                                    setErrorMessage(null)
-                                  }}
+                                      setIsAddOpen(true)
+                                      setErrorMessage(null)
+                                    }}
                                   size="sm"
                                   className="mt-2 gap-1.5 bg-[#5c59e9] hover:bg-[#4a47d2]"
                                 >
@@ -3346,693 +2869,23 @@ export function SourcingClient({ initialOrders, initialSuppliers, initialAudits 
       </Tabs>
 
       {/* Add Supplier Modal */}
-      {isAddOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-          <div
-            className="absolute inset-0 bg-black/40 backdrop-blur-sm"
-            onClick={() => { setIsAddOpen(false); setErrorMessage(null) }}
-          />
-          <div className="relative z-10 w-full max-w-3xl bg-white dark:bg-slate-900 rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-800">
-            <div className="flex items-center justify-between px-6 py-5 border-b border-slate-100 dark:border-slate-800">
-              <div>
-                <h2 className="text-base font-bold text-slate-900 dark:text-white">Add Supplier</h2>
-                <p className="text-xs text-slate-400 mt-0.5">
-                  {viewMode === 'order' && selectedOrder
-                    ? `For order ${selectedOrder.order_code}`
-                    : 'Add a new supplier to the system'}
-                </p>
-              </div>
-              <div className="flex items-center gap-2">
-                <button
-                  type="button"
-                  onClick={() => {
-                    const headers = [
-                      'Supplier Name*', 'Email', 'Phone', 'Address', 'Website', 'Contact Person', 'Tax ID', 'Business Type',
-                      'Supplier Code', 'Legal Name', 'Year Founded', 'Company Size', 'Industry', 'Main Products (comma-separated)', 'Short Description',
-                      'Primary Contact Name', 'Position', 'Alternative Contact', 'Street', 'District', 'City', 'Country', 'Postal Code', 'LinkedIn', 'Social Contact (Zalo/WeChat)',
-                      'Payment Terms', 'Currency', 'Bank Info', 'Credit Limit', 'Tax Status', 'Business License', 'Certifications (comma-separated)',
-                      'Sourcing Category', 'Lead Time Average (days)', 'MOQ', 'Pricing Tier', 'Quality Rating', 'Reliability Score (%)', 'On-Time Delivery Rate (%)', 'Defect Rate (%)', 'Last Sourced Date (YYYY-MM-DD)', 'Total Spend', 'Total Orders', 'Is Preferred (TRUE/FALSE)',
-                      'Status (Prospect/Active/Inactive/Blacklisted)', 'Sourcing Stage', 'Approval Date (YYYY-MM-DD)', 'Reviewed By', 'Next Review Date (YYYY-MM-DD)', 'Risk Level (Low/Medium/High)', 'Risk Notes', 'Created By', 'Owner PIC', 'Tags (comma-separated)',
-                      'ESG Score', 'Social Responsibility Notes', 'Max Monthly Capacity', 'Main Markets (comma-separated)', 'Competitors', 'Internal Notes', 'Communication History',
-                      'Product 1 Name', 'Product 1 Price', 'Product 1 Lead Time (days)', 'Product 1 MOQ', 'Product 1 SKU', 'Product 1 Description',
-                      'Product 2 Name', 'Product 2 Price', 'Product 2 Lead Time (days)', 'Product 2 MOQ', 'Product 2 SKU', 'Product 2 Description',
-                    ]
-                    const exampleRow = [
-                      'Viet My Woodworking Ltd', 'contact@vietmy.com', '+84 901 234 567', '12 Industrial Zone, Binh Duong', 'https://vietmy.com', 'Nguyen Van A', '0123456789', 'Manufacturer',
-                      'SUP-001', 'Cong Ty TNHH Viet My', '2010', '51-200', 'Furniture', 'Wooden Chair, Table, Cabinet', 'High quality furniture manufacturer with ISO 9001',
-                      'Mr. Nguyen Van A', 'CEO', 'Ms. Le Thi B - +84 912 345 678', '12 Industrial Zone', 'Thu Dau Mot', 'Binh Duong', 'Vietnam', '820000', 'linkedin.com/company/vietmy', 'Zalo: 0901234567',
-                      'Net 30', 'USD', 'VietcomBank - 1234567890 - BFTVVNVX', '50000', 'VAT Registered', 'BRC-001234', 'ISO 9001, BSCI, SEDEX',
-                      'Furniture', '45', '500', 'Mid-range', 'A', '95', '98', '0.5', '2024-01-15', '250000', '12', 'FALSE',
-                      'Active', 'Approved', '2023-06-01', 'John Doe', '2025-06-01', 'Low', '', 'Admin', 'Sarah Lee', 'wood, furniture, export',
-                      '85', 'Factory audited 2024. BSCI certified.', '5000 units/month', 'US, EU, Australia', 'VN Wood Co., HaNoi Timber', 'Reliable long-term partner', '2024-02-10 Discussed new collection',
-                      'Wooden Chair Model A', '25.00', '30', '200', 'CHR-A-001', 'Solid oak, natural finish',
-                      'Dining Table 6-seat', '180.00', '45', '50', 'TBL-D-006', 'Teak wood, lacquer finish',
-                    ]
-                    const csvContent = '\uFEFF' + headers.map(h => `"${h}"`).join(',') + '\r\n' + exampleRow.map(v => `"${String(v).replace(/"/g, '""')}"`).join(',') + '\r\n'
-                    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' })
-                    const url = URL.createObjectURL(blob)
-                    const a = document.createElement('a')
-                    a.href = url
-                    a.download = 'supplier_import_template.csv'
-                    a.click()
-                    URL.revokeObjectURL(url)
-                  }}
-                  title="Download Excel/CSV Template"
-                  className="h-8 px-3 flex items-center gap-1.5 rounded-lg border border-emerald-200 dark:border-emerald-800 bg-emerald-50 dark:bg-emerald-950/25 text-emerald-700 dark:text-emerald-400 text-[11px] font-semibold hover:bg-emerald-100 dark:hover:bg-emerald-900/30 transition-colors cursor-pointer"
-                >
-                  <Download size={13} />
-                  <span>Template</span>
-                </button>
-                <button
-                  onClick={() => { setIsAddOpen(false); setErrorMessage(null) }}
-                  className="h-8 w-8 flex items-center justify-center rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-400 transition-colors cursor-pointer"
-                >
-                  <X size={16} />
-                </button>
-              </div>
-            </div>
-
-            <form onSubmit={handleAddSupplier} className="p-6 space-y-4 max-h-[80vh] overflow-y-auto">
-              {errorMessage && (
-                <div className="flex items-start gap-2 rounded-lg bg-red-50 dark:bg-red-950/20 border border-red-200 dark:border-red-900 px-4 py-3">
-                  <AlertCircle size={15} className="text-red-500 mt-0.5 flex-shrink-0" />
-                  <span className="text-xs text-red-600 dark:text-red-400">{errorMessage}</span>
-                </div>
-              )}
-
-              {/* SECTION 2: Order Selection & Product items mapping */}
-              <div className="space-y-3.5 border-b border-slate-100 dark:border-slate-800 pb-4">
-                <h3 className="text-xs font-bold text-[#5c59e9] uppercase tracking-wider">Order &amp; Capability Mapping</h3>
-                
-                {/* Searchable Order Combobox */}
-                <div className="space-y-1.5">
-                  <Label className="text-xs font-semibold text-slate-700 dark:text-slate-300">
-                    Associated Order
-                  </Label>
-                  <div className="relative">
-                    <div 
-                      className="flex h-9 w-full items-center justify-between rounded-md border border-slate-200 bg-white px-3 py-2 text-xs text-slate-800 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-200 cursor-pointer"
-                      onClick={() => setIsOrderDropdownOpen(!isOrderDropdownOpen)}
-                    >
-                      <span>
-                        {manualForm.orderId 
-                          ? orders.find(o => o.id === manualForm.orderId)?.order_code 
-                          : "No Associated Order (Unassigned)"
-                        }
-                      </span>
-                      <ChevronRight size={14} className="transform rotate-90" />
-                    </div>
-                    
-                    {isOrderDropdownOpen && (
-                      <div className="absolute z-50 mt-1 w-full rounded-md border border-slate-200 bg-white shadow-lg dark:border-slate-800 dark:bg-slate-900 max-h-60 overflow-y-auto">
-                        <div className="flex items-center border-b border-slate-100 dark:border-slate-800 px-2 py-1 bg-slate-50 dark:bg-slate-950">
-                          <Search size={12} className="text-slate-400 mr-2" />
-                          <input 
-                            type="text"
-                            placeholder="Search orders..."
-                            value={orderSearchQuery}
-                            onChange={e => setOrderSearchQuery(e.target.value)}
-                            className="w-full bg-transparent text-xs py-1 outline-none text-slate-800 dark:text-slate-200 placeholder:text-slate-400"
-                            onClick={(e) => e.stopPropagation()}
-                          />
-                        </div>
-                        <ul className="divide-y divide-slate-100 dark:divide-slate-800">
-                          <li 
-                            className="px-3 py-2 text-xs font-semibold text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer"
-                            onClick={() => handleSelectOrder('')}
-                          >
-                            No Associated Order (Unassigned)
-                          </li>
-                          {orders
-                            .filter(o => o.order_code.toLowerCase().includes(orderSearchQuery.toLowerCase()))
-                            .map(o => (
-                              <li 
-                                key={o.id}
-                                className="px-3 py-2 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer text-xs flex flex-col gap-0.5"
-                                onClick={() => handleSelectOrder(o.id)}
-                              >
-                                <span className="font-bold text-slate-800 dark:text-slate-200">{o.order_code}</span>
-                                <span className="text-[10px] text-slate-400">Date: {o.order_date || '—'}</span>
-                              </li>
-                            ))
-                          }
-                        </ul>
-                      </div>
-                    )}
-                  </div>
-                </div>
-
-                {/* CASE 2: Checklist of Order Items */}
-                {manualForm.orderId && (
-                  <div className="space-y-2.5">
-                    <Label className="text-xs font-semibold text-slate-700 dark:text-slate-300">
-                      Order Product Items Checklist
-                    </Label>
-                    <div className="border border-slate-100 dark:border-slate-800 rounded-xl p-4 space-y-3.5 bg-slate-50/20 max-h-56 overflow-y-auto">
-                      {orders.find(o => o.id === manualForm.orderId)?.order_items?.map(item => {
-                        const bid = itemBids[item.id] || { checked: false, price: '', leadTime: '' }
-                        return (
-                          <div key={item.id} className="space-y-2 border-b border-slate-100 dark:border-slate-800/50 pb-2.5 last:border-0 last:pb-0">
-                            <label className="flex items-center gap-2 text-xs font-bold text-slate-800 dark:text-slate-200 cursor-pointer">
-                              <input 
-                                type="checkbox"
-                                checked={bid.checked}
-                                onChange={e => setItemBids(prev => ({
-                                  ...prev,
-                                  [item.id]: { ...bid, checked: e.target.checked }
-                                }))}
-                                className="rounded text-[#5c59e9] focus:ring-[#5c59e9] h-3.5 w-3.5 cursor-pointer"
-                              />
-                              {item.item_name} ({item.quantity})
-                            </label>
-                          </div>
-                        )
-                      })}
-                    </div>
-                  </div>
-                )}
-
-                {/* Suggested Suppliers Section based on checked items */}
-                {subtab !== 'suppliers' && suggestedSuppliers.length > 0 && (
-                  <div className="space-y-1.5 pt-1 animate-in fade-in duration-200">
-                    <Label className="text-xs font-bold text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
-                      <Sparkles size={13} className="text-[#5c59e9] fill-[#5c59e9]/20" />
-                      <span>Suggested Suppliers for Selected Items</span>
-                    </Label>
-                    
-                    <div className="relative">
-                      <div 
-                        className="flex h-9 w-full items-center justify-between rounded-md border border-slate-200 bg-white px-3 py-2 text-xs text-slate-800 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-200 cursor-pointer"
-                        onClick={() => setIsSupplierDropdownOpen(!isSupplierDropdownOpen)}
-                      >
-                        <span className="truncate font-semibold">
-                          {manualForm.supplierName 
-                            ? manualForm.supplierName 
-                            : `Select Suggested Supplier (${suggestedSuppliers.length} matches)...`
-                          }
-                        </span>
-                        <ChevronDown size={14} className="text-slate-400 animate-in duration-100" />
-                      </div>
-                      
-                      {isSupplierDropdownOpen && (
-                        <div className="absolute z-50 mt-1 w-full rounded-md border border-slate-200 bg-white shadow-lg dark:border-slate-800 dark:bg-slate-900 max-h-60 overflow-y-auto">
-                          <div className="flex items-center border-b border-slate-100 dark:border-slate-800 px-2 py-1 bg-slate-50 dark:bg-slate-950">
-                            <Search size={12} className="text-slate-400 mr-2" />
-                            <input 
-                              type="text"
-                              placeholder="Search suggested suppliers..."
-                              value={supplierSearchQuery}
-                              onChange={e => setSupplierSearchQuery(e.target.value)}
-                              className="w-full bg-transparent text-xs py-1 outline-none text-slate-800 dark:text-slate-200 placeholder:text-slate-400"
-                              onClick={(e) => e.stopPropagation()}
-                            />
-                          </div>
-                          <ul className="divide-y divide-slate-100 dark:divide-slate-800">
-                            <li 
-                              className="px-3 py-2 text-xs font-semibold text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer"
-                              onClick={() => {
-                                setManualForm(f => ({
-                                  ...f,
-                                  supplierName: '',
-                                  email: '',
-                                  phone: '',
-                                  address: '',
-                                  website: '',
-                                  contactPerson: '',
-                                  taxId: '',
-                                  businessType: ''
-                                }))
-                                setIsSupplierDropdownOpen(false)
-                              }}
-                            >
-                              Clear Selection (Unassign)
-                            </li>
-                            {suggestedSuppliers
-                              .filter(sup => sup.name.toLowerCase().includes(supplierSearchQuery.toLowerCase()))
-                              .map(sup => {
-                                const matchingCaps = sup.supplier_capabilities?.filter((cap: any) => {
-                                  const capName = (cap.product_name || '').toLowerCase().trim()
-                                  return checkedItemNames.some(itemName => 
-                                    capName.includes(itemName) || itemName.includes(capName)
-                                  )
-                                }) || []
-
-                                const matchingProds = (sup.main_products as string[])?.filter((prod: string) => {
-                                  const prodName = (prod || '').toLowerCase().trim()
-                                  return checkedItemNames.some(itemName => 
-                                    prodName.includes(itemName) || itemName.includes(prodName)
-                                  )
-                                }) || []
-
-                                const hasPrice = matchingCaps.length > 0
-                                const priceText = hasPrice 
-                                  ? ` ($${Number(matchingCaps[0].target_price).toFixed(2)})`
-                                  : ' (Match)'
-
-                                return (
-                                  <li 
-                                    key={sup.id}
-                                    className="px-3 py-2 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer text-xs flex flex-col gap-0.5"
-                                    onClick={() => {
-                                      setManualForm(f => ({
-                                        ...f,
-                                        supplierName: sup.name,
-                                        email: sup.email || '',
-                                        phone: sup.phone || '',
-                                        address: sup.address || '',
-                                        website: sup.website || '',
-                                        contactPerson: sup.contact_person || '',
-                                        taxId: sup.tax_id || '',
-                                        businessType: sup.business_type || ''
-                                      }))
-                                      setIsSupplierDropdownOpen(false)
-                                      setSupplierSearchQuery('')
-                                    }}
-                                  >
-                                    <div className="flex justify-between items-center w-full">
-                                      <span className="font-bold text-slate-800 dark:text-slate-200">{sup.name}</span>
-                                      <span className={`text-[10px] font-semibold ${hasPrice ? 'text-indigo-650 dark:text-indigo-350' : 'text-emerald-650 dark:text-emerald-450'}`}>
-                                        {priceText}
-                                      </span>
-                                    </div>
-                                    <span className="text-[10px] text-slate-400 truncate">
-                                      Matches: {[...matchingCaps.map((c: any) => c.product_name), ...matchingProds].join(', ')}
-                                    </span>
-                                  </li>
-                                )
-                              })
-                            }
-                          </ul>
-                        </div>
-                      )}
-                    </div>
-                  </div>
-                )}
-
-                {/* Repeating capability rows (only shown in Supplier Profiles tab) */}
-                {subtab === 'suppliers' && (
-                  <div className="space-y-2 pt-1">
-                    <div className="flex items-center justify-between">
-                      <Label className="text-xs font-semibold text-slate-700 dark:text-slate-300">
-                        External Capabilities (Product Catalog)
-                      </Label>
-                      <Button
-                        type="button"
-                        variant="outline"
-                        size="sm"
-                        onClick={() => setCapabilities(prev => [
-                          ...prev, 
-                          { 
-                            id: Math.random().toString(), 
-                            productName: '', 
-                            targetPrice: '',
-                            leadTimeDays: '',
-                            description: '',
-                            moq: '',
-                            sku: '',
-                            monthlyCapacity: ''
-                          }
-                        ])}
-                        className="h-7 text-[10px] px-2 gap-1 border-indigo-200 text-[#5c59e9] hover:bg-indigo-50 dark:border-indigo-900/50 cursor-pointer"
-                      >
-                        <Plus size={11} />
-                        Add Product
-                      </Button>
-                    </div>
-                    
-                    {capabilities.length === 0 ? (
-                      <div className="text-center p-4 border border-dashed border-slate-200 dark:border-slate-800 rounded-xl text-[10px] text-slate-400">
-                        No external product capabilities added.
-                      </div>
-                    ) : (
-                      <div className="space-y-3.5 max-h-80 overflow-y-auto pr-1">
-                        {capabilities.map((cap, idx) => (
-                          <div key={cap.id} className="p-3 border border-slate-100 dark:border-slate-800/80 rounded-xl bg-slate-50/20 dark:bg-slate-900/10 space-y-2.5 relative">
-                            <div className="flex items-center justify-between">
-                              <span className="text-[9px] font-extrabold text-slate-400 dark:text-slate-500 uppercase tracking-wider">Product #{idx + 1}</span>
-                              <button
-                                type="button"
-                                onClick={() => setCapabilities(prev => prev.filter(c => c.id !== cap.id))}
-                                className="h-5 w-5 flex items-center justify-center text-slate-400 hover:text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-955/20 rounded transition-colors cursor-pointer"
-                                title="Delete capability"
-                              >
-                                <Trash2 size={11} />
-                              </button>
-                            </div>
-
-                            {/* Grid 1: Name & SKU */}
-                            <div className="grid grid-cols-3 gap-2">
-                              <div className="col-span-2 space-y-1">
-                                <Label className="text-[9px] font-semibold text-slate-500">Product Name *</Label>
-                                <Input 
-                                  placeholder="e.g. Dining Chair"
-                                  value={cap.productName}
-                                  onChange={e => setCapabilities(prev => prev.map(c => 
-                                    c.id === cap.id ? { ...c, productName: e.target.value } : c
-                                  ))}
-                                  className="text-xs h-7"
-                                  required
-                                />
-                              </div>
-                              <div className="space-y-1">
-                                <Label className="text-[9px] font-semibold text-slate-500">Product SKU</Label>
-                                <Input 
-                                  placeholder="e.g. DC-101"
-                                  value={cap.sku || ''}
-                                  onChange={e => setCapabilities(prev => prev.map(c => 
-                                    c.id === cap.id ? { ...c, sku: e.target.value } : c
-                                  ))}
-                                  className="text-xs h-7"
-                                />
-                              </div>
-                            </div>
-
-                            {/* Grid 2: Price, Lead Time & MOQ */}
-                            <div className="grid grid-cols-3 gap-2">
-                              <div className="space-y-1">
-                                <Label className="text-[9px] font-semibold text-slate-500">Target Price ($) *</Label>
-                                <Input 
-                                  type="number"
-                                  step="0.01"
-                                  placeholder="120.00"
-                                  value={cap.targetPrice}
-                                  onChange={e => setCapabilities(prev => prev.map(c => 
-                                    c.id === cap.id ? { ...c, targetPrice: e.target.value } : c
-                                  ))}
-                                  className="text-xs h-7"
-                                  required
-                                />
-                              </div>
-                              <div className="space-y-1">
-                                <Label className="text-[9px] font-semibold text-slate-500">Lead Time (days)</Label>
-                                <Input 
-                                  placeholder="e.g. 7-10"
-                                  value={cap.leadTimeDays || ''}
-                                  onChange={e => setCapabilities(prev => prev.map(c => 
-                                    c.id === cap.id ? { ...c, leadTimeDays: e.target.value } : c
-                                  ))}
-                                  className="text-xs h-7"
-                                />
-                              </div>
-                              <div className="space-y-1">
-                                <Label className="text-[9px] font-semibold text-slate-500">Min Order (MOQ)</Label>
-                                <Input 
-                                  type="number"
-                                  placeholder="e.g. 50"
-                                  value={cap.moq || ''}
-                                  onChange={e => setCapabilities(prev => prev.map(c => 
-                                    c.id === cap.id ? { ...c, moq: e.target.value } : c
-                                  ))}
-                                  className="text-xs h-7"
-                                />
-                              </div>
-                            </div>
-
-                            {/* Grid 3: Capacity & Description */}
-                            <div className="grid grid-cols-3 gap-2">
-                              <div className="space-y-1">
-                                <Label className="text-[9px] font-semibold text-slate-500">Capacity</Label>
-                                <Input 
-                                  placeholder="e.g. 1k/month"
-                                  value={cap.monthlyCapacity || ''}
-                                  onChange={e => setCapabilities(prev => prev.map(c => 
-                                    c.id === cap.id ? { ...c, monthlyCapacity: e.target.value } : c
-                                  ))}
-                                  className="text-xs h-7"
-                                />
-                              </div>
-                              <div className="col-span-2 space-y-1">
-                                <Label className="text-[9px] font-semibold text-slate-500">Description</Label>
-                                <Input 
-                                  placeholder="Material, specs..."
-                                  value={cap.description || ''}
-                                  onChange={e => setCapabilities(prev => prev.map(c => 
-                                    c.id === cap.id ? { ...c, description: e.target.value } : c
-                                  ))}
-                                  className="text-xs h-7"
-                                />
-                              </div>
-                            </div>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                  </div>
-                )}
-              </div>
-
-              {/* SECTION 1: Supplier Basic Info */}
-              <div className="space-y-3 pt-2">
-                <h3 className="text-xs font-bold text-[#5c59e9] uppercase tracking-wider">Basic Information</h3>
-                
-                <div className="space-y-1.5">
-                {subtab === 'suppliers' && (
-                  <div className="space-y-1.5">
-                    <Label htmlFor="supplier-name" className="text-xs font-semibold text-slate-700 dark:text-slate-300">
-                      Supplier / Factory Name <span className="text-red-500">*</span>
-                    </Label>
-                    <Input
-                      id="supplier-name"
-                      placeholder="e.g. Viet My Woodworking Ltd"
-                      value={manualForm.supplierName}
-                      onChange={e => setManualForm(f => ({ ...f, supplierName: e.target.value }))}
-                      className="text-xs h-9"
-                      required
-                    />
-                  </div>
-                )}
-                </div>
-
-                {(subtab === 'suppliers' || manualForm.supplierName) && (
-                  <div className="space-y-3.5 pt-1.5 animate-in fade-in duration-200">
-                    <div className="grid grid-cols-2 gap-3.5">
-                      <div className="space-y-1.5">
-                        <Label htmlFor="supplier-email" className="text-xs font-semibold text-slate-700 dark:text-slate-300">
-                          Supplier Email
-                        </Label>
-                        <Input
-                          id="supplier-email"
-                          type="email"
-                          placeholder="e.g. contact@vietmy.com"
-                          value={manualForm.email}
-                          onChange={e => setManualForm(f => ({ ...f, email: e.target.value }))}
-                          disabled={subtab !== 'suppliers'}
-                          className={`text-xs h-9 ${subtab !== 'suppliers' ? 'disabled:bg-blue-50/70 disabled:border-blue-200 disabled:text-blue-800 disabled:opacity-100 dark:disabled:bg-blue-950/20 dark:disabled:border-blue-900/60 dark:disabled:text-blue-400' : ''}`}
-                        />
-                      </div>
-
-                      <div className="space-y-1.5">
-                        <Label htmlFor="supplier-phone" className="text-xs font-semibold text-slate-700 dark:text-slate-300">
-                          Supplier Phone
-                        </Label>
-                        <Input
-                          id="supplier-phone"
-                          placeholder="e.g. +84 901 234 567"
-                          value={manualForm.phone}
-                          onChange={e => setManualForm(f => ({ ...f, phone: e.target.value }))}
-                          disabled={subtab !== 'suppliers'}
-                          className={`text-xs h-9 ${subtab !== 'suppliers' ? 'disabled:bg-blue-50/70 disabled:border-blue-200 disabled:text-blue-800 disabled:opacity-100 dark:disabled:bg-blue-950/20 dark:disabled:border-blue-900/60 dark:disabled:text-blue-400' : ''}`}
-                        />
-                      </div>
-                    </div>
-
-                    <div className="space-y-1.5">
-                      <Label htmlFor="supplier-address" className="text-xs font-semibold text-slate-700 dark:text-slate-300">
-                        Supplier Address
-                      </Label>
-                      <Input
-                        id="supplier-address"
-                        placeholder="e.g. Binh Duong Province, Vietnam"
-                        value={manualForm.address}
-                        onChange={e => setManualForm(f => ({ ...f, address: e.target.value }))}
-                        disabled={subtab !== 'suppliers'}
-                        className={`text-xs h-9 ${subtab !== 'suppliers' ? 'disabled:bg-blue-50/70 disabled:border-blue-200 disabled:text-blue-800 disabled:opacity-100 dark:disabled:bg-blue-950/20 dark:disabled:border-blue-900/60 dark:disabled:text-blue-400' : ''}`}
-                      />
-                    </div>
-
-                    <div className="grid grid-cols-2 gap-3.5 pt-1.5">
-                      <div className="space-y-1.5">
-                        <Label htmlFor="supplier-website" className="text-xs font-semibold text-slate-700 dark:text-slate-300">
-                          Supplier Website
-                        </Label>
-                        <Input
-                          id="supplier-website"
-                          placeholder="e.g. www.vietmy.com"
-                          value={manualForm.website}
-                          onChange={e => setManualForm(f => ({ ...f, website: e.target.value }))}
-                          disabled={subtab !== 'suppliers'}
-                          className={`text-xs h-9 ${subtab !== 'suppliers' ? 'disabled:bg-blue-50/70 disabled:border-blue-200 disabled:text-blue-800 disabled:opacity-100 dark:disabled:bg-blue-950/20 dark:disabled:border-blue-900/60 dark:disabled:text-blue-400' : ''}`}
-                        />
-                      </div>
-
-                      <div className="space-y-1.5">
-                        <Label htmlFor="supplier-contact" className="text-xs font-semibold text-slate-700 dark:text-slate-300">
-                          Contact Person
-                        </Label>
-                        <Input
-                          id="supplier-contact"
-                          placeholder="e.g. Nguyen Van A"
-                          value={manualForm.contactPerson}
-                          onChange={e => setManualForm(f => ({ ...f, contactPerson: e.target.value }))}
-                          disabled={subtab !== 'suppliers'}
-                          className={`text-xs h-9 ${subtab !== 'suppliers' ? 'disabled:bg-blue-50/70 disabled:border-blue-200 disabled:text-blue-800 disabled:opacity-100 dark:disabled:bg-blue-950/20 dark:disabled:border-blue-900/60 dark:disabled:text-blue-400' : ''}`}
-                        />
-                      </div>
-                    </div>
-
-                    <div className="grid grid-cols-2 gap-3.5 pt-1.5">
-                      <div className="space-y-1.5">
-                        <Label htmlFor="supplier-taxid" className="text-xs font-semibold text-slate-700 dark:text-slate-300">
-                          Tax ID / Reg No.
-                        </Label>
-                        <Input
-                          id="supplier-taxid"
-                          placeholder="e.g. 0102030405"
-                          value={manualForm.taxId}
-                          onChange={e => setManualForm(f => ({ ...f, taxId: e.target.value }))}
-                          disabled={subtab !== 'suppliers'}
-                          className={`text-xs h-9 ${subtab !== 'suppliers' ? 'disabled:bg-blue-50/70 disabled:border-blue-200 disabled:text-blue-800 disabled:opacity-100 dark:disabled:bg-blue-950/20 dark:disabled:border-blue-900/60 dark:disabled:text-blue-400' : ''}`}
-                        />
-                      </div>
-
-                      <div className="space-y-1.5">
-                        <Label htmlFor="supplier-businesstype" className="text-xs font-semibold text-slate-700 dark:text-slate-300">
-                          Business Type
-                        </Label>
-                        <select
-                          id="supplier-businesstype"
-                          value={manualForm.businessType}
-                          onChange={e => setManualForm(f => ({ ...f, businessType: e.target.value }))}
-                          disabled={subtab !== 'suppliers'}
-                          className={`flex w-full h-9 rounded-md border px-3 py-2 text-xs cursor-pointer ${
-                            subtab !== 'suppliers'
-                              ? 'border-blue-200 bg-blue-50/70 text-blue-800 opacity-100 dark:border-blue-900/60 dark:bg-blue-950/20 dark:text-blue-400'
-                              : 'border-slate-200 bg-white text-slate-800 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-200 disabled:bg-slate-100'
-                          }`}
-                        >
-                          <option value="">Select Business Type</option>
-                          <option value="Manufacturer">Manufacturer</option>
-                          <option value="Distributor">Distributor</option>
-                          <option value="Wholesaler">Wholesaler</option>
-                          <option value="Agent / Trader">Agent / Trader</option>
-                        </select>
-                      </div>
-                    </div>
-                  </div>
-                )}
-
-                {/* Product Capability Details Section */}
-                {subtab !== 'suppliers' && manualForm.supplierName && (() => {
-                  const matchedSupplier = uniqueSuppliers.find(sup => sup.name === manualForm.supplierName)
-                  const matchingCapabilities = matchedSupplier 
-                    ? (matchedSupplier.supplier_capabilities as any[])?.filter((cap: any) => {
-                        const capName = (cap.product_name || '').toLowerCase().trim()
-                        return checkedItemNames.some(itemName => 
-                          capName.includes(itemName) || itemName.includes(capName)
-                        )
-                      }) || []
-                    : []
-
-                  if (matchingCapabilities.length === 0) return null
-
-                  return (
-                    <div className="space-y-3 pt-4 border-t border-slate-100 dark:border-slate-800 mt-4 animate-in fade-in duration-200">
-                      <h3 className="text-xs font-bold text-[#5c59e9] uppercase tracking-wider flex items-center gap-1.5">
-                        <Tag size={13} className="text-[#5c59e9]" />
-                        <span>Matching Product Capabilities</span>
-                      </h3>
-                      
-                      <div className="grid grid-cols-1 gap-3">
-                        {matchingCapabilities.map((cap: any) => (
-                          <div 
-                            key={cap.id} 
-                            className="p-3.5 rounded-xl border border-indigo-100 dark:border-indigo-900/50 bg-indigo-50/20 dark:bg-indigo-950/10 space-y-3 text-xs"
-                          >
-                            <div className="flex justify-between items-start border-b border-indigo-50 dark:border-indigo-950/30 pb-2">
-                              <span className="font-bold text-slate-800 dark:text-slate-200 text-sm">
-                                {cap.product_name}
-                              </span>
-                              {cap.sku && (
-                                <span className="text-[10px] font-mono px-2 py-0.5 bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 rounded-md">
-                                  SKU: {cap.sku}
-                                </span>
-                              )}
-                            </div>
-                            
-                            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-slate-600 dark:text-slate-400 font-medium">
-                              <div className="flex flex-col gap-0.5">
-                                <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">Price</span>
-                                <span className="text-slate-800 dark:text-slate-200 font-extrabold text-sm text-[#5c59e9]">
-                                  ${Number(cap.target_price || 0).toFixed(2)}
-                                </span>
-                              </div>
-                              <div className="flex flex-col gap-0.5">
-                                <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">Lead Time</span>
-                                <span className="text-slate-800 dark:text-slate-200 font-bold">
-                                  {cap.lead_time_days ? `${cap.lead_time_days} days` : '—'}
-                                </span>
-                              </div>
-                              <div className="flex flex-col gap-0.5">
-                                <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">Min Order (MOQ)</span>
-                                <span className="text-slate-800 dark:text-slate-200 font-bold">
-                                  {cap.moq ? `${Number(cap.moq).toLocaleString()} pcs` : '—'}
-                                </span>
-                              </div>
-                              <div className="flex flex-col gap-0.5">
-                                <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">Capacity</span>
-                                <span className="text-slate-800 dark:text-slate-200 font-bold">
-                                  {cap.monthly_capacity || '—'}
-                                </span>
-                              </div>
-                            </div>
-
-                            {cap.description && (
-                              <div className="bg-white/50 dark:bg-slate-900/40 p-2.5 rounded-lg text-slate-500 border border-indigo-50/30">
-                                <span className="text-[10px] text-slate-400 block font-bold uppercase tracking-wider mb-0.5">Description</span>
-                                <span className="text-xs italic leading-normal">
-                                  {cap.description}
-                                </span>
-                              </div>
-                            )}
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  )
-                })()}
-              </div>
-
-              <div className="flex gap-3 pt-4">
-                <Button
-                  type="button"
-                  variant="outline"
-                  onClick={() => { setIsAddOpen(false); setErrorMessage(null) }}
-                  className="flex-1 h-9 text-sm cursor-pointer"
-                >
-                  Cancel
-                </Button>
-                <Button
-                  type="submit"
-                  disabled={isSubmitting}
-                  className="flex-1 h-9 text-sm bg-[#5c59e9] hover:bg-[#4a47d2] cursor-pointer gap-2"
-                >
-                  {isSubmitting ? (
-                    <>
-                      <Loader2 size={14} className="animate-spin" />
-                      Adding...
-                    </>
-                  ) : (
-                    <>
-                      <Plus size={14} />
-                      Add Supplier
-                    </>
-                  )}
-                </Button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
+      <AssignSupplierModal
+        isOpen={isAddOpen}
+        onClose={() => setIsAddOpen(false)}
+        orders={orders}
+        uniqueSuppliers={uniqueSuppliers}
+        selectedOrderId={selectedOrderId}
+        viewMode={viewMode}
+        subtab={subtab}
+        onSuccess={invalidateSourcingData}
+        addSupplierNormalizedAction={addSupplierNormalizedAction}
+        onDuplicateDetected={(duplicates, payload) => {
+          setPendingActionType('manual')
+          setPendingPayload(payload)
+          setConflictingDuplicates(duplicates)
+          setIsConflictDialogOpen(true)
+        }}
+      />
 
       {/* Delete Confirmation Modal */}
       {confirmDeleteId && (
@@ -4213,7 +3066,7 @@ export function SourcingClient({ initialOrders, initialSuppliers, initialAudits 
                     setIsPoConfirming(false)
                     if (res.success) {
                       setPoSupplier(null)
-                      router.refresh()
+                      await invalidateSourcingData()
                     } else {
                       setErrorMessage(res.error || 'Failed to create PO')
                     }
@@ -4306,7 +3159,7 @@ export function SourcingClient({ initialOrders, initialSuppliers, initialAudits 
                           setIsImportOpen(false)
                           setCsvPreview([])
                           setImportStatus(null)
-                          router.refresh()
+                          invalidateSourcingData()
                         }}
                         className="bg-[#5c59e9] hover:bg-[#4a47d2] px-6 cursor-pointer"
                       >
@@ -4466,7 +3319,7 @@ export function SourcingClient({ initialOrders, initialSuppliers, initialAudits 
                           setPasteText('')
                           setPastePreview([])
                           setPasteImportStatus(null)
-                          router.refresh()
+                          invalidateSourcingData()
                         }}
                         className="bg-[#5c59e9] hover:bg-[#4a47d2] px-6 cursor-pointer"
                       >

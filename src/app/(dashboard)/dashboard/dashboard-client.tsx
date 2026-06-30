@@ -30,6 +30,7 @@ import {
   Truck
 } from 'lucide-react'
 import { TimeframeSelector } from './timeframe-selector'
+import { SourcingPerformance } from './components/sourcing-performance'
 
 interface OrderItem {
   id: string
@@ -93,11 +94,13 @@ interface DashboardClientProps {
   inspections: Inspection[]
   batches: ProductionBatch[]
   suppliers: any[]
+  masterSuppliers: any[]
   logistics: LogisticsRecord[]
   
   // Filtered lists
   filteredOrders: Order[]
   filteredSuppliers: any[]
+  filteredMasterSuppliers: any[]
   filteredAudits: Audit[]
   filteredInspections: Inspection[]
   filteredBatches: ProductionBatch[]
@@ -131,7 +134,7 @@ interface DashboardClientProps {
 export function DashboardClient(props: DashboardClientProps) {
   const router = useRouter()
   const { userRole } = useSourcing()
-  const [viewMode, setViewMode] = useState<'analytics' | 'kanban'>('analytics')
+  const [viewMode, setViewMode] = useState<'analytics' | 'kanban' | 'performance'>('analytics')
 
   // Boss, admin, and staff can drag and drop stages on the dashboard
   const isWriteAllowed = userRole === 'admin' || userRole === 'boss' || userRole === 'staff'
@@ -192,6 +195,18 @@ export function DashboardClient(props: DashboardClientProps) {
             }`}
           >
             Analytics
+          </Button>
+          <Button
+            variant={viewMode === 'performance' ? 'secondary' : 'ghost'}
+            size="sm"
+            onClick={() => setViewMode('performance')}
+            className={`text-xs font-semibold px-4 py-1.5 h-8 rounded-lg cursor-pointer transition-all ${
+              viewMode === 'performance'
+                ? 'bg-white text-[#5c59e9] shadow-xs dark:bg-slate-800 dark:text-white'
+                : 'text-slate-500 hover:text-slate-900 dark:text-slate-400 dark:hover:text-white'
+            }`}
+          >
+            Sourcing Performance
           </Button>
           <Button
             variant={viewMode === 'kanban' ? 'secondary' : 'ghost'}
@@ -539,6 +554,13 @@ export function DashboardClient(props: DashboardClientProps) {
               </CardContent>
             </Card>
           </div>
+        </div>
+      ) : viewMode === 'performance' ? (
+        <div className="animate-in fade-in duration-250">
+          <SourcingPerformance
+            bids={props.filteredSuppliers}
+            masterSuppliers={props.filteredMasterSuppliers}
+          />
         </div>
       ) : (
         /* Kanban View Mode */

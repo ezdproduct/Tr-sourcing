@@ -157,6 +157,22 @@ async function DashboardLoader({ searchParams }: { searchParams: SearchParams | 
       quoted_price,
       lead_time_days,
       is_shortlisted,
+      created_at,
+      created_by,
+      supplier_name,
+      supplier_id
+    `)
+    .order('created_at', { ascending: false })
+
+  // 5.1 Fetch all master suppliers for performance metrics
+  const { data: rawMasterSuppliers } = await supabase
+    .from('suppliers')
+    .select(`
+      id,
+      name,
+      created_by,
+      quality_rating,
+      reliability_score,
       created_at
     `)
     .order('created_at', { ascending: false })
@@ -187,6 +203,7 @@ async function DashboardLoader({ searchParams }: { searchParams: SearchParams | 
   const inspections: Inspection[] = (rawInspections as any) || []
   const batches: ProductionBatch[] = (rawBatches as any) || []
   const suppliers: any[] = (rawSuppliers as any) || []
+  const masterSuppliers: any[] = (rawMasterSuppliers as any) || []
   const logistics: LogisticsRecord[] = (rawLogistics as any) || []
 
   // --- Date Filtering Setup ---
@@ -222,6 +239,7 @@ async function DashboardLoader({ searchParams }: { searchParams: SearchParams | 
   // Apply range filtering
   const filteredOrders = orders.filter(o => isWithinFilterRange(o.created_at || o.order_date))
   const filteredSuppliers = suppliers.filter(s => isWithinFilterRange(s.created_at))
+  const filteredMasterSuppliers = masterSuppliers.filter(s => isWithinFilterRange(s.created_at))
   const filteredAudits = audits.filter(a => isWithinFilterRange(a.created_at || a.audit_date))
   const filteredInspections = inspections.filter(i => isWithinFilterRange(i.created_at || i.date_checked))
   const filteredBatches = batches.filter(b => isWithinFilterRange(b.created_at))
@@ -297,9 +315,11 @@ async function DashboardLoader({ searchParams }: { searchParams: SearchParams | 
       inspections={inspections as any}
       batches={batches as any}
       suppliers={suppliers}
+      masterSuppliers={masterSuppliers}
       logistics={logistics as any}
       filteredOrders={filteredOrders as any}
       filteredSuppliers={filteredSuppliers}
+      filteredMasterSuppliers={filteredMasterSuppliers}
       filteredAudits={filteredAudits as any}
       filteredInspections={filteredInspections as any}
       filteredBatches={filteredBatches as any}

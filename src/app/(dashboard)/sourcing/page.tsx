@@ -1,98 +1,39 @@
 import { Suspense } from 'react'
-import { createClient } from '@/supabase/server'
+import { HydrationBoundary, dehydrate } from '@tanstack/react-query'
+import { getQueryClient } from '@/utils/query-client'
 import { SourcingClient } from './sourcing-client'
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
+import { suppliersQueryOptions, ordersQueryOptions, auditsQueryOptions } from './api/queries'
+import {
+  fetchSuppliersAction,
+  fetchOrdersAction,
+  fetchAuditsAction,
+} from './actions'
 
 async function SourcingLoader() {
-  const supabase = await createClient()
+  const queryClient = getQueryClient()
 
-  // Fetch all orders with their items
-  const { data: orders, error: ordersError } = await supabase
-    .from('orders')
-    .select('*, order_items(*)')
-    .order('created_at', { ascending: false })
+  // Fetch/prefetch data on the server
+  // Using Promise.all to fetch in parallel and avoid sequential waterfalls
+  await Promise.all([
+    queryClient.prefetchQuery(suppliersQueryOptions()),
+    queryClient.prefetchQuery(ordersQueryOptions()),
+    queryClient.prefetchQuery(auditsQueryOptions()),
+  ])
 
-  if (ordersError) {
-    console.error('Error fetching orders for sourcing:', ordersError.message)
-  }
-
-  // Fetch all factory audits to verify QC completion
-  const { data: audits, error: auditsError } = await supabase
-    .from('factory_audits')
-    .select('*')
-
-  if (auditsError) {
-    console.error('Error fetching factory audits:', auditsError.message)
-  }
-
-  // Fetch all supplier records from the master suppliers table, and optionally join their bids if any
-  const { data: dbSuppliers, error: suppliersError } = await supabase
-    .from('suppliers')
-    .select('*, order_suppliers(*, orders(order_code), order_items(item_name)), supplier_capabilities(*)')
-    .order('created_at', { ascending: false })
-
-  if (suppliersError) {
-    console.error('Error fetching suppliers:', suppliersError.message)
-  }
-
-  // Transform to the flat structure expected by SourcingClient
-  const transformedSuppliers: any[] = []
-  if (dbSuppliers) {
-    dbSuppliers.forEach((s: any) => {
-      const validBids = s.order_suppliers || []
-
-      if (validBids.length === 0) {
-        transformedSuppliers.push({
-          id: s.id, // master supplier ID (since they have no bids, this is unique)
-          supplier_id: s.id,
-          order_id: null,
-          order_item_id: null,
-          supplier_name: s.name,
-          quoted_price: 0,
-          lead_time_days: 0,
-          is_shortlisted: false,
-          is_bid: false, // Flag to indicate master profile
-          created_at: s.created_at,
-          created_by: s.created_by,
-          orders: null,
-          order_items: null,
-          suppliers: {
-            ...s,
-            order_suppliers: undefined
-          }
-        })
-      } else {
-        validBids.forEach((bid: any) => {
-          transformedSuppliers.push({
-            id: bid.id, // unique bid ID
-            supplier_id: s.id,
-            order_id: bid.order_id,
-            order_item_id: bid.order_item_id,
-            supplier_name: s.name,
-            quoted_price: bid.quoted_price,
-            lead_time_days: bid.lead_time_days,
-            is_shortlisted: bid.is_shortlisted,
-            is_bid: true, // Flag to indicate bid record
-            created_at: bid.created_at,
-            created_by: bid.created_by || s.created_by,
-            orders: bid.orders,
-            order_items: bid.order_items,
-            suppliers: {
-              ...s,
-              order_suppliers: undefined
-            }
-          })
-        })
-      }
-    })
-  }
+  // Get initial values to pass as fallback props to SourcingClient
+  // (to guarantee immediate render before hydration if JS is slow)
+  const initialSuppliers = queryClient.getQueryData<any[]>(suppliersQueryOptions().queryKey) || []
+  const initialOrders = queryClient.getQueryData<any[]>(ordersQueryOptions().queryKey) || []
+  const initialAudits = queryClient.getQueryData<any[]>(auditsQueryOptions().queryKey) || []
 
   return (
-    <SourcingClient
-      initialOrders={(orders as any) || []}
-      initialSuppliers={transformedSuppliers}
-      initialAudits={audits || []}
-    />
+    <HydrationBoundary state={dehydrate(queryClient)}>
+      <SourcingClient
+        initialOrders={initialOrders}
+        initialSuppliers={initialSuppliers}
+        initialAudits={initialAudits}
+      />
+    </HydrationBoundary>
   )
 }
 
