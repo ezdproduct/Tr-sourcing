@@ -28,7 +28,7 @@ async function SourcingLoader() {
   // Fetch all supplier records from the master suppliers table, and optionally join their bids if any
   const { data: dbSuppliers, error: suppliersError } = await supabase
     .from('suppliers')
-    .select('*, order_suppliers(*, orders(order_code), order_items(item_name))')
+    .select('*, order_suppliers(*, orders(order_code), order_items(item_name)), supplier_capabilities(*)')
     .order('created_at', { ascending: false })
 
   if (suppliersError) {

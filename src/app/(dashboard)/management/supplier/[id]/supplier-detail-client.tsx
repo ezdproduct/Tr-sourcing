@@ -4,7 +4,7 @@ import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { 
   X, Phone, Mail, MapPin, Globe, ArrowUpRight, ArrowLeft, Edit, Trash2, Plus, Loader2, Check, CheckCircle2, AlertCircle, Calendar, Shield,
-  Upload, FileText, File, Copy, ExternalLink
+  Upload, FileText, File, Copy, ExternalLink, TrendingUp
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -16,6 +16,7 @@ import {
   deleteSupplierCapabilityAction 
 } from '../../actions'
 import { updateSupplierProfileAction } from '../../../sourcing/actions'
+import { HistoryChartsModal } from './history-charts-modal'
 
 // Helper to upload a file to Cloudflare R2 via proxy API
 async function uploadFile(file: File, supplierId?: string, customName?: string): Promise<string> {
@@ -57,6 +58,7 @@ export function SupplierDetailClient({ supplier }: SupplierDetailClientProps) {
   const [isAddProductOpen, setIsAddProductOpen] = useState(false)
   const [isEditProductOpen, setIsEditProductOpen] = useState(false)
   const [editingCapability, setEditingCapability] = useState<any | null>(null)
+  const [selectedHistoryProduct, setSelectedHistoryProduct] = useState<string | null>(null)
   
   const [productName, setProductName] = useState('')
   const [defaultPrice, setDefaultPrice] = useState('')
@@ -1516,6 +1518,13 @@ export function SupplierDetailClient({ supplier }: SupplierDetailClientProps) {
                         <td className="px-5 py-3.5 text-center">
                           <div className="flex items-center justify-center gap-1.5">
                             <button
+                              onClick={() => setSelectedHistoryProduct(cap.product_name)}
+                              className="p-1.5 text-slate-400 hover:text-[#5c59e9] dark:hover:text-indigo-400 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg transition-colors cursor-pointer"
+                              title="View History Charts"
+                            >
+                              <TrendingUp size={14} />
+                            </button>
+                            <button
                               onClick={() => {
                                 setEditingCapability(cap)
                                 setProductName(cap.product_name)
@@ -2228,6 +2237,16 @@ export function SupplierDetailClient({ supplier }: SupplierDetailClientProps) {
           </div>
         </div>
       )}
+
+      {selectedHistoryProduct && (
+        <HistoryChartsModal
+          supplierId={supplier.id}
+          supplierName={supplier.name}
+          productName={selectedHistoryProduct}
+          onClose={() => setSelectedHistoryProduct(null)}
+        />
+      )}
+
       {/* Premium Toast Notifications */}
       <div className="fixed bottom-6 right-6 z-[120] flex flex-col gap-3 max-w-md w-full pointer-events-none">
         {toasts.map(toast => (

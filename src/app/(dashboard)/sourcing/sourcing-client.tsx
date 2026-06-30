@@ -64,6 +64,7 @@ import {
   ChevronDown,
   Clipboard,
   Download,
+  Sparkles,
 } from 'lucide-react'
 
 // ─── CSV Parser Helper ────────────────────────────────────────────────────────
@@ -303,6 +304,17 @@ export function SourcingClient({ initialOrders, initialSuppliers, initialAudits 
   // Searchable order combobox states
   const [orderSearchQuery, setOrderSearchQuery] = useState('')
   const [isOrderDropdownOpen, setIsOrderDropdownOpen] = useState(false)
+
+  // Searchable supplier combobox states
+  const [supplierSearchQuery, setSupplierSearchQuery] = useState('')
+  const [isSupplierDropdownOpen, setIsSupplierDropdownOpen] = useState(false)
+
+  useEffect(() => {
+    if (!isAddOpen) {
+      setSupplierSearchQuery('')
+      setIsSupplierDropdownOpen(false)
+    }
+  }, [isAddOpen])
 
   // CSV Bulk Import states
   const [isImportOpen, setIsImportOpen] = useState(false)
@@ -916,6 +928,7 @@ export function SourcingClient({ initialOrders, initialSuppliers, initialAudits 
           bidsCount: suppliers.filter(x => x.supplier_id === s.supplier_id && x.order_id).length,
           auditsCount: audits.filter(x => x.supplier_id === s.supplier_id).length,
           created_by: s.suppliers!.created_by || s.created_by || 'System',
+          supplier_capabilities: s.suppliers!.supplier_capabilities || [],
           rawRecord: s
         }])
     ).values()
@@ -929,6 +942,32 @@ export function SourcingClient({ initialOrders, initialSuppliers, initialAudits 
       (s.contact_person || '').toLowerCase().includes(q)
     )
   })
+
+  // Find suggested suppliers based on selected items checklist
+  const currentOrderForSuggestions = orders.find(o => o.id === manualForm.orderId)
+  const checkedItemNames = currentOrderForSuggestions?.order_items
+    ?.filter(item => itemBids[item.id]?.checked)
+    ?.map(item => item.item_name.toLowerCase().trim()) || []
+
+  const suggestedSuppliers = checkedItemNames.length > 0
+    ? uniqueSuppliers.filter(sup => {
+        const hasMatchingCapability = (sup.supplier_capabilities as any[])?.some((cap: any) => {
+          const capName = (cap.product_name || '').toLowerCase().trim()
+          return checkedItemNames.some(itemName => 
+            capName.includes(itemName) || itemName.includes(capName)
+          )
+        })
+
+        const hasMatchingMainProduct = (sup.main_products as string[])?.some((prod: string) => {
+          const prodName = (prod || '').toLowerCase().trim()
+          return checkedItemNames.some(itemName => 
+            prodName.includes(itemName) || itemName.includes(prodName)
+          )
+        })
+
+        return hasMatchingCapability || hasMatchingMainProduct
+      })
+    : []
 
   // ─── Handlers ────────────────────────────────────────────────────────────────
 
@@ -982,23 +1021,37 @@ export function SourcingClient({ initialOrders, initialSuppliers, initialAudits 
 
     const bids: Array<{ orderItemId: string; quotedPrice: number; leadTimeDays: number }> = []
     if (orderId) {
+      const matchedSupplier = uniqueSuppliers.find(sup => sup.name === supplierName)
+      const selectedOrdObj = orders.find(o => o.id === orderId)
+
       for (const [itemId, bidVal] of Object.entries(itemBids)) {
         if (bidVal.checked) {
-          const price = parseFloat(bidVal.price)
-          const lead = parseInt(bidVal.leadTime)
-          if (isNaN(price) || isNaN(lead) || price <= 0 || lead <= 0) {
-            setErrorMessage('Please enter a valid price and lead time for checked items.')
-            return
+          const currentItem = selectedOrdObj?.order_items?.find(item => item.id === itemId)
+          const itemName = currentItem ? currentItem.item_name.toLowerCase().trim() : ''
+          
+          let price = 0
+          let leadTime = 0
+
+          if (matchedSupplier) {
+            const cap = (matchedSupplier.supplier_capabilities as any[])?.find((c: any) => {
+              const capName = (c.product_name || '').toLowerCase().trim()
+              return capName === itemName || capName.includes(itemName) || itemName.includes(capName)
+            })
+            if (cap) {
+              price = Number(cap.target_price || 0)
+              leadTime = parseInt(cap.lead_time_days || '0', 10) || 0
+            }
           }
+
           bids.push({
             orderItemId: itemId,
             quotedPrice: price,
-            leadTimeDays: lead
+            leadTimeDays: leadTime
           })
         }
       }
       if (bids.length === 0 && capabilities.length === 0) {
-        setErrorMessage('Please check at least one order item or add at least one product capability.')
+        setErrorMessage('Please check at least one order item.')
         return
       }
     } else {
@@ -1902,6 +1955,30 @@ export function SourcingClient({ initialOrders, initialSuppliers, initialAudits 
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end" className="w-56 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-1 shadow-md z-50">
+                <DropdownMenuItem
+                  onClick={() => {
+                    setManualForm({
+                      supplierName: '',
+                      email: '',
+                      phone: '',
+                      address: '',
+                      orderId: '',
+                      website: '',
+                      contactPerson: '',
+                      taxId: '',
+                      businessType: ''
+                    })
+                    setItemBids({})
+                    setCapabilities([])
+                    setIsAddOpen(true)
+                    setErrorMessage(null)
+                  }}
+                  className="flex items-center gap-2 px-2.5 py-1.5 text-xs rounded-lg cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-800 font-semibold text-slate-700 dark:text-slate-300"
+                >
+                  <Plus size={12} className="text-[#5c59e9]" />
+                  <span>Add Supplier</span>
+                </DropdownMenuItem>
+
                 <DropdownMenuItem
                   onClick={() => {
                     setCsvPreview([])
@@ -2821,6 +2898,37 @@ export function SourcingClient({ initialOrders, initialSuppliers, initialAudits 
                                     </DropdownMenuContent>
                                   </DropdownMenu>
 
+                                  {/* Assign Supplier Button */}
+                                  <Button
+                                    variant="outline"
+                                    size="sm"
+                                    onClick={() => {
+                                      setManualForm({
+                                        supplierName: '',
+                                        email: '',
+                                        phone: '',
+                                        address: '',
+                                        orderId: selectedOrderId || '',
+                                        website: '',
+                                        contactPerson: '',
+                                        taxId: '',
+                                        businessType: ''
+                                      })
+                                      setCapabilities([])
+                                      if (selectedOrderId) {
+                                        handleSelectOrder(selectedOrderId)
+                                      } else {
+                                        setItemBids({})
+                                      }
+                                      setIsAddOpen(true)
+                                      setErrorMessage(null)
+                                    }}
+                                    className="flex items-center gap-1.5 h-8 px-3 rounded-lg border border-indigo-200 bg-indigo-50/40 text-indigo-700 hover:bg-indigo-50 dark:border-indigo-900/60 dark:bg-indigo-950/20 dark:text-indigo-400 dark:hover:bg-indigo-950/30 transition-colors cursor-pointer text-xs font-semibold"
+                                  >
+                                    <Plus size={12} />
+                                    <span>Assign Supplier</span>
+                                  </Button>
+
                                   {/* Add Dropdown */}
                                   <DropdownMenu>
                                     <DropdownMenuTrigger asChild>
@@ -2860,7 +2968,7 @@ export function SourcingClient({ initialOrders, initialSuppliers, initialAudits 
                                         className="flex items-center gap-2 px-2.5 py-1.5 text-xs rounded-lg cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-800 font-semibold text-slate-700 dark:text-slate-300"
                                       >
                                         <Plus size={12} className="text-[#5c59e9]" />
-                                        <span>Add Supplier</span>
+                                        <span>Assign Supplier</span>
                                       </DropdownMenuItem>
                                       {/* Import Excel/CSV */}
                                       <DropdownMenuItem
@@ -3244,7 +3352,7 @@ export function SourcingClient({ initialOrders, initialSuppliers, initialAudits 
             className="absolute inset-0 bg-black/40 backdrop-blur-sm"
             onClick={() => { setIsAddOpen(false); setErrorMessage(null) }}
           />
-          <div className="relative z-10 w-full max-w-md bg-white dark:bg-slate-900 rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-800">
+          <div className="relative z-10 w-full max-w-3xl bg-white dark:bg-slate-900 rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-800">
             <div className="flex items-center justify-between px-6 py-5 border-b border-slate-100 dark:border-slate-800">
               <div>
                 <h2 className="text-base font-bold text-slate-900 dark:text-white">Add Supplier</h2>
@@ -3312,130 +3420,8 @@ export function SourcingClient({ initialOrders, initialSuppliers, initialAudits 
                 </div>
               )}
 
-              {/* SECTION 1: Supplier Basic Info */}
-              <div className="space-y-3 border-b border-slate-100 dark:border-slate-800 pb-4">
-                <h3 className="text-xs font-bold text-[#5c59e9] uppercase tracking-wider">Basic Information</h3>
-                
-                <div className="space-y-1.5">
-                  <Label htmlFor="supplier-name" className="text-xs font-semibold text-slate-700 dark:text-slate-300">
-                    Supplier / Factory Name <span className="text-red-500">*</span>
-                  </Label>
-                  <Input
-                    id="supplier-name"
-                    placeholder="e.g. Viet My Woodworking Ltd"
-                    value={manualForm.supplierName}
-                    onChange={e => setManualForm(f => ({ ...f, supplierName: e.target.value }))}
-                    className="text-xs h-9"
-                    required
-                  />
-                </div>
-
-                <div className="grid grid-cols-2 gap-3.5">
-                  <div className="space-y-1.5">
-                    <Label htmlFor="supplier-email" className="text-xs font-semibold text-slate-700 dark:text-slate-300">
-                      Supplier Email
-                    </Label>
-                    <Input
-                      id="supplier-email"
-                      type="email"
-                      placeholder="e.g. contact@vietmy.com"
-                      value={manualForm.email}
-                      onChange={e => setManualForm(f => ({ ...f, email: e.target.value }))}
-                      className="text-xs h-9"
-                    />
-                  </div>
-
-                  <div className="space-y-1.5">
-                    <Label htmlFor="supplier-phone" className="text-xs font-semibold text-slate-700 dark:text-slate-300">
-                      Supplier Phone
-                    </Label>
-                    <Input
-                      id="supplier-phone"
-                      placeholder="e.g. +84 901 234 567"
-                      value={manualForm.phone}
-                      onChange={e => setManualForm(f => ({ ...f, phone: e.target.value }))}
-                      className="text-xs h-9"
-                    />
-                  </div>
-                </div>
-
-                <div className="space-y-1.5">
-                  <Label htmlFor="supplier-address" className="text-xs font-semibold text-slate-700 dark:text-slate-300">
-                    Supplier Address
-                  </Label>
-                  <Input
-                    id="supplier-address"
-                    placeholder="e.g. Binh Duong Province, Vietnam"
-                    value={manualForm.address}
-                    onChange={e => setManualForm(f => ({ ...f, address: e.target.value }))}
-                    className="text-xs h-9"
-                  />
-                </div>
-
-                <div className="grid grid-cols-2 gap-3.5 pt-1.5">
-                  <div className="space-y-1.5">
-                    <Label htmlFor="supplier-website" className="text-xs font-semibold text-slate-700 dark:text-slate-300">
-                      Supplier Website
-                    </Label>
-                    <Input
-                      id="supplier-website"
-                      placeholder="e.g. www.vietmy.com"
-                      value={manualForm.website}
-                      onChange={e => setManualForm(f => ({ ...f, website: e.target.value }))}
-                      className="text-xs h-9"
-                    />
-                  </div>
-
-                  <div className="space-y-1.5">
-                    <Label htmlFor="supplier-contact" className="text-xs font-semibold text-slate-700 dark:text-slate-300">
-                      Contact Person
-                    </Label>
-                    <Input
-                      id="supplier-contact"
-                      placeholder="e.g. Nguyen Van A"
-                      value={manualForm.contactPerson}
-                      onChange={e => setManualForm(f => ({ ...f, contactPerson: e.target.value }))}
-                      className="text-xs h-9"
-                    />
-                  </div>
-                </div>
-
-                <div className="grid grid-cols-2 gap-3.5 pt-1.5">
-                  <div className="space-y-1.5">
-                    <Label htmlFor="supplier-taxid" className="text-xs font-semibold text-slate-700 dark:text-slate-300">
-                      Tax ID / Reg No.
-                    </Label>
-                    <Input
-                      id="supplier-taxid"
-                      placeholder="e.g. 0102030405"
-                      value={manualForm.taxId}
-                      onChange={e => setManualForm(f => ({ ...f, taxId: e.target.value }))}
-                      className="text-xs h-9"
-                    />
-                  </div>
-
-                  <div className="space-y-1.5">
-                    <Label htmlFor="supplier-businesstype" className="text-xs font-semibold text-slate-700 dark:text-slate-300">
-                      Business Type
-                    </Label>
-                    <select
-                      id="supplier-businesstype"
-                      value={manualForm.businessType}
-                      onChange={e => setManualForm(f => ({ ...f, businessType: e.target.value }))}
-                      className="flex w-full h-9 rounded-md border border-slate-200 bg-white px-3 py-2 text-xs text-slate-800 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-200 cursor-pointer"
-                    >
-                      <option value="">Select Business Type</option>
-                      <option value="Manufacturer">Manufacturer</option>
-                      <option value="Distributor">Distributor</option>
-                      <option value="Wholesaler">Wholesaler</option>
-                      <option value="Agent / Trader">Agent / Trader</option>
-                    </select>
-                  </div>
-                </div>
-              </div>
-
               {/* SECTION 2: Order Selection & Product items mapping */}
-              <div className="space-y-3.5">
+              <div className="space-y-3.5 border-b border-slate-100 dark:border-slate-800 pb-4">
                 <h3 className="text-xs font-bold text-[#5c59e9] uppercase tracking-wider">Order &amp; Capability Mapping</h3>
                 
                 {/* Searchable Order Combobox */}
@@ -3519,49 +3505,6 @@ export function SourcingClient({ initialOrders, initialSuppliers, initialAudits 
                               />
                               {item.item_name} ({item.quantity})
                             </label>
-                            
-                            {bid.checked && (
-                              <div className="grid grid-cols-2 gap-3 pl-5">
-                                <div className="space-y-1">
-                                  <Label htmlFor={`price-${item.id}`} className="text-[10px] font-semibold text-slate-500">
-                                    Quoted Price (USD) <span className="text-red-500">*</span>
-                                  </Label>
-                                  <Input 
-                                    id={`price-${item.id}`}
-                                    type="number"
-                                    min="0.01"
-                                    step="0.01"
-                                    placeholder="Price"
-                                    value={bid.price}
-                                    onChange={e => setItemBids(prev => ({
-                                      ...prev,
-                                      [item.id]: { ...bid, price: e.target.value }
-                                    }))}
-                                    className="text-xs h-8"
-                                    required
-                                  />
-                                </div>
-                                <div className="space-y-1">
-                                  <Label htmlFor={`lead-${item.id}`} className="text-[10px] font-semibold text-slate-500">
-                                    Lead Time (Days) <span className="text-red-500">*</span>
-                                  </Label>
-                                  <Input 
-                                    id={`lead-${item.id}`}
-                                    type="number"
-                                    min="1"
-                                    step="1"
-                                    placeholder="Days"
-                                    value={bid.leadTime}
-                                    onChange={e => setItemBids(prev => ({
-                                      ...prev,
-                                      [item.id]: { ...bid, leadTime: e.target.value }
-                                    }))}
-                                    className="text-xs h-8"
-                                    required
-                                  />
-                                </div>
-                              </div>
-                            )}
                           </div>
                         )
                       })}
@@ -3569,154 +3512,494 @@ export function SourcingClient({ initialOrders, initialSuppliers, initialAudits 
                   </div>
                 )}
 
-                {/* Repeating capability rows */}
-                <div className="space-y-2 pt-1">
-                  <div className="flex items-center justify-between">
-                    <Label className="text-xs font-semibold text-slate-700 dark:text-slate-300">
-                      External Capabilities (Product Catalog)
+                {/* Suggested Suppliers Section based on checked items */}
+                {subtab !== 'suppliers' && suggestedSuppliers.length > 0 && (
+                  <div className="space-y-1.5 pt-1 animate-in fade-in duration-200">
+                    <Label className="text-xs font-bold text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
+                      <Sparkles size={13} className="text-[#5c59e9] fill-[#5c59e9]/20" />
+                      <span>Suggested Suppliers for Selected Items</span>
                     </Label>
-                    <Button
-                      type="button"
-                      variant="outline"
-                      size="sm"
-                      onClick={() => setCapabilities(prev => [
-                        ...prev, 
-                        { 
-                          id: Math.random().toString(), 
-                          productName: '', 
-                          targetPrice: '',
-                          leadTimeDays: '',
-                          description: '',
-                          moq: '',
-                          sku: '',
-                          monthlyCapacity: ''
-                        }
-                      ])}
-                      className="h-7 text-[10px] px-2 gap-1 border-indigo-200 text-[#5c59e9] hover:bg-indigo-50 dark:border-indigo-900/50 cursor-pointer"
-                    >
-                      <Plus size={11} />
-                      Add Product
-                    </Button>
-                  </div>
-                  
-                  {capabilities.length === 0 ? (
-                    <div className="text-center p-4 border border-dashed border-slate-200 dark:border-slate-800 rounded-xl text-[10px] text-slate-400">
-                      No external product capabilities added.
-                    </div>
-                  ) : (
-                    <div className="space-y-3.5 max-h-80 overflow-y-auto pr-1">
-                      {capabilities.map((cap, idx) => (
-                        <div key={cap.id} className="p-3 border border-slate-100 dark:border-slate-800/80 rounded-xl bg-slate-50/20 dark:bg-slate-900/10 space-y-2.5 relative">
-                          <div className="flex items-center justify-between">
-                            <span className="text-[9px] font-extrabold text-slate-400 dark:text-slate-500 uppercase tracking-wider">Product #{idx + 1}</span>
-                            <button
-                              type="button"
-                              onClick={() => setCapabilities(prev => prev.filter(c => c.id !== cap.id))}
-                              className="h-5 w-5 flex items-center justify-center text-slate-400 hover:text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-955/20 rounded transition-colors cursor-pointer"
-                              title="Delete capability"
+                    
+                    <div className="relative">
+                      <div 
+                        className="flex h-9 w-full items-center justify-between rounded-md border border-slate-200 bg-white px-3 py-2 text-xs text-slate-800 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-200 cursor-pointer"
+                        onClick={() => setIsSupplierDropdownOpen(!isSupplierDropdownOpen)}
+                      >
+                        <span className="truncate font-semibold">
+                          {manualForm.supplierName 
+                            ? manualForm.supplierName 
+                            : `Select Suggested Supplier (${suggestedSuppliers.length} matches)...`
+                          }
+                        </span>
+                        <ChevronDown size={14} className="text-slate-400 animate-in duration-100" />
+                      </div>
+                      
+                      {isSupplierDropdownOpen && (
+                        <div className="absolute z-50 mt-1 w-full rounded-md border border-slate-200 bg-white shadow-lg dark:border-slate-800 dark:bg-slate-900 max-h-60 overflow-y-auto">
+                          <div className="flex items-center border-b border-slate-100 dark:border-slate-800 px-2 py-1 bg-slate-50 dark:bg-slate-950">
+                            <Search size={12} className="text-slate-400 mr-2" />
+                            <input 
+                              type="text"
+                              placeholder="Search suggested suppliers..."
+                              value={supplierSearchQuery}
+                              onChange={e => setSupplierSearchQuery(e.target.value)}
+                              className="w-full bg-transparent text-xs py-1 outline-none text-slate-800 dark:text-slate-200 placeholder:text-slate-400"
+                              onClick={(e) => e.stopPropagation()}
+                            />
+                          </div>
+                          <ul className="divide-y divide-slate-100 dark:divide-slate-800">
+                            <li 
+                              className="px-3 py-2 text-xs font-semibold text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer"
+                              onClick={() => {
+                                setManualForm(f => ({
+                                  ...f,
+                                  supplierName: '',
+                                  email: '',
+                                  phone: '',
+                                  address: '',
+                                  website: '',
+                                  contactPerson: '',
+                                  taxId: '',
+                                  businessType: ''
+                                }))
+                                setIsSupplierDropdownOpen(false)
+                              }}
                             >
-                              <Trash2 size={11} />
-                            </button>
-                          </div>
+                              Clear Selection (Unassign)
+                            </li>
+                            {suggestedSuppliers
+                              .filter(sup => sup.name.toLowerCase().includes(supplierSearchQuery.toLowerCase()))
+                              .map(sup => {
+                                const matchingCaps = sup.supplier_capabilities?.filter((cap: any) => {
+                                  const capName = (cap.product_name || '').toLowerCase().trim()
+                                  return checkedItemNames.some(itemName => 
+                                    capName.includes(itemName) || itemName.includes(capName)
+                                  )
+                                }) || []
 
-                          {/* Grid 1: Name & SKU */}
-                          <div className="grid grid-cols-3 gap-2">
-                            <div className="col-span-2 space-y-1">
-                              <Label className="text-[9px] font-semibold text-slate-500">Product Name *</Label>
-                              <Input 
-                                placeholder="e.g. Dining Chair"
-                                value={cap.productName}
-                                onChange={e => setCapabilities(prev => prev.map(c => 
-                                  c.id === cap.id ? { ...c, productName: e.target.value } : c
-                                ))}
-                                className="text-xs h-7"
-                                required
-                              />
-                            </div>
-                            <div className="space-y-1">
-                              <Label className="text-[9px] font-semibold text-slate-500">Product SKU</Label>
-                              <Input 
-                                placeholder="e.g. DC-101"
-                                value={cap.sku || ''}
-                                onChange={e => setCapabilities(prev => prev.map(c => 
-                                  c.id === cap.id ? { ...c, sku: e.target.value } : c
-                                ))}
-                                className="text-xs h-7"
-                              />
-                            </div>
-                          </div>
+                                const matchingProds = (sup.main_products as string[])?.filter((prod: string) => {
+                                  const prodName = (prod || '').toLowerCase().trim()
+                                  return checkedItemNames.some(itemName => 
+                                    prodName.includes(itemName) || itemName.includes(prodName)
+                                  )
+                                }) || []
 
-                          {/* Grid 2: Price, Lead Time & MOQ */}
-                          <div className="grid grid-cols-3 gap-2">
-                            <div className="space-y-1">
-                              <Label className="text-[9px] font-semibold text-slate-500">Target Price ($) *</Label>
-                              <Input 
-                                type="number"
-                                step="0.01"
-                                placeholder="120.00"
-                                value={cap.targetPrice}
-                                onChange={e => setCapabilities(prev => prev.map(c => 
-                                  c.id === cap.id ? { ...c, targetPrice: e.target.value } : c
-                                ))}
-                                className="text-xs h-7"
-                                required
-                              />
-                            </div>
-                            <div className="space-y-1">
-                              <Label className="text-[9px] font-semibold text-slate-500">Lead Time (days)</Label>
-                              <Input 
-                                placeholder="e.g. 7-10"
-                                value={cap.leadTimeDays || ''}
-                                onChange={e => setCapabilities(prev => prev.map(c => 
-                                  c.id === cap.id ? { ...c, leadTimeDays: e.target.value } : c
-                                ))}
-                                className="text-xs h-7"
-                              />
-                            </div>
-                            <div className="space-y-1">
-                              <Label className="text-[9px] font-semibold text-slate-500">Min Order (MOQ)</Label>
-                              <Input 
-                                type="number"
-                                placeholder="e.g. 50"
-                                value={cap.moq || ''}
-                                onChange={e => setCapabilities(prev => prev.map(c => 
-                                  c.id === cap.id ? { ...c, moq: e.target.value } : c
-                                ))}
-                                className="text-xs h-7"
-                              />
-                            </div>
-                          </div>
+                                const hasPrice = matchingCaps.length > 0
+                                const priceText = hasPrice 
+                                  ? ` ($${Number(matchingCaps[0].target_price).toFixed(2)})`
+                                  : ' (Match)'
 
-                          {/* Grid 3: Capacity & Description */}
-                          <div className="grid grid-cols-3 gap-2">
-                            <div className="space-y-1">
-                              <Label className="text-[9px] font-semibold text-slate-500">Capacity</Label>
-                              <Input 
-                                placeholder="e.g. 1k/month"
-                                value={cap.monthlyCapacity || ''}
-                                onChange={e => setCapabilities(prev => prev.map(c => 
-                                  c.id === cap.id ? { ...c, monthlyCapacity: e.target.value } : c
-                                ))}
-                                className="text-xs h-7"
-                              />
-                            </div>
-                            <div className="col-span-2 space-y-1">
-                              <Label className="text-[9px] font-semibold text-slate-500">Description</Label>
-                              <Input 
-                                placeholder="Material, specs..."
-                                value={cap.description || ''}
-                                onChange={e => setCapabilities(prev => prev.map(c => 
-                                  c.id === cap.id ? { ...c, description: e.target.value } : c
-                                ))}
-                                className="text-xs h-7"
-                              />
-                            </div>
-                          </div>
+                                return (
+                                  <li 
+                                    key={sup.id}
+                                    className="px-3 py-2 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer text-xs flex flex-col gap-0.5"
+                                    onClick={() => {
+                                      setManualForm(f => ({
+                                        ...f,
+                                        supplierName: sup.name,
+                                        email: sup.email || '',
+                                        phone: sup.phone || '',
+                                        address: sup.address || '',
+                                        website: sup.website || '',
+                                        contactPerson: sup.contact_person || '',
+                                        taxId: sup.tax_id || '',
+                                        businessType: sup.business_type || ''
+                                      }))
+                                      setIsSupplierDropdownOpen(false)
+                                      setSupplierSearchQuery('')
+                                    }}
+                                  >
+                                    <div className="flex justify-between items-center w-full">
+                                      <span className="font-bold text-slate-800 dark:text-slate-200">{sup.name}</span>
+                                      <span className={`text-[10px] font-semibold ${hasPrice ? 'text-indigo-650 dark:text-indigo-350' : 'text-emerald-650 dark:text-emerald-450'}`}>
+                                        {priceText}
+                                      </span>
+                                    </div>
+                                    <span className="text-[10px] text-slate-400 truncate">
+                                      Matches: {[...matchingCaps.map((c: any) => c.product_name), ...matchingProds].join(', ')}
+                                    </span>
+                                  </li>
+                                )
+                              })
+                            }
+                          </ul>
                         </div>
-                      ))}
+                      )}
                     </div>
-                  )}
+                  </div>
+                )}
+
+                {/* Repeating capability rows (only shown in Supplier Profiles tab) */}
+                {subtab === 'suppliers' && (
+                  <div className="space-y-2 pt-1">
+                    <div className="flex items-center justify-between">
+                      <Label className="text-xs font-semibold text-slate-700 dark:text-slate-300">
+                        External Capabilities (Product Catalog)
+                      </Label>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={() => setCapabilities(prev => [
+                          ...prev, 
+                          { 
+                            id: Math.random().toString(), 
+                            productName: '', 
+                            targetPrice: '',
+                            leadTimeDays: '',
+                            description: '',
+                            moq: '',
+                            sku: '',
+                            monthlyCapacity: ''
+                          }
+                        ])}
+                        className="h-7 text-[10px] px-2 gap-1 border-indigo-200 text-[#5c59e9] hover:bg-indigo-50 dark:border-indigo-900/50 cursor-pointer"
+                      >
+                        <Plus size={11} />
+                        Add Product
+                      </Button>
+                    </div>
+                    
+                    {capabilities.length === 0 ? (
+                      <div className="text-center p-4 border border-dashed border-slate-200 dark:border-slate-800 rounded-xl text-[10px] text-slate-400">
+                        No external product capabilities added.
+                      </div>
+                    ) : (
+                      <div className="space-y-3.5 max-h-80 overflow-y-auto pr-1">
+                        {capabilities.map((cap, idx) => (
+                          <div key={cap.id} className="p-3 border border-slate-100 dark:border-slate-800/80 rounded-xl bg-slate-50/20 dark:bg-slate-900/10 space-y-2.5 relative">
+                            <div className="flex items-center justify-between">
+                              <span className="text-[9px] font-extrabold text-slate-400 dark:text-slate-500 uppercase tracking-wider">Product #{idx + 1}</span>
+                              <button
+                                type="button"
+                                onClick={() => setCapabilities(prev => prev.filter(c => c.id !== cap.id))}
+                                className="h-5 w-5 flex items-center justify-center text-slate-400 hover:text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-955/20 rounded transition-colors cursor-pointer"
+                                title="Delete capability"
+                              >
+                                <Trash2 size={11} />
+                              </button>
+                            </div>
+
+                            {/* Grid 1: Name & SKU */}
+                            <div className="grid grid-cols-3 gap-2">
+                              <div className="col-span-2 space-y-1">
+                                <Label className="text-[9px] font-semibold text-slate-500">Product Name *</Label>
+                                <Input 
+                                  placeholder="e.g. Dining Chair"
+                                  value={cap.productName}
+                                  onChange={e => setCapabilities(prev => prev.map(c => 
+                                    c.id === cap.id ? { ...c, productName: e.target.value } : c
+                                  ))}
+                                  className="text-xs h-7"
+                                  required
+                                />
+                              </div>
+                              <div className="space-y-1">
+                                <Label className="text-[9px] font-semibold text-slate-500">Product SKU</Label>
+                                <Input 
+                                  placeholder="e.g. DC-101"
+                                  value={cap.sku || ''}
+                                  onChange={e => setCapabilities(prev => prev.map(c => 
+                                    c.id === cap.id ? { ...c, sku: e.target.value } : c
+                                  ))}
+                                  className="text-xs h-7"
+                                />
+                              </div>
+                            </div>
+
+                            {/* Grid 2: Price, Lead Time & MOQ */}
+                            <div className="grid grid-cols-3 gap-2">
+                              <div className="space-y-1">
+                                <Label className="text-[9px] font-semibold text-slate-500">Target Price ($) *</Label>
+                                <Input 
+                                  type="number"
+                                  step="0.01"
+                                  placeholder="120.00"
+                                  value={cap.targetPrice}
+                                  onChange={e => setCapabilities(prev => prev.map(c => 
+                                    c.id === cap.id ? { ...c, targetPrice: e.target.value } : c
+                                  ))}
+                                  className="text-xs h-7"
+                                  required
+                                />
+                              </div>
+                              <div className="space-y-1">
+                                <Label className="text-[9px] font-semibold text-slate-500">Lead Time (days)</Label>
+                                <Input 
+                                  placeholder="e.g. 7-10"
+                                  value={cap.leadTimeDays || ''}
+                                  onChange={e => setCapabilities(prev => prev.map(c => 
+                                    c.id === cap.id ? { ...c, leadTimeDays: e.target.value } : c
+                                  ))}
+                                  className="text-xs h-7"
+                                />
+                              </div>
+                              <div className="space-y-1">
+                                <Label className="text-[9px] font-semibold text-slate-500">Min Order (MOQ)</Label>
+                                <Input 
+                                  type="number"
+                                  placeholder="e.g. 50"
+                                  value={cap.moq || ''}
+                                  onChange={e => setCapabilities(prev => prev.map(c => 
+                                    c.id === cap.id ? { ...c, moq: e.target.value } : c
+                                  ))}
+                                  className="text-xs h-7"
+                                />
+                              </div>
+                            </div>
+
+                            {/* Grid 3: Capacity & Description */}
+                            <div className="grid grid-cols-3 gap-2">
+                              <div className="space-y-1">
+                                <Label className="text-[9px] font-semibold text-slate-500">Capacity</Label>
+                                <Input 
+                                  placeholder="e.g. 1k/month"
+                                  value={cap.monthlyCapacity || ''}
+                                  onChange={e => setCapabilities(prev => prev.map(c => 
+                                    c.id === cap.id ? { ...c, monthlyCapacity: e.target.value } : c
+                                  ))}
+                                  className="text-xs h-7"
+                                />
+                              </div>
+                              <div className="col-span-2 space-y-1">
+                                <Label className="text-[9px] font-semibold text-slate-500">Description</Label>
+                                <Input 
+                                  placeholder="Material, specs..."
+                                  value={cap.description || ''}
+                                  onChange={e => setCapabilities(prev => prev.map(c => 
+                                    c.id === cap.id ? { ...c, description: e.target.value } : c
+                                  ))}
+                                  className="text-xs h-7"
+                                />
+                              </div>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+
+              {/* SECTION 1: Supplier Basic Info */}
+              <div className="space-y-3 pt-2">
+                <h3 className="text-xs font-bold text-[#5c59e9] uppercase tracking-wider">Basic Information</h3>
+                
+                <div className="space-y-1.5">
+                {subtab === 'suppliers' && (
+                  <div className="space-y-1.5">
+                    <Label htmlFor="supplier-name" className="text-xs font-semibold text-slate-700 dark:text-slate-300">
+                      Supplier / Factory Name <span className="text-red-500">*</span>
+                    </Label>
+                    <Input
+                      id="supplier-name"
+                      placeholder="e.g. Viet My Woodworking Ltd"
+                      value={manualForm.supplierName}
+                      onChange={e => setManualForm(f => ({ ...f, supplierName: e.target.value }))}
+                      className="text-xs h-9"
+                      required
+                    />
+                  </div>
+                )}
                 </div>
+
+                {(subtab === 'suppliers' || manualForm.supplierName) && (
+                  <div className="space-y-3.5 pt-1.5 animate-in fade-in duration-200">
+                    <div className="grid grid-cols-2 gap-3.5">
+                      <div className="space-y-1.5">
+                        <Label htmlFor="supplier-email" className="text-xs font-semibold text-slate-700 dark:text-slate-300">
+                          Supplier Email
+                        </Label>
+                        <Input
+                          id="supplier-email"
+                          type="email"
+                          placeholder="e.g. contact@vietmy.com"
+                          value={manualForm.email}
+                          onChange={e => setManualForm(f => ({ ...f, email: e.target.value }))}
+                          disabled={subtab !== 'suppliers'}
+                          className={`text-xs h-9 ${subtab !== 'suppliers' ? 'disabled:bg-blue-50/70 disabled:border-blue-200 disabled:text-blue-800 disabled:opacity-100 dark:disabled:bg-blue-950/20 dark:disabled:border-blue-900/60 dark:disabled:text-blue-400' : ''}`}
+                        />
+                      </div>
+
+                      <div className="space-y-1.5">
+                        <Label htmlFor="supplier-phone" className="text-xs font-semibold text-slate-700 dark:text-slate-300">
+                          Supplier Phone
+                        </Label>
+                        <Input
+                          id="supplier-phone"
+                          placeholder="e.g. +84 901 234 567"
+                          value={manualForm.phone}
+                          onChange={e => setManualForm(f => ({ ...f, phone: e.target.value }))}
+                          disabled={subtab !== 'suppliers'}
+                          className={`text-xs h-9 ${subtab !== 'suppliers' ? 'disabled:bg-blue-50/70 disabled:border-blue-200 disabled:text-blue-800 disabled:opacity-100 dark:disabled:bg-blue-950/20 dark:disabled:border-blue-900/60 dark:disabled:text-blue-400' : ''}`}
+                        />
+                      </div>
+                    </div>
+
+                    <div className="space-y-1.5">
+                      <Label htmlFor="supplier-address" className="text-xs font-semibold text-slate-700 dark:text-slate-300">
+                        Supplier Address
+                      </Label>
+                      <Input
+                        id="supplier-address"
+                        placeholder="e.g. Binh Duong Province, Vietnam"
+                        value={manualForm.address}
+                        onChange={e => setManualForm(f => ({ ...f, address: e.target.value }))}
+                        disabled={subtab !== 'suppliers'}
+                        className={`text-xs h-9 ${subtab !== 'suppliers' ? 'disabled:bg-blue-50/70 disabled:border-blue-200 disabled:text-blue-800 disabled:opacity-100 dark:disabled:bg-blue-950/20 dark:disabled:border-blue-900/60 dark:disabled:text-blue-400' : ''}`}
+                      />
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-3.5 pt-1.5">
+                      <div className="space-y-1.5">
+                        <Label htmlFor="supplier-website" className="text-xs font-semibold text-slate-700 dark:text-slate-300">
+                          Supplier Website
+                        </Label>
+                        <Input
+                          id="supplier-website"
+                          placeholder="e.g. www.vietmy.com"
+                          value={manualForm.website}
+                          onChange={e => setManualForm(f => ({ ...f, website: e.target.value }))}
+                          disabled={subtab !== 'suppliers'}
+                          className={`text-xs h-9 ${subtab !== 'suppliers' ? 'disabled:bg-blue-50/70 disabled:border-blue-200 disabled:text-blue-800 disabled:opacity-100 dark:disabled:bg-blue-950/20 dark:disabled:border-blue-900/60 dark:disabled:text-blue-400' : ''}`}
+                        />
+                      </div>
+
+                      <div className="space-y-1.5">
+                        <Label htmlFor="supplier-contact" className="text-xs font-semibold text-slate-700 dark:text-slate-300">
+                          Contact Person
+                        </Label>
+                        <Input
+                          id="supplier-contact"
+                          placeholder="e.g. Nguyen Van A"
+                          value={manualForm.contactPerson}
+                          onChange={e => setManualForm(f => ({ ...f, contactPerson: e.target.value }))}
+                          disabled={subtab !== 'suppliers'}
+                          className={`text-xs h-9 ${subtab !== 'suppliers' ? 'disabled:bg-blue-50/70 disabled:border-blue-200 disabled:text-blue-800 disabled:opacity-100 dark:disabled:bg-blue-950/20 dark:disabled:border-blue-900/60 dark:disabled:text-blue-400' : ''}`}
+                        />
+                      </div>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-3.5 pt-1.5">
+                      <div className="space-y-1.5">
+                        <Label htmlFor="supplier-taxid" className="text-xs font-semibold text-slate-700 dark:text-slate-300">
+                          Tax ID / Reg No.
+                        </Label>
+                        <Input
+                          id="supplier-taxid"
+                          placeholder="e.g. 0102030405"
+                          value={manualForm.taxId}
+                          onChange={e => setManualForm(f => ({ ...f, taxId: e.target.value }))}
+                          disabled={subtab !== 'suppliers'}
+                          className={`text-xs h-9 ${subtab !== 'suppliers' ? 'disabled:bg-blue-50/70 disabled:border-blue-200 disabled:text-blue-800 disabled:opacity-100 dark:disabled:bg-blue-950/20 dark:disabled:border-blue-900/60 dark:disabled:text-blue-400' : ''}`}
+                        />
+                      </div>
+
+                      <div className="space-y-1.5">
+                        <Label htmlFor="supplier-businesstype" className="text-xs font-semibold text-slate-700 dark:text-slate-300">
+                          Business Type
+                        </Label>
+                        <select
+                          id="supplier-businesstype"
+                          value={manualForm.businessType}
+                          onChange={e => setManualForm(f => ({ ...f, businessType: e.target.value }))}
+                          disabled={subtab !== 'suppliers'}
+                          className={`flex w-full h-9 rounded-md border px-3 py-2 text-xs cursor-pointer ${
+                            subtab !== 'suppliers'
+                              ? 'border-blue-200 bg-blue-50/70 text-blue-800 opacity-100 dark:border-blue-900/60 dark:bg-blue-950/20 dark:text-blue-400'
+                              : 'border-slate-200 bg-white text-slate-800 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-200 disabled:bg-slate-100'
+                          }`}
+                        >
+                          <option value="">Select Business Type</option>
+                          <option value="Manufacturer">Manufacturer</option>
+                          <option value="Distributor">Distributor</option>
+                          <option value="Wholesaler">Wholesaler</option>
+                          <option value="Agent / Trader">Agent / Trader</option>
+                        </select>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {/* Product Capability Details Section */}
+                {subtab !== 'suppliers' && manualForm.supplierName && (() => {
+                  const matchedSupplier = uniqueSuppliers.find(sup => sup.name === manualForm.supplierName)
+                  const matchingCapabilities = matchedSupplier 
+                    ? (matchedSupplier.supplier_capabilities as any[])?.filter((cap: any) => {
+                        const capName = (cap.product_name || '').toLowerCase().trim()
+                        return checkedItemNames.some(itemName => 
+                          capName.includes(itemName) || itemName.includes(capName)
+                        )
+                      }) || []
+                    : []
+
+                  if (matchingCapabilities.length === 0) return null
+
+                  return (
+                    <div className="space-y-3 pt-4 border-t border-slate-100 dark:border-slate-800 mt-4 animate-in fade-in duration-200">
+                      <h3 className="text-xs font-bold text-[#5c59e9] uppercase tracking-wider flex items-center gap-1.5">
+                        <Tag size={13} className="text-[#5c59e9]" />
+                        <span>Matching Product Capabilities</span>
+                      </h3>
+                      
+                      <div className="grid grid-cols-1 gap-3">
+                        {matchingCapabilities.map((cap: any) => (
+                          <div 
+                            key={cap.id} 
+                            className="p-3.5 rounded-xl border border-indigo-100 dark:border-indigo-900/50 bg-indigo-50/20 dark:bg-indigo-950/10 space-y-3 text-xs"
+                          >
+                            <div className="flex justify-between items-start border-b border-indigo-50 dark:border-indigo-950/30 pb-2">
+                              <span className="font-bold text-slate-800 dark:text-slate-200 text-sm">
+                                {cap.product_name}
+                              </span>
+                              {cap.sku && (
+                                <span className="text-[10px] font-mono px-2 py-0.5 bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 rounded-md">
+                                  SKU: {cap.sku}
+                                </span>
+                              )}
+                            </div>
+                            
+                            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-slate-600 dark:text-slate-400 font-medium">
+                              <div className="flex flex-col gap-0.5">
+                                <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">Price</span>
+                                <span className="text-slate-800 dark:text-slate-200 font-extrabold text-sm text-[#5c59e9]">
+                                  ${Number(cap.target_price || 0).toFixed(2)}
+                                </span>
+                              </div>
+                              <div className="flex flex-col gap-0.5">
+                                <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">Lead Time</span>
+                                <span className="text-slate-800 dark:text-slate-200 font-bold">
+                                  {cap.lead_time_days ? `${cap.lead_time_days} days` : '—'}
+                                </span>
+                              </div>
+                              <div className="flex flex-col gap-0.5">
+                                <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">Min Order (MOQ)</span>
+                                <span className="text-slate-800 dark:text-slate-200 font-bold">
+                                  {cap.moq ? `${Number(cap.moq).toLocaleString()} pcs` : '—'}
+                                </span>
+                              </div>
+                              <div className="flex flex-col gap-0.5">
+                                <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">Capacity</span>
+                                <span className="text-slate-800 dark:text-slate-200 font-bold">
+                                  {cap.monthly_capacity || '—'}
+                                </span>
+                              </div>
+                            </div>
+
+                            {cap.description && (
+                              <div className="bg-white/50 dark:bg-slate-900/40 p-2.5 rounded-lg text-slate-500 border border-indigo-50/30">
+                                <span className="text-[10px] text-slate-400 block font-bold uppercase tracking-wider mb-0.5">Description</span>
+                                <span className="text-xs italic leading-normal">
+                                  {cap.description}
+                                </span>
+                              </div>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )
+                })()}
               </div>
 
               <div className="flex gap-3 pt-4">

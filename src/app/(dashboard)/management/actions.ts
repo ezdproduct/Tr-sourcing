@@ -123,6 +123,9 @@ export async function addSupplierCapabilityAction(
 ) {
   try {
     const supabase = await createClient()
+    const { data: { user } } = await supabase.auth.getUser()
+    const userEmail = user?.email || null
+
     const { data, error } = await supabase
       .from('supplier_capabilities')
       .insert({
@@ -139,6 +142,18 @@ export async function addSupplierCapabilityAction(
       .single()
 
     if (error) throw error
+
+    // Record to history
+    await recordSupplierProductHistory(
+      supabase,
+      supplierId,
+      productName,
+      targetPrice,
+      monthlyCapacity || null,
+      0,
+      'CAPABILITY_CREATE',
+      userEmail
+    )
 
     revalidatePath(`/management/supplier/${supplierId}`)
     return { success: true, capability: data }
@@ -161,6 +176,9 @@ export async function updateSupplierCapabilityAction(
 ) {
   try {
     const supabase = await createClient()
+    const { data: { user } } = await supabase.auth.getUser()
+    const userEmail = user?.email || null
+
     const { data, error } = await supabase
       .from('supplier_capabilities')
       .update({
@@ -177,6 +195,18 @@ export async function updateSupplierCapabilityAction(
       .single()
 
     if (error) throw error
+
+    // Record to history
+    await recordSupplierProductHistory(
+      supabase,
+      supplierId,
+      productName,
+      targetPrice,
+      monthlyCapacity || null,
+      0,
+      'CAPABILITY_UPDATE',
+      userEmail
+    )
 
     revalidatePath(`/management/supplier/${supplierId}`)
     return { success: true, capability: data }
@@ -201,6 +231,56 @@ export async function deleteSupplierCapabilityAction(supplierId: string, capabil
   } catch (error: any) {
     console.error('Error in deleteSupplierCapabilityAction:', error.message)
     return { success: false, error: error.message || 'Failed to delete product' }
+  }
+}
+
+export async function recordSupplierProductHistory(
+  supabase: any,
+  supplierId: string,
+  productName: string,
+  price: number,
+  capacity: string | null,
+  orderedQuantity: number,
+  eventType: string,
+  userEmail: string | null
+) {
+  try {
+    const { error } = await supabase
+      .from('supplier_product_history')
+      .insert({
+        supplier_id: supplierId,
+        product_name: productName.trim(),
+        price: price,
+        capacity: capacity ? capacity.trim() : null,
+        ordered_quantity: orderedQuantity,
+        event_type: eventType,
+        created_by: userEmail
+      })
+
+    if (error) {
+      console.error('Error inserting supplier product history:', error.message)
+    }
+  } catch (err: any) {
+    console.error('Uncaught error recording supplier product history:', err)
+  }
+}
+
+export async function getSupplierProductHistoryAction(supplierId: string, productName: string) {
+  try {
+    const supabase = await createClient()
+    const { data, error } = await supabase
+      .from('supplier_product_history')
+      .select('price, capacity, ordered_quantity, event_type, created_at, created_by')
+      .eq('supplier_id', supplierId)
+      .eq('product_name', productName.trim())
+      .order('created_at', { ascending: true })
+
+    if (error) throw error
+
+    return { success: true, history: data }
+  } catch (error: any) {
+    console.error('Error fetching supplier product history:', error.message)
+    return { success: false, error: error.message || 'Failed to fetch product history' }
   }
 }
 

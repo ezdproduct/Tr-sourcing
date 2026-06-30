@@ -7,6 +7,7 @@ export type OrderType = 'MATERIAL' | 'PRODUCT'
 
 import { createClient } from '@/supabase/server'
 import { revalidatePath } from 'next/cache'
+import { recordSupplierProductHistory } from '../management/actions'
 
 export interface AddSupplierInput {
   orderId: string | null
@@ -442,31 +443,50 @@ export async function bulkImportSuppliersAction(
       let supplierId = supplierCache[row.supplierName]
 
       if (!supplierId) {
-        const { data: supplier, error: supplierError } = await supabase
+        // Find existing supplier by name
+        const { data: existingSupplier } = await supabase
           .from('suppliers')
-          .upsert({
-            name: row.supplierName.trim(),
-            email: row.email ? row.email.trim() : null,
-            phone: row.phone ? row.phone.trim() : null,
-            address: row.address ? row.address.trim() : null,
-            website: row.website ? row.website.trim() : null,
-            contact_person: row.contactPerson ? row.contactPerson.trim() : null,
-            tax_id: row.taxId ? row.taxId.trim() : null,
-            business_type: row.businessType ? row.businessType.trim() : null,
-            main_products: row.productName ? row.productName.split(/[,;\n]+/).map((s: string) => s.trim()).filter(Boolean) : [],
-            created_by: userEmail
-          }, { onConflict: 'name' })
           .select('id')
-          .single()
+          .eq('name', row.supplierName.trim())
+          .maybeSingle()
 
-        if (supplierError) {
-          console.error(`Error upserting supplier ${row.supplierName}:`, supplierError.message)
-          continue
+        if (existingSupplier) {
+          supplierId = existingSupplier.id
+          supplierCache[row.supplierName] = supplierId
+        } else {
+          // If we are not in the profiles tab, creating new supplier profiles is forbidden!
+          if (!isProfilesTab) {
+            console.warn(`Bulk import: supplier '${row.supplierName}' does not exist. Skipping row.`)
+            continue // Skip this row entirely
+          }
+
+          // Otherwise, in the profiles tab, we can create the supplier
+          const { data: supplier, error: supplierError } = await supabase
+            .from('suppliers')
+            .upsert({
+              name: row.supplierName.trim(),
+              email: row.email ? row.email.trim() : null,
+              phone: row.phone ? row.phone.trim() : null,
+              address: row.address ? row.address.trim() : null,
+              website: row.website ? row.website.trim() : null,
+              contact_person: row.contactPerson ? row.contactPerson.trim() : null,
+              tax_id: row.taxId ? row.taxId.trim() : null,
+              business_type: row.businessType ? row.businessType.trim() : null,
+              main_products: row.productName ? row.productName.split(/[,;\n]+/).map((s: string) => s.trim()).filter(Boolean) : [],
+              created_by: userEmail
+            }, { onConflict: 'name' })
+            .select('id')
+            .single()
+
+          if (supplierError) {
+            console.error(`Error upserting supplier ${row.supplierName}:`, supplierError.message)
+            continue
+          }
+
+          supplierId = supplier.id
+          supplierCache[row.supplierName] = supplierId
+          importedSuppliersCount++
         }
-
-        supplierId = supplier.id
-        supplierCache[row.supplierName] = supplierId
-        importedSuppliersCount++
       }
 
       if (isProfilesTab) {
@@ -481,6 +501,16 @@ export async function bulkImportSuppliersAction(
 
           if (!capError) {
             importedCapabilitiesCount++
+            await recordSupplierProductHistory(
+              supabase,
+              supplierId,
+              row.productName.trim(),
+              row.quotedPrice || 0,
+              null,
+              0,
+              'IMPORT',
+              userEmail
+            )
           } else {
             console.error('Error inserting supplier capability:', capError.message)
           }
@@ -638,6 +668,16 @@ export async function bulkImportSuppliersAction(
 
         if (!capError) {
           importedCapabilitiesCount++
+          await recordSupplierProductHistory(
+            supabase,
+            supplierId,
+            row.productName.trim(),
+            row.quotedPrice || 0,
+            null,
+            0,
+            'IMPORT',
+            userEmail
+          )
         } else {
           console.error('Error inserting supplier capability:', capError.message)
         }
@@ -834,6 +874,20 @@ export async function addSupplierNormalizedAction(input: ManualNormalizedInput, 
       if (capsError) {
         console.error('Error inserting manual capabilities:', capsError.message)
         return { success: false, error: capsError.message }
+      }
+
+      // Record to history
+      for (const cap of input.capabilities) {
+        await recordSupplierProductHistory(
+          supabase,
+          supplierId,
+          cap.productName,
+          cap.targetPrice,
+          cap.monthlyCapacity || null,
+          0,
+          'CAPABILITY_CREATE',
+          userEmail
+        )
       }
     }
 

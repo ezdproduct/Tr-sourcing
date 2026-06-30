@@ -204,6 +204,72 @@ export async function GET(req: NextRequest) {
         }
       }
 
+      // Record history snapshots for confirmed items
+      try {
+        const itemsToRecord: any[] = []
+        if (orderItemId) {
+          const { data: item } = await supabase
+            .from('order_items')
+            .select('item_name, quantity, selected_supplier_id')
+            .eq('id', orderItemId)
+            .single()
+          if (item) itemsToRecord.push(item)
+        } else {
+          const { data: items } = await supabase
+            .from('order_items')
+            .select('item_name, quantity, selected_supplier_id')
+            .eq('order_id', orderId)
+          if (items) itemsToRecord.push(...items)
+        }
+
+        // Fetch order supplier to fallback
+        const { data: orderData } = await supabase
+          .from('orders')
+          .select('selected_supplier_id')
+          .eq('id', orderId)
+          .single()
+        const orderSupplierId = orderData?.selected_supplier_id
+
+        for (const item of itemsToRecord) {
+          const supplierId = item.selected_supplier_id || orderSupplierId
+          if (!supplierId) continue
+
+          // Find quoted price from order_suppliers
+          const { data: bid } = await supabase
+            .from('order_suppliers')
+            .select('quoted_price')
+            .eq('supplier_id', supplierId)
+            .eq('order_item_id', orderItemId || '')
+            .maybeSingle()
+
+          // Find capability price & capacity
+          const { data: cap } = await supabase
+            .from('supplier_capabilities')
+            .select('target_price, monthly_capacity')
+            .eq('supplier_id', supplierId)
+            .eq('product_name', item.item_name)
+            .maybeSingle()
+
+          const price = bid?.quoted_price || cap?.target_price || 0
+          const capacity = cap?.monthly_capacity || null
+
+          // Insert into supplier_product_history
+          await supabase
+            .from('supplier_product_history')
+            .insert({
+              supplier_id: supplierId,
+              product_name: item.item_name,
+              price: price,
+              capacity: capacity,
+              ordered_quantity: item.quantity || 0,
+              event_type: 'PO_CONFIRMED',
+              created_by: 'Automated System'
+            })
+        }
+      } catch (historyErr: any) {
+        console.error('Failed to record PO confirmed history snapshots:', historyErr.message)
+      }
+
       // Check if all items in this order are confirmed
       const { data: allItems } = await supabase
         .from('order_items')
