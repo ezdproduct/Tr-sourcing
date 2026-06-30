@@ -1200,7 +1200,7 @@ export function SupplierDetailClient({ supplier }: SupplierDetailClientProps) {
 
         {/* Global profile tabs edit mode toggle */}
         {activeTab !== 'product' && activeTab !== 'library' && (
-          <div className="absolute top-8 right-8 z-10">
+          <div className="flex justify-end mb-6">
             {isEditMode ? (
               <div className="flex gap-2">
                 <Button

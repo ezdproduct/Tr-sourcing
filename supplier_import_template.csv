@@ -1,6 +1,11 @@
-Supplier Name,Email,Phone,Address,Product Name,Quoted Price,Lead Time,Website,Contact Person,Tax ID,Business Type
-Hoang Phat Furniture,hoangphat@gmail.com,0987654321,789 Wood Ave Binh Duong,table,150.00,30,www.hoangphat.com,Nguyen Van A,0102030405,Manufacturer
-Dong Nai Chair Factory,dongnaichair@gmail.com,0912345678,456 Industrial St Dong Nai,chair,45.50,15,www.dongnaichair.vn,Tran Thi B,0304050607,Manufacturer
-Da Nang Table Maker,danangtable@gmail.com,0236123456,88 Ocean Blvd Da Nang,Round Table,250.00,20,www.danangtable.com,Le Van C,0506070809,Distributor
-Saigon Chair supplier,saigonchair@gmail.com,0283999999,12 Hiep Binh Thu Duc,Chair,55.00,12,www.saigonchair.com.vn,Pham Van D,0708091011,Wholesaler
-Hanoi Classic Wood,hanoiclassic@gmail.com,0243111111,99 Ba Dinh Hanoi,Table,190.00,45,www.hanoiclassicwood.com,Hoang Thi E,0910111213,Agent / Trader
+Supplier Name,Hoang Phat Furniture,Dong Nai Chair Factory,Da Nang Table Maker,Saigon Chair supplier,Hanoi Classic Wood
+Email,hoangphat@gmail.com,dongnaichair@gmail.com,danangtable@gmail.com,saigonchair@gmail.com,hanoiclassic@gmail.com
+Phone,0987654321,0912345678,0236123456,0283999999,0243111111
+Address,789 Wood Ave Binh Duong,456 Industrial St Dong Nai,88 Ocean Blvd Da Nang,12 Hiep Binh Thu Duc,99 Ba Dinh Hanoi
+Product Name,table,chair,Round Table,Chair,Table
+Quoted Price,150.00,45.50,250.00,55.00,190.00
+Lead Time,30,15,20,12,45
+Website,www.hoangphat.com,www.dongnaichair.vn,www.danangtable.com,www.saigonchair.com.vn,www.hanoiclassicwood.com
+Contact Person,Nguyen Van A,Tran Thi B,Le Van C,Pham Van D,Hoang Thi E
+Tax ID,0102030405,0304050607,0506070809,0708091011,0910111213
+Business Type,Manufacturer,Manufacturer,Distributor,Wholesaler,Agent / Trader

@@ -68,6 +68,7 @@ export function AuthGuard({ children }: { children: React.ReactNode }) {
   // 2. Check page-level permissions
   const isAuthorized = () => {
     if (userRole === 'admin') return true
+    if (pathname.startsWith('/management/supplier/') && userDepartment === 'sourcing') return true
     if (pathname.startsWith('/management')) return false
 
     if (userRole === 'boss') {

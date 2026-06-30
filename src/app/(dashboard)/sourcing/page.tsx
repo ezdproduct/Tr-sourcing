@@ -53,6 +53,7 @@ async function SourcingLoader() {
           is_shortlisted: false,
           is_bid: false, // Flag to indicate master profile
           created_at: s.created_at,
+          created_by: s.created_by,
           orders: null,
           order_items: null,
           suppliers: {
@@ -73,6 +74,7 @@ async function SourcingLoader() {
             is_shortlisted: bid.is_shortlisted,
             is_bid: true, // Flag to indicate bid record
             created_at: bid.created_at,
+            created_by: bid.created_by || s.created_by,
             orders: bid.orders,
             order_items: bid.order_items,
             suppliers: {

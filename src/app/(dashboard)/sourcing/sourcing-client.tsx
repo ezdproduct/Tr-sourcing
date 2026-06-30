@@ -3,6 +3,7 @@
 /* eslint-disable react-hooks/set-state-in-effect */
 
 import React, { useState, useTransition, useEffect } from 'react'
+import * as XLSX from 'xlsx'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
 import { useSourcing } from '@/providers/sourcing-provider'
@@ -136,7 +137,9 @@ export interface DatabaseSupplier {
   lead_time_days: number
   is_shortlisted: boolean
   created_at: string
+  created_by?: string | null
   supplier_id?: string | null
+  is_bid?: boolean
   // Joined from orders table
   orders?: { order_code: string } | null
   order_items?: { item_name: string } | null
@@ -314,6 +317,47 @@ export function SourcingClient({ initialOrders, initialSuppliers, initialAudits 
   const [isPasteImporting, setIsPasteImporting] = useState(false)
   const [pasteImportStatus, setPasteImportStatus] = useState<{ success?: boolean; msg?: string; error?: string } | null>(null)
   const [pasteErrorMessage, setPasteErrorMessage] = useState<string | null>(null)
+
+  // Sheets paste grid state
+  const [pasteGrid, setPasteGrid] = useState<any[]>(
+    Array.from({ length: 5 }, () => ({
+      supplierName: '',
+      email: '',
+      phone: '',
+      address: '',
+      productName: '',
+      quotedPrice: '',
+      leadTime: '',
+      website: '',
+      contactPerson: '',
+      taxId: '',
+      businessType: '',
+      orderCode: ''
+    }))
+  )
+
+  useEffect(() => {
+    if (isImportOpen) {
+      setPasteGrid(
+        Array.from({ length: 5 }, () => ({
+          supplierName: '',
+          email: '',
+          phone: '',
+          address: '',
+          productName: '',
+          quotedPrice: '',
+          leadTime: '',
+          website: '',
+          contactPerson: '',
+          taxId: '',
+          businessType: '',
+          orderCode: ''
+        }))
+      )
+      setPasteErrorMessage(null)
+      setPasteImportStatus(null)
+    }
+  }, [isImportOpen])
 
   // Selection states for bulk delete in All Suppliers Overview
   const [selectedSupplierIds, setSelectedSupplierIds] = useState<string[]>([])
@@ -833,14 +877,18 @@ export function SourcingClient({ initialOrders, initialSuppliers, initialAudits 
     : null
 
   // ─── All Suppliers metrics ────────────────────────────────────────────────────
-  const totalEngaged = suppliers.length
-  const totalShortlisted = suppliers.filter(s => s.is_shortlisted).length
-  const avgLeadTime = suppliers.length > 0
-    ? Math.round(suppliers.reduce((sum, s) => sum + s.lead_time_days, 0) / suppliers.length)
+  const activeBids = suppliers.filter(s => s.is_bid)
+  const totalEngaged = activeBids.length
+  const totalShortlisted = activeBids.filter(s => s.is_shortlisted).length
+  const avgLeadTime = activeBids.length > 0
+    ? Math.round(activeBids.reduce((sum, s) => sum + s.lead_time_days, 0) / activeBids.length)
     : null
 
   // All suppliers with optional search/shortlist filter
   const filteredAllSuppliers = suppliers.filter(s => {
+    // Only show bids/quotes in the Workplace tab (exclude master profiles with 0 bids/quotes)
+    if (!s.is_bid) return false
+
     const matchesSearch =
       allSuppliersSearch === '' ||
       s.supplier_name.toLowerCase().includes(allSuppliersSearch.toLowerCase()) ||
@@ -864,8 +912,10 @@ export function SourcingClient({ initialOrders, initialSuppliers, initialAudits 
           contact_person: s.suppliers!.contact_person,
           tax_id: s.suppliers!.tax_id,
           business_type: s.suppliers!.business_type,
+          main_products: s.suppliers!.main_products,
           bidsCount: suppliers.filter(x => x.supplier_id === s.supplier_id && x.order_id).length,
           auditsCount: audits.filter(x => x.supplier_id === s.supplier_id).length,
+          created_by: s.suppliers!.created_by || s.created_by || 'System',
           rawRecord: s
         }])
     ).values()
@@ -1050,197 +1100,47 @@ export function SourcingClient({ initialOrders, initialSuppliers, initialAudits 
     const file = e.target.files?.[0]
     if (!file) return
     
+    const isExcel = file.name.endsWith('.xlsx') || file.name.endsWith('.xls')
     const reader = new FileReader()
-    reader.onload = (event) => {
-      const text = event.target?.result as string
-      if (!text) return
-      
-      try {
-        const rawRows = parseCSV(text)
-        if (rawRows.length < 2) {
-          setErrorMessage('CSV file must contain a header row and at least one data row.')
-          return
-        }
-        
-        const headers = rawRows[0].map(h => h.toLowerCase().trim().replace(/['"_\s]+/g, ''))
-        
-        const colMap = {
-          supplierName: headers.indexOf('suppliername'),
-          email: headers.indexOf('email'),
-          phone: headers.indexOf('phone'),
-          address: headers.indexOf('address'),
-          orderCode: headers.indexOf('ordercode'),
-          productName: headers.indexOf('productname') !== -1 ? headers.indexOf('productname') : headers.indexOf('product'),
-          quotedPrice: headers.indexOf('quotedprice') !== -1 ? headers.indexOf('quotedprice') : headers.indexOf('price'),
-          leadTime: headers.indexOf('leadtime') !== -1 ? headers.indexOf('leadtime') : headers.indexOf('leadtimedays'),
-          website: headers.indexOf('website'),
-          contactPerson: headers.indexOf('contactperson'),
-          taxId: headers.indexOf('taxid'),
-          businessType: headers.indexOf('businesstype')
-        }
-        
-        if (colMap.supplierName === -1) colMap.supplierName = headers.findIndex(h => h.includes('supplier') || h.includes('name'))
-        if (colMap.email === -1) colMap.email = headers.indexOf('email')
-        if (colMap.phone === -1) colMap.phone = headers.indexOf('phone')
-        if (colMap.address === -1) colMap.address = headers.indexOf('address')
-        if (colMap.orderCode === -1) colMap.orderCode = headers.findIndex(h => h.includes('ordercode') || h.includes('order'))
-        if (colMap.productName === -1) colMap.productName = headers.findIndex(h => h.includes('product') || h.includes('item'))
-        if (colMap.quotedPrice === -1) colMap.quotedPrice = headers.findIndex(h => h.includes('price') || h.includes('quoted'))
-        if (colMap.leadTime === -1) colMap.leadTime = headers.findIndex(h => h.includes('lead') || h.includes('time') || h.includes('days'))
-        if (colMap.website === -1) colMap.website = headers.findIndex(h => h.includes('website') || h.includes('site'))
-        if (colMap.contactPerson === -1) colMap.contactPerson = headers.findIndex(h => h.includes('contact') || h.includes('representative'))
-        if (colMap.taxId === -1) colMap.taxId = headers.findIndex(h => h.includes('tax') || h.includes('reg'))
-        if (colMap.businessType === -1) colMap.businessType = headers.findIndex(h => h.includes('business') || h.includes('type'))
 
-        if (colMap.supplierName === -1) colMap.supplierName = 0
-        if (colMap.email === -1) colMap.email = 1
-        if (colMap.phone === -1) colMap.phone = 2
-        if (colMap.address === -1) colMap.address = 3
-        if (colMap.orderCode === -1) colMap.orderCode = -1
-        if (colMap.productName === -1) colMap.productName = 4
-        if (colMap.quotedPrice === -1) colMap.quotedPrice = 5
-        if (colMap.leadTime === -1) colMap.leadTime = 6
-        if (colMap.website === -1) colMap.website = -1
-        if (colMap.contactPerson === -1) colMap.contactPerson = -1
-        if (colMap.taxId === -1) colMap.taxId = -1
-        if (colMap.businessType === -1) colMap.businessType = -1
-
-        const parsedData = rawRows.slice(1).map(row => {
-          const getValue = (idx: number) => (idx !== -1 && idx < row.length ? row[idx] : '')
-          
-          const supplierName = getValue(colMap.supplierName)
-          const email = getValue(colMap.email)
-          const phone = getValue(colMap.phone)
-          const address = getValue(colMap.address)
-          let orderCode = getValue(colMap.orderCode)
-          const productName = getValue(colMap.productName)
-          const quotedPriceStr = getValue(colMap.quotedPrice)
-          const leadTimeStr = getValue(colMap.leadTime)
-
-          const website = getValue(colMap.website)
-          const contactPerson = getValue(colMap.contactPerson)
-          const taxId = getValue(colMap.taxId)
-          const businessType = getValue(colMap.businessType)
-
-          // Inject active order code if blank, null, or dashed in order view context, AND the product matches the order requirements
-          const isBlankOrder = !orderCode || orderCode.trim() === '' || orderCode.trim() === '-'
-          if (isBlankOrder && viewMode === 'order' && selectedOrder) {
-            const matchesActiveOrderItems = selectedOrder.order_items?.some(
-              (item: any) => item.item_name.toLowerCase().trim() === productName.toLowerCase().trim()
-            )
-            if (matchesActiveOrderItems) {
-              orderCode = selectedOrder.order_code
-            }
-          }
-          
-          // Price: strip dollar sign, parse as float
-          const cleanPriceStr = quotedPriceStr ? quotedPriceStr.replace(/[^0-9.]/g, '') : '0'
-          const quotedPrice = parseFloat(cleanPriceStr) || 0
-
-          // Lead Time: strip non-numeric characters, parse as integer
-          const cleanLeadTimeStr = leadTimeStr ? leadTimeStr.replace(/[^0-9]/g, '') : '0'
-          const leadTime = parseInt(cleanLeadTimeStr) || 0
-
-          return {
-            supplierName,
-            email,
-            phone,
-            address,
-            orderCode,
-            productName,
-            quotedPrice,
-            leadTime,
-            website,
-            contactPerson,
-            taxId,
-            businessType
-          }
-        }).filter(item => item.supplierName !== '')
-
-        setCsvPreview(parsedData)
-        setImportStatus(null)
-      } catch (err: any) {
-        setErrorMessage('Failed to parse CSV file: ' + err.message)
-      }
-    }
-    reader.readAsText(file)
-  }
-
-  const handleClipboardPaste = (e: React.ClipboardEvent<HTMLTextAreaElement>) => {
-    const pastedText = e.clipboardData.getData('text')
-    if (!pastedText) return
-    parseAndPreviewPaste(pastedText)
-  }
-
-  const handlePasteTextChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
-    const text = e.target.value
-    setPasteText(text)
-    parseAndPreviewPaste(text)
-  }
-
-  const parseAndPreviewPaste = (text: string) => {
-    try {
-      const rawRows = text.split(/\r?\n/).map(row => row.split('\t').map(cell => cell.trim()))
-      const validRows = rawRows.filter(r => r.length > 0 && r.some(cell => cell !== ''))
-      
-      if (validRows.length === 0) {
-        setPastePreview([])
+    const processRawRows = (rawRows: any[][]) => {
+      if (rawRows.length < 2) {
+        setErrorMessage('File must contain a header row and at least one data row.')
         return
       }
-
-      // Check if the first row is a header row
-      const firstRow = validRows[0]
-      const lowercaseFirstRow = firstRow.map(cell => cell.toLowerCase().trim().replace(/['"_\s]+/g, ''))
       
-      const hasHeaderIndicators = lowercaseFirstRow.some(h => 
-        h.includes('supplier') || h.includes('name') || h.includes('email') || 
-        h.includes('product') || h.includes('item') || h.includes('price') || 
-        h.includes('quoted') || h.includes('lead') || h.includes('time') || h.includes('days')
-      )
-
-      let dataRows = validRows
-      let colMap = {
-        supplierName: 0,
-        email: 1,
-        productName: 2,
-        quotedPrice: 3,
-        leadTime: 4,
-        phone: -1,
-        address: -1,
-        orderCode: -1,
-        website: -1,
-        contactPerson: -1,
-        taxId: -1,
-        businessType: -1
+      const headers = rawRows[0].map(h => String(h || '').toLowerCase().trim().replace(/[^a-z0-9]/g, ''))
+      
+      const colMap = {
+        supplierName: headers.findIndex(h => h.includes('supplier') || h.includes('name') || h.includes('ncc') || h.includes('nhacungcap')),
+        email: headers.findIndex(h => h.includes('email') || h.includes('mail') || h.includes('thudientu')),
+        phone: headers.findIndex(h => h.includes('phone') || h.includes('sdt') || h.includes('tel') || h.includes('dienthoai') || h.includes('mobile') || h.includes('contact')),
+        address: headers.findIndex(h => h.includes('address') || h.includes('diachi')),
+        orderCode: headers.findIndex(h => h.includes('ordercode') || h.includes('order') || h.includes('donhang') || h.includes('madon')),
+        productName: headers.findIndex(h => h.includes('mainproduct') || h.includes('sanphamchinh') || h.includes('productname') || h.includes('product') || h.includes('item') || h.includes('sanpham') || h.includes('mathang')),
+        quotedPrice: headers.findIndex(h => h.includes('price') || h.includes('quoted') || h.includes('cost') || h.includes('gia') || h.includes('dongia')),
+        leadTime: headers.findIndex(h => h.includes('leadtime') || h.includes('lead') || h.includes('days') || h.includes('tiendo') || h.includes('thoigian')),
+        website: headers.findIndex(h => h.includes('website') || h.includes('web') || h.includes('site')),
+        contactPerson: headers.findIndex(h => h.includes('contactperson') || h.includes('representative') || h.includes('nguoilienhe')),
+        taxId: headers.findIndex(h => h.includes('taxid') || h.includes('tax') || h.includes('mst') || h.includes('masothue')),
+        businessType: headers.findIndex(h => h.includes('businesstype') || h.includes('type') || h.includes('loaihinh'))
       }
 
-      if (hasHeaderIndicators) {
-        dataRows = validRows.slice(1)
-        colMap = {
-          supplierName: lowercaseFirstRow.findIndex(h => h.includes('supplier') || h.includes('name')),
-          email: lowercaseFirstRow.indexOf('email'),
-          productName: lowercaseFirstRow.findIndex(h => h.includes('product') || h.includes('item')),
-          quotedPrice: lowercaseFirstRow.findIndex(h => h.includes('price') || h.includes('quoted')),
-          leadTime: lowercaseFirstRow.findIndex(h => h.includes('lead') || h.includes('time') || h.includes('days')),
-          phone: lowercaseFirstRow.indexOf('phone'),
-          address: lowercaseFirstRow.indexOf('address'),
-          orderCode: lowercaseFirstRow.findIndex(h => h.includes('ordercode') || h.includes('order')),
-          website: lowercaseFirstRow.findIndex(h => h.includes('website') || h.includes('site')),
-          contactPerson: lowercaseFirstRow.findIndex(h => h.includes('contact') || h.includes('representative')),
-          taxId: lowercaseFirstRow.findIndex(h => h.includes('tax') || h.includes('reg')),
-          businessType: lowercaseFirstRow.findIndex(h => h.includes('business') || h.includes('type'))
-        }
+      if (colMap.supplierName === -1) colMap.supplierName = 0
+      if (colMap.email === -1) colMap.email = -1
+      if (colMap.phone === -1) colMap.phone = -1
+      if (colMap.address === -1) colMap.address = -1
+      if (colMap.orderCode === -1) colMap.orderCode = -1
+      if (colMap.productName === -1) colMap.productName = -1
+      if (colMap.quotedPrice === -1) colMap.quotedPrice = subtab === 'suppliers' ? -1 : 5
+      if (colMap.leadTime === -1) colMap.leadTime = subtab === 'suppliers' ? -1 : 6
+      if (colMap.website === -1) colMap.website = -1
+      if (colMap.contactPerson === -1) colMap.contactPerson = -1
+      if (colMap.taxId === -1) colMap.taxId = -1
+      if (colMap.businessType === -1) colMap.businessType = -1
 
-        // Fallbacks if not found
-        if (colMap.supplierName === -1) colMap.supplierName = 0
-        if (colMap.email === -1) colMap.email = 1
-        if (colMap.productName === -1) colMap.productName = 2
-        if (colMap.quotedPrice === -1) colMap.quotedPrice = 3
-        if (colMap.leadTime === -1) colMap.leadTime = 4
-      }
-
-      const parsedData = dataRows.map(row => {
-        const getValue = (idx: number) => (idx !== -1 && idx < row.length ? row[idx] : '')
+      const parsedData = rawRows.slice(1).map(row => {
+        const getValue = (idx: number) => (idx !== -1 && idx < row.length ? String(row[idx] || '').trim() : '')
         
         const supplierName = getValue(colMap.supplierName)
         const email = getValue(colMap.email)
@@ -1266,7 +1166,7 @@ export function SourcingClient({ initialOrders, initialSuppliers, initialAudits 
             orderCode = selectedOrder.order_code
           }
         }
-
+        
         // Price: strip dollar sign, parse as float
         const cleanPriceStr = quotedPriceStr ? quotedPriceStr.replace(/[^0-9.]/g, '') : '0'
         const quotedPrice = parseFloat(cleanPriceStr) || 0
@@ -1291,11 +1191,161 @@ export function SourcingClient({ initialOrders, initialSuppliers, initialAudits 
         }
       }).filter(item => item.supplierName !== '')
 
-      setPastePreview(parsedData)
-      setPasteErrorMessage(null)
-    } catch (err: any) {
-      setPasteErrorMessage('Failed to parse clipboard data: ' + err.message)
+      setCsvPreview(parsedData)
+      setImportStatus(null)
     }
+
+    if (isExcel) {
+      reader.onload = (event) => {
+        const data = new Uint8Array(event.target?.result as ArrayBuffer)
+        try {
+          const workbook = XLSX.read(data, { type: 'array' })
+          const firstSheetName = workbook.SheetNames[0]
+          const worksheet = workbook.Sheets[firstSheetName]
+          const rawRows = XLSX.utils.sheet_to_json<any[]>(worksheet, { header: 1, defval: '' })
+          processRawRows(rawRows)
+        } catch (err: any) {
+          setErrorMessage('Failed to parse Excel file: ' + err.message)
+        }
+      }
+      reader.readAsArrayBuffer(file)
+    } else {
+      reader.onload = (event) => {
+        const text = event.target?.result as string
+        if (!text) return
+        
+        try {
+          const rawRows = parseCSV(text)
+          processRawRows(rawRows)
+        } catch (err: any) {
+          setErrorMessage('Failed to parse CSV file: ' + err.message)
+        }
+      }
+      reader.readAsText(file)
+    }
+  }
+
+  const getColumnWidth = (key: string) => {
+    switch (key) {
+      case 'supplierName': return 'min-w-[220px] max-w-[220px]'
+      case 'email': return 'min-w-[180px] max-w-[180px]'
+      case 'phone': return 'min-w-[120px] max-w-[120px]'
+      case 'address': return 'min-w-[240px] max-w-[240px]'
+      case 'productName': return 'min-w-[200px] max-w-[200px]'
+      case 'website': return 'min-w-[160px] max-w-[160px]'
+      case 'contactPerson': return 'min-w-[150px] max-w-[150px]'
+      case 'taxId': return 'min-w-[120px] max-w-[120px]'
+      case 'businessType': return 'min-w-[130px] max-w-[130px]'
+      case 'orderCode': return 'min-w-[140px] max-w-[140px]'
+      case 'quotedPrice': return 'min-w-[110px] max-w-[110px]'
+      case 'leadTime': return 'min-w-[110px] max-w-[110px]'
+      default: return 'min-w-[120px] max-w-[120px]'
+    }
+  }
+
+  const getGridColumns = () => {
+    const isProfile = subtab === 'suppliers'
+    if (isProfile) {
+      return [
+        { key: 'supplierName', label: 'Supplier Name *' },
+        { key: 'email', label: 'Email *' },
+        { key: 'phone', label: 'Phone' },
+        { key: 'address', label: 'Address' },
+        { key: 'website', label: 'Website' },
+        { key: 'contactPerson', label: 'Contact Person' },
+        { key: 'taxId', label: 'Tax ID' },
+        { key: 'businessType', label: 'Business Type' },
+        { key: 'productName', label: 'Main Products' }
+      ]
+    }
+    return [
+      { key: 'supplierName', label: 'Supplier Name *' },
+      { key: 'email', label: 'Email *' },
+      { key: 'phone', label: 'Phone' },
+      { key: 'address', label: 'Address' },
+      { key: 'productName', label: 'Main Products *' },
+      { key: 'quotedPrice', label: 'Quoted Price *' },
+      { key: 'leadTime', label: 'Lead Time (Days) *' },
+      { key: 'website', label: 'Website' },
+      { key: 'contactPerson', label: 'Contact Person' },
+      { key: 'taxId', label: 'Tax ID' },
+      { key: 'businessType', label: 'Business Type' },
+      { key: 'orderCode', label: 'Order Code (Optional)' }
+    ]
+  }
+
+  const handleGridCellPaste = (e: React.ClipboardEvent<HTMLInputElement>, rowIndex: number, colKey: string) => {
+    e.preventDefault()
+    const pastedText = e.clipboardData.getData('text')
+    if (!pastedText) return
+
+    // Parse clipboard text (tab-separated columns, newline-separated rows)
+    const rows = pastedText.split(/\r?\n/).map(row => row.split('\t').map(cell => cell.trim()))
+    const validRows = rows.filter(r => r.length > 0 && r.some(cell => cell !== ''))
+    if (validRows.length === 0) return
+
+    const columnsList = getGridColumns().map(c => c.key)
+    const colIndex = columnsList.indexOf(colKey)
+    if (colIndex === -1) return
+
+    setPasteGrid(prevGrid => {
+      const newGrid = [...prevGrid]
+
+      validRows.forEach((rowCells, rOffset) => {
+        const targetRowIdx = rowIndex + rOffset
+        // Expand the grid size if needed
+        while (newGrid.length <= targetRowIdx) {
+          newGrid.push({
+            supplierName: '', email: '', phone: '', address: '', productName: '', quotedPrice: '',
+            leadTime: '', website: '', contactPerson: '', taxId: '', businessType: '', orderCode: ''
+          })
+        }
+
+        rowCells.forEach((cellVal, cOffset) => {
+          const targetColIdx = colIndex + cOffset
+          if (targetColIdx < columnsList.length) {
+            const targetColKey = columnsList[targetColIdx]
+            newGrid[targetRowIdx] = {
+              ...newGrid[targetRowIdx],
+              [targetColKey]: cellVal
+            }
+          }
+        })
+      })
+
+      return newGrid
+    })
+  }
+
+  const handleGridCellChange = (rowIndex: number, colKey: string, value: string) => {
+    setPasteGrid(prevGrid => {
+      const newGrid = [...prevGrid]
+      newGrid[rowIndex] = {
+        ...newGrid[rowIndex],
+        [colKey]: value
+      }
+      return newGrid
+    })
+  }
+
+  const handleAddGridRow = () => {
+    setPasteGrid(prev => [
+      ...prev,
+      {
+        supplierName: '', email: '', phone: '', address: '', productName: '', quotedPrice: '',
+        leadTime: '', website: '', contactPerson: '', taxId: '', businessType: '', orderCode: ''
+      }
+    ])
+  }
+
+  const handleClearGrid = () => {
+    setPasteGrid(
+      Array.from({ length: 5 }, () => ({
+        supplierName: '', email: '', phone: '', address: '', productName: '', quotedPrice: '',
+        leadTime: '', website: '', contactPerson: '', taxId: '', businessType: '', orderCode: ''
+      }))
+    )
+    setPasteErrorMessage(null)
   }
 
   const handleToggleShortlist = (supplier: DatabaseSupplier) => {
@@ -1368,32 +1418,32 @@ export function SourcingClient({ initialOrders, initialSuppliers, initialAudits 
     setConfirmDeleteId(null)
     setDeletingId(idToDelete)
 
-    const itemToDelete = suppliers.find(s => s.id === idToDelete)
-    const supplierId = itemToDelete ? itemToDelete.supplier_id : null
-
-    const result = await deleteSupplierAction(idToDelete)
+    const result = await deleteSupplierAction(idToDelete, false) // deleteProfile is false (Workplace)
     setDeletingId(null)
     if (result.success) {
-      setSuppliers(prev => prev.filter(s => 
-        s.id !== idToDelete && 
-        (supplierId ? s.supplier_id !== supplierId : true)
-      ))
+      setSuppliers(prev => prev.filter(s => s.id !== idToDelete))
     }
   }
 
   const handleConfirmBatchDelete = async () => {
     setIsDeletingBatch(true)
-    const res = await deleteSuppliersBatchAction(selectedSupplierIds)
+    const isProfilesTab = subtab === 'suppliers'
+    const res = await deleteSuppliersBatchAction(selectedSupplierIds, isProfilesTab)
     setIsDeletingBatch(false)
     setIsBulkDeleteConfirmOpen(false)
 
     if (res.success) {
-      setSuppliers(prev => prev.filter(s => s.supplier_id ? !selectedSupplierIds.includes(s.supplier_id) : true))
+      if (isProfilesTab) {
+        setSuppliers(prev => prev.filter(s => !selectedSupplierIds.includes(s.supplier_id || s.id)))
+        triggerToast(`Successfully deleted ${selectedSupplierIds.length} supplier profiles.`)
+      } else {
+        setSuppliers(prev => prev.filter(s => !selectedSupplierIds.includes(s.id)))
+        triggerToast(`Successfully removed ${selectedSupplierIds.length} supplier bids.`)
+      }
       setSelectedSupplierIds([])
       setIsManageMode(false)
-      triggerToast(`Successfully deleted ${selectedSupplierIds.length} suppliers.`)
     } else {
-      triggerToast(res.error || 'Failed to delete suppliers.')
+      triggerToast(res.error || (isProfilesTab ? 'Failed to delete supplier profiles.' : 'Failed to remove supplier bids.'))
     }
   }
 
@@ -1854,36 +1904,8 @@ export function SourcingClient({ initialOrders, initialSuppliers, initialAudits 
               <DropdownMenuContent align="end" className="w-56 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-1 shadow-md z-50">
                 <DropdownMenuItem
                   onClick={() => {
-                    setManualForm({
-                      supplierName: '',
-                      email: '',
-                      phone: '',
-                      address: '',
-                      orderId: '',
-                      website: '',
-                      contactPerson: '',
-                      taxId: '',
-                      businessType: ''
-                    })
-                    setItemBids({})
-                    setCapabilities([])
-                    setErrorMessage(null)
-                    setIsAddOpen(true)
-                  }}
-                  className="flex items-center gap-2 px-2.5 py-1.5 text-xs rounded-lg cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-800 font-semibold text-slate-700 dark:text-slate-300"
-                >
-                  <Plus size={12} className="text-[#5c59e9]" />
-                  <span>Add Supplier</span>
-                </DropdownMenuItem>
-
-                <DropdownMenuItem
-                  onClick={() => {
                     setCsvPreview([])
                     setImportStatus(null)
-                    setPasteText('')
-                    setPastePreview([])
-                    setPasteImportStatus(null)
-                    setPasteErrorMessage(null)
                     setImportTab('file')
                     setIsImportOpen(true)
                     setErrorMessage(null)
@@ -1892,6 +1914,20 @@ export function SourcingClient({ initialOrders, initialSuppliers, initialAudits 
                 >
                   <Upload size={12} className="text-[#5c59e9]" />
                   <span>Import Excel/CSV</span>
+                </DropdownMenuItem>
+
+                <DropdownMenuItem
+                  onClick={() => {
+                    setPasteImportStatus(null)
+                    setPasteErrorMessage(null)
+                    setImportTab('paste')
+                    setIsImportOpen(true)
+                    setErrorMessage(null)
+                  }}
+                  className="flex items-center gap-2 px-2.5 py-1.5 text-xs rounded-lg cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-800 font-semibold text-slate-700 dark:text-slate-300"
+                >
+                  <Clipboard size={12} className="text-[#5c59e9]" />
+                  <span>Paste from Sheets</span>
                 </DropdownMenuItem>
 
                 <DropdownMenuItem
@@ -1934,14 +1970,14 @@ export function SourcingClient({ initialOrders, initialSuppliers, initialAudits 
                           />
                         </th>
                       )}
-                      <th className="px-6 py-4">Supplier Name</th>
-                      <th className="px-6 py-4">Website</th>
-                      <th className="px-6 py-4">Contact Person</th>
-                      <th className="px-6 py-4">Email</th>
-                      <th className="px-6 py-4">Phone</th>
-                      <th className="px-6 py-4">Address</th>
-                      <th className="px-6 py-4 text-center">Bids / Audits</th>
-                      <th className="px-6 py-4 text-right">Actions</th>
+                      <th className="px-6 py-4 w-[20%] min-w-[220px]">Supplier Name</th>
+                      <th className="px-6 py-4 w-[15%] min-w-[180px]">Email</th>
+                      <th className="px-6 py-4 w-[10%] min-w-[130px]">Phone</th>
+                      <th className="px-6 py-4 w-[12%] min-w-[150px]">Contact Person</th>
+                      <th className="px-6 py-4 w-[12%] min-w-[150px]">Website</th>
+                      <th className="px-6 py-4 w-[15%] min-w-[200px]">Address</th>
+                      <th className="px-6 py-4 w-[16%] min-w-[200px]">Main Products</th>
+                      <th className="px-6 py-4 w-[10%] min-w-[110px] text-center"><span className="block text-center w-full">Upload By</span></th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100 dark:divide-slate-800 text-xs">
@@ -1966,7 +2002,7 @@ export function SourcingClient({ initialOrders, initialSuppliers, initialAudits 
                             </td>
                           )}
                           {/* Supplier Name */}
-                          <td className="px-6 py-4 font-semibold text-slate-800 dark:text-slate-200">
+                          <td className="px-6 py-4 font-semibold text-slate-800 dark:text-slate-200 w-[20%] min-w-[220px]">
                             <a
                               href={`/management/supplier/${supplier.id}`}
                               target="_blank"
@@ -1977,8 +2013,23 @@ export function SourcingClient({ initialOrders, initialSuppliers, initialAudits 
                             </a>
                           </td>
 
+                          {/* Email */}
+                          <td className="px-6 py-4 text-slate-600 dark:text-slate-450 w-[15%] min-w-[180px]">
+                            {supplier.email || '—'}
+                          </td>
+
+                          {/* Phone */}
+                          <td className="px-6 py-4 text-slate-600 dark:text-slate-450 w-[10%] min-w-[130px]">
+                            {supplier.phone || '—'}
+                          </td>
+
+                          {/* Contact Person */}
+                          <td className="px-6 py-4 text-slate-700 dark:text-slate-355 font-semibold w-[12%] min-w-[150px]">
+                            {supplier.contact_person || '—'}
+                          </td>
+
                           {/* Website Link */}
-                          <td className="px-6 py-4">
+                          <td className="px-6 py-4 w-[12%] min-w-[150px]">
                             {supplier.website ? (
                               <a 
                                 href={supplier.website.startsWith('http') ? supplier.website : `https://${supplier.website}`} 
@@ -1994,54 +2045,24 @@ export function SourcingClient({ initialOrders, initialSuppliers, initialAudits 
                             )}
                           </td>
 
-                          {/* Contact Person */}
-                          <td className="px-6 py-4 text-slate-700 dark:text-slate-355 font-semibold">
-                            {supplier.contact_person || '—'}
-                          </td>
-
-                          {/* Email */}
-                          <td className="px-6 py-4 text-slate-600 dark:text-slate-450">
-                            {supplier.email || '—'}
-                          </td>
-
-                          {/* Phone */}
-                          <td className="px-6 py-4 text-slate-600 dark:text-slate-450">
-                            {supplier.phone || '—'}
-                          </td>
-
                           {/* Address */}
-                          <td className="px-6 py-4 text-slate-500 dark:text-slate-400 truncate max-w-xs" title={supplier.address || ''}>
+                          <td className="px-6 py-4 text-slate-500 dark:text-slate-400 truncate max-w-xs w-[15%] min-w-[200px]" title={supplier.address || ''}>
                             {supplier.address || '—'}
                           </td>
 
-                          {/* Bids / Audits counts */}
-                          <td className="px-6 py-4">
-                            <div className="flex items-center justify-center gap-1.5">
-                              <Badge variant="outline" className="bg-blue-50/50 text-blue-600 border-blue-200/50 dark:bg-blue-955/20 dark:text-blue-400 dark:border-blue-900/50 font-medium text-[10px] px-2 py-0.5 rounded-md">
-                                {supplier.bidsCount} Bid{supplier.bidsCount !== 1 ? 's' : ''}
-                              </Badge>
-                              <Badge variant="outline" className="bg-amber-50/50 text-amber-600 border-amber-200/50 dark:bg-amber-955/20 dark:text-amber-400 dark:border-amber-900/50 font-medium text-[10px] px-2 py-0.5 rounded-md">
-                                {supplier.auditsCount} Audit{supplier.auditsCount !== 1 ? 's' : ''}
-                              </Badge>
-                            </div>
+                          {/* Main Products */}
+                          <td className="px-6 py-4 text-slate-600 dark:text-slate-400 truncate max-w-xs font-medium w-[16%] min-w-[200px]" title={supplier.main_products ? supplier.main_products.join(', ') : ''}>
+                            {supplier.main_products && supplier.main_products.length > 0 ? supplier.main_products.join(', ') : '—'}
                           </td>
 
-                          {/* View Profile Action */}
-                          <td className="px-6 py-4 text-right">
-                            <a
-                              href={`/management/supplier/${supplier.id}`}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="inline-block"
+                          {/* Uploaded By */}
+                          <td className="px-6 py-4 text-center w-[10%] min-w-[110px]">
+                            <span 
+                              className="text-slate-600 dark:text-slate-400 font-semibold text-[11px] bg-slate-50 dark:bg-slate-800/40 px-2.5 py-1 rounded-md border border-slate-100 dark:border-slate-800/60"
+                              title={supplier.created_by || 'System'}
                             >
-                              <Button
-                                size="sm"
-                                variant="outline"
-                                className="h-8 px-2.5 border-slate-200 text-slate-600 hover:text-slate-700 dark:border-slate-800 hover:bg-slate-50/50 cursor-pointer gap-1 text-[11px]"
-                              >
-                                <span>View Profile</span>
-                              </Button>
-                            </a>
+                              {supplier.created_by ? supplier.created_by.split('@')[0] : 'System'}
+                            </span>
                           </td>
                         </tr>
                       )
@@ -2101,7 +2122,7 @@ export function SourcingClient({ initialOrders, initialSuppliers, initialAudits 
                     ? 'bg-indigo-200/50 dark:bg-indigo-900/50 text-indigo-700 dark:text-indigo-400'
                     : 'bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400'
                 }`}>
-                  {suppliers.length}
+                  {filteredAllSuppliers.length}
                 </span>
               </button>
             </div>
@@ -2268,10 +2289,6 @@ export function SourcingClient({ initialOrders, initialSuppliers, initialAudits 
                             onClick={() => {
                               setCsvPreview([])
                               setImportStatus(null)
-                              setPasteText('')
-                              setPastePreview([])
-                              setPasteImportStatus(null)
-                              setPasteErrorMessage(null)
                               setImportTab('file')
                               setIsImportOpen(true)
                               setErrorMessage(null)
@@ -2280,6 +2297,21 @@ export function SourcingClient({ initialOrders, initialSuppliers, initialAudits 
                           >
                             <Upload size={12} className="text-[#5c59e9]" />
                             <span>Import Excel/CSV</span>
+                          </DropdownMenuItem>
+
+                          {/* Paste from Sheets */}
+                          <DropdownMenuItem
+                            onClick={() => {
+                              setPasteImportStatus(null)
+                              setPasteErrorMessage(null)
+                              setImportTab('paste')
+                              setIsImportOpen(true)
+                              setErrorMessage(null)
+                            }}
+                            className="flex items-center gap-2 px-2.5 py-1.5 text-xs rounded-lg cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-800 font-semibold text-slate-700 dark:text-slate-305"
+                          >
+                            <Clipboard size={12} className="text-[#5c59e9]" />
+                            <span>Paste from Sheets</span>
                           </DropdownMenuItem>
 
                           {/* Select & Delete */}
@@ -2830,16 +2862,11 @@ export function SourcingClient({ initialOrders, initialSuppliers, initialAudits 
                                         <Plus size={12} className="text-[#5c59e9]" />
                                         <span>Add Supplier</span>
                                       </DropdownMenuItem>
-
-                                      {/* Import Excel/CSV */}
+                                      /* Import Excel/CSV */
                                       <DropdownMenuItem
                                         onClick={() => {
                                           setCsvPreview([])
                                           setImportStatus(null)
-                                          setPasteText('')
-                                          setPastePreview([])
-                                          setPasteImportStatus(null)
-                                          setPasteErrorMessage(null)
                                           setImportTab('file')
                                           setIsImportOpen(true)
                                           setErrorMessage(null)
@@ -2848,6 +2875,21 @@ export function SourcingClient({ initialOrders, initialSuppliers, initialAudits 
                                       >
                                         <Upload size={12} className="text-[#5c59e9]" />
                                         <span>Import Excel/CSV</span>
+                                      </DropdownMenuItem>
+
+                                      /* Paste from Sheets */
+                                      <DropdownMenuItem
+                                        onClick={() => {
+                                          setPasteImportStatus(null)
+                                          setPasteErrorMessage(null)
+                                          setImportTab('paste')
+                                          setIsImportOpen(true)
+                                          setErrorMessage(null)
+                                        }}
+                                        className="flex items-center gap-2 px-2.5 py-1.5 text-xs rounded-lg cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-800 font-semibold text-slate-700 dark:text-slate-355"
+                                      >
+                                        <Clipboard size={12} className="text-[#5c59e9]" />
+                                        <span>Paste from Sheets</span>
                                       </DropdownMenuItem>
 
                                       <DropdownMenuSeparator className="my-1 border-t border-slate-100 dark:border-slate-800" />
@@ -3920,60 +3962,37 @@ export function SourcingClient({ initialOrders, initialSuppliers, initialAudits 
             className="absolute inset-0 bg-black/40 backdrop-blur-sm"
             onClick={() => { if (!isImporting && !isPasteImporting) { setIsImportOpen(false); setCsvPreview([]); setPastePreview([]); setImportStatus(null); setPasteImportStatus(null); } }}
           />
-          <div className="relative z-10 w-full max-w-2xl bg-white dark:bg-slate-900 rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-800 animate-in zoom-in-95 duration-205">
+          <div className={`relative z-10 w-full bg-white dark:bg-slate-900 rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-800 animate-in zoom-in-95 duration-205 overflow-hidden ${
+            importTab === 'paste' ? 'max-w-5xl' : 'max-w-2xl'
+          }`}>
             <div className="flex items-center justify-between px-6 py-5 border-b border-slate-100 dark:border-slate-800">
               <div>
                 <h2 className="text-base font-bold text-slate-900 dark:text-white flex items-center gap-2">
-                  <Upload className="h-5 w-5 text-[#5c59e9]" />
-                  <span>📥 Bulk Import Suppliers</span>
+                  {importTab === 'file' ? (
+                    <>
+                      <Upload className="h-5 w-5 text-[#5c59e9]" />
+                      <span>📥 Import Excel/CSV File</span>
+                    </>
+                  ) : (
+                    <>
+                      <Clipboard className="h-5 w-5 text-[#5c59e9]" />
+                      <span>📋 Paste from Sheets</span>
+                    </>
+                  )}
                 </h2>
-                <p className="text-xs text-slate-400 mt-0.5">Import supplier information, quotes and capabilities from file or clipboard</p>
+                <p className="text-xs text-slate-400 mt-0.5">
+                  {importTab === 'file' 
+                    ? 'Upload a CSV or Excel template file to import suppliers.'
+                    : 'Paste cells copied from Excel/Sheets directly into the grid.'}
+                </p>
               </div>
               <button
-                onClick={() => { if (!isImporting && !isPasteImporting) { setIsImportOpen(false); setCsvPreview([]); setPastePreview([]); setImportStatus(null); setPasteImportStatus(null); } }}
+                onClick={() => { if (!isImporting && !isPasteImporting) { setIsImportOpen(false); setCsvPreview([]); setImportStatus(null); setPasteImportStatus(null); } }}
                 className="h-8 w-8 flex items-center justify-center rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-400 transition-colors cursor-pointer"
               >
                 <X size={16} />
               </button>
             </div>
-
-            {/* Tab switcher inside the modal */}
-            {!importStatus && !pasteImportStatus && (
-              <div className="px-6 pt-4">
-                <div className="flex border-b border-slate-200 dark:border-slate-800">
-                  <button
-                    onClick={() => {
-                      setImportTab('file')
-                      setCsvPreview([])
-                      setPastePreview([])
-                      setPasteErrorMessage(null)
-                    }}
-                    className={`pb-2.5 text-xs font-bold px-4 -mb-px transition-colors cursor-pointer border-b-2 ${
-                      importTab === 'file'
-                        ? 'border-[#5c59e9] text-[#5c59e9]'
-                        : 'border-transparent text-slate-500 hover:text-slate-900 dark:hover:text-white'
-                    }`}
-                  >
-                    Upload CSV/Excel File
-                  </button>
-                  <button
-                    onClick={() => {
-                      setImportTab('paste')
-                      setCsvPreview([])
-                      setPastePreview([])
-                      setPasteErrorMessage(null)
-                    }}
-                    className={`pb-2.5 text-xs font-bold px-4 -mb-px transition-colors cursor-pointer border-b-2 ${
-                      importTab === 'paste'
-                        ? 'border-[#5c59e9] text-[#5c59e9]'
-                        : 'border-transparent text-slate-500 hover:text-slate-900 dark:hover:text-white'
-                    }`}
-                  >
-                    Paste from Sheets
-                  </button>
-                </div>
-              </div>
-            )}
             
             <div className="p-6 space-y-4">
               {importTab === 'file' ? (
@@ -4017,7 +4036,7 @@ export function SourcingClient({ initialOrders, initialSuppliers, initialAudits 
                     <div className="border-2 border-dashed border-slate-200 dark:border-slate-800 rounded-2xl p-6 text-center bg-slate-50/50 dark:bg-slate-950/10">
                       <input 
                         type="file"
-                        accept=".csv"
+                        accept=".csv, .xlsx, .xls"
                         id="csv-file-input"
                         onChange={handleCsvUpload}
                         className="hidden"
@@ -4027,8 +4046,12 @@ export function SourcingClient({ initialOrders, initialSuppliers, initialAudits 
                         className="cursor-pointer flex flex-col items-center gap-2"
                       >
                         <Upload className="h-8 w-8 text-slate-400 hover:text-[#5c59e9] transition-colors" />
-                        <span className="text-xs font-semibold text-slate-700 dark:text-slate-300">Click to upload CSV template</span>
-                        <span className="text-[10px] text-slate-400">Columns: supplier_name, email, phone, address, product_name, quoted_price, lead_time (order_code is optional)</span>
+                        <span className="text-xs font-semibold text-slate-700 dark:text-slate-300">Click to upload Excel or CSV file</span>
+                        <span className="text-[10px] text-slate-400">
+                          {subtab === 'suppliers'
+                            ? 'Columns: supplier_name, email, phone, address, website, contact_person, tax_id, business_type, main_products'
+                            : 'Columns: supplier_name, email, phone, address, main_products, quoted_price, lead_time (order_code is optional)'}
+                        </span>
                       </label>
                     </div>
 
@@ -4039,30 +4062,50 @@ export function SourcingClient({ initialOrders, initialSuppliers, initialAudits 
                             Previewing {Math.min(5, csvPreview.length)} of {csvPreview.length} rows:
                           </span>
                         </div>
-                        <div className="border border-slate-100 dark:border-slate-800 rounded-xl overflow-x-auto">
+                        <div className="border border-slate-100 dark:border-slate-800 rounded-xl overflow-x-auto w-full max-w-full">
                           <table className="w-full text-left border-collapse text-[10px]">
-                            <thead>
-                              <tr className="bg-slate-50 dark:bg-slate-950 border-b border-slate-100 dark:border-slate-800 font-bold uppercase text-slate-500">
-                                <th className="px-4 py-2">Supplier Name</th>
-                                <th className="px-4 py-2">Email</th>
-                                <th className="px-4 py-2">Order Code</th>
-                                <th className="px-4 py-2">Product Name</th>
-                                <th className="px-4 py-2 text-right">Price</th>
-                                <th className="px-4 py-2 text-right">Lead Time</th>
-                              </tr>
-                            </thead>
-                            <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-                              {csvPreview.slice(0, 5).map((row, idx) => (
-                                <tr key={idx} className="text-slate-700 dark:text-slate-300">
-                                  <td className="px-4 py-2 font-semibold">{row.supplierName}</td>
-                                  <td className="px-4 py-2">{row.email || '—'}</td>
-                                  <td className="px-4 py-2 font-bold text-[#5c59e9]">{row.orderCode || '—'}</td>
-                                  <td className="px-4 py-2 font-medium">{row.productName || '—'}</td>
-                                  <td className="px-4 py-2 text-right font-bold text-slate-900 dark:text-white">${row.quotedPrice}</td>
-                                  <td className="px-4 py-2 text-right">{row.leadTime} days</td>
-                                </tr>
-                              ))}
-                            </tbody>
+                                                      <thead>
+                                                        <tr className="bg-slate-50 dark:bg-slate-955 border-b border-slate-100 dark:border-slate-800 font-bold uppercase text-slate-500">
+                                                          {getGridColumns().map(col => (
+                                                            <th key={col.key} className={`px-4 py-2 bg-slate-50 dark:bg-slate-955 font-bold uppercase text-slate-500 ${getColumnWidth(col.key)}`}>
+                                                              {col.label}
+                                                            </th>
+                                                          ))}
+                                                        </tr>
+                                                      </thead>
+                                                      <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                                                        {csvPreview.slice(0, 5).map((row: any, idx) => (
+                                                          <tr key={idx} className="text-slate-700 dark:text-slate-300">
+                                                            {getGridColumns().map(col => {
+                                                              const colKey = col.key
+                                                              let val = row[colKey]
+                                    
+                                                              // Custom formatting for specific columns
+                                                              if (colKey === 'quotedPrice') {
+                                                                val = val ? `$${Number(val).toLocaleString('en-US', { minimumFractionDigits: 2 })}` : '—'
+                                                              } else if (colKey === 'leadTime') {
+                                                                val = val ? `${val} days` : '—'
+                                                              } else if (!val || val === '-') {
+                                                                val = '—'
+                                                              }
+
+                                                              return (
+                                                                <td 
+                                                                  key={colKey} 
+                                                                  className={`px-4 py-2 ${getColumnWidth(colKey)} ${
+                                                                    colKey === 'supplierName' ? 'font-semibold' :
+                                                                    colKey === 'orderCode' ? 'font-bold text-[#5c59e9]' :
+                                                                    colKey === 'quotedPrice' ? 'font-bold text-slate-900 dark:text-white' : ''
+                                                                  } ${colKey === 'productName' ? 'truncate max-w-[200px]' : ''}`}
+                                                                  title={colKey === 'productName' ? String(row[colKey] || '') : undefined}
+                                                                >
+                                                                  {val}
+                                                                </td>
+                                                              )
+                                                            })}
+                                                          </tr>
+                                                        ))}
+                                                      </tbody>
                           </table>
                         </div>
                         
@@ -4151,111 +4194,159 @@ export function SourcingClient({ initialOrders, initialSuppliers, initialAudits 
                 ) : (
                   <>
                     <div className="space-y-2">
-                      <Label htmlFor="paste-textarea" className="text-xs font-semibold text-slate-700 dark:text-slate-300">
-                        Paste Excel/Sheets data here (Ctrl+V):
+                      <Label className="text-xs font-semibold text-slate-700 dark:text-slate-300">
+                        Paste Excel/Google Sheets data or edit cells directly:
                       </Label>
-                      <textarea
-                        id="paste-textarea"
-                        placeholder="Click here and press Ctrl+V to paste cells copied from Excel/Google Sheets.&#10;&#10;Supported columns: Supplier Name, Email, Product Item, Quoted Price, Lead Time."
-                        value={pasteText}
-                        onPaste={handleClipboardPaste}
-                        onChange={handlePasteTextChange}
-                        rows={5}
-                        className="w-full text-xs p-3 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-55/20 dark:bg-slate-950 focus:outline-none focus:ring-2 focus:ring-[#5c59e9] dark:text-slate-100 resize-none font-medium animate-in fade-in"
-                      />
+                      <p className="text-[10px] text-slate-400">
+                        Click on any cell and press <strong>Ctrl+V</strong> to paste copied data from Excel or Google Sheets. The columns will map 1-to-1 matching the CSV template order.
+                      </p>
+
+                      <div className="border border-slate-200 dark:border-slate-800 rounded-xl overflow-hidden max-h-[300px] overflow-y-auto overflow-x-auto shadow-sm">
+                        <table className="w-full text-left border-collapse text-[10px]">
+                          <thead>
+                            <tr className="bg-slate-50 dark:bg-slate-955 border-b border-slate-200 dark:border-slate-850 font-bold uppercase text-slate-500 sticky top-0 z-10">
+                              <th className="px-3 py-2 w-10 text-center text-slate-400 bg-slate-55 dark:bg-slate-950">#</th>
+                              {getGridColumns().map(col => (
+                                <th key={col.key} className={`px-3 py-2 bg-slate-50 dark:bg-slate-955 font-bold uppercase text-slate-500 ${getColumnWidth(col.key)}`}>
+                                  {col.label}
+                                </th>
+                              ))}
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                            {pasteGrid.map((row, rowIndex) => (
+                              <tr key={rowIndex} className="hover:bg-slate-50/50 dark:hover:bg-slate-900/5">
+                                <td className="px-3 py-2 text-center font-bold text-slate-400 bg-slate-50/30 dark:bg-slate-950/20">{rowIndex + 1}</td>
+                                {getGridColumns().map(col => col.key).map((colKey) => (
+                                  <td key={colKey} className={`p-1 ${getColumnWidth(colKey)}`}>
+                                    <input
+                                      type="text"
+                                      value={row[colKey] || ''}
+                                      onChange={(e) => handleGridCellChange(rowIndex, colKey, e.target.value)}
+                                      onPaste={(e) => handleGridCellPaste(e, rowIndex, colKey)}
+                                      placeholder={
+                                        colKey === 'supplierName' ? 'e.g. Acme Corp' :
+                                        colKey === 'email' ? 'contact@acme.com' :
+                                        colKey === 'productName' ? 'e.g. Cardboard Box' :
+                                        colKey === 'quotedPrice' ? '0.00' :
+                                        colKey === 'leadTime' ? '0' : ''
+                                      }
+                                      className="w-full text-xs px-2 py-1.5 rounded bg-transparent focus:bg-white dark:focus:bg-slate-900 focus:outline-none focus:ring-1 focus:ring-[#5c59e9] border border-transparent focus:border-slate-200 dark:focus:border-slate-800 font-medium"
+                                    />
+                                  </td>
+                                ))}
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
                     </div>
 
                     {pasteErrorMessage && (
-                      <div className="p-3 bg-red-50 text-red-600 dark:bg-red-950/20 dark:text-red-400 rounded-xl text-xs font-medium border border-red-200 dark:border-red-900/50 flex items-center gap-2">
+                      <div className="p-3 bg-red-50 text-red-600 dark:bg-red-950/20 dark:text-red-400 rounded-xl text-xs font-medium border border-red-200 dark:border-red-900/50 flex items-center gap-2 animate-in fade-in">
                         <AlertCircle size={14} className="flex-shrink-0" />
                         <span>{pasteErrorMessage}</span>
                       </div>
                     )}
 
-                    {pastePreview.length > 0 && (
-                      <div className="space-y-2 animate-in fade-in slide-in-from-top-2 duration-200">
-                        <div className="flex justify-between items-center">
-                          <span className="text-xs font-semibold text-slate-700 dark:text-slate-300">
-                            Parsed Preview ({pastePreview.length} rows):
-                          </span>
-                        </div>
-                        <div className="border border-slate-100 dark:border-slate-800 rounded-xl overflow-x-auto max-h-60">
-                          <table className="w-full text-left border-collapse text-[10px]">
-                            <thead>
-                              <tr className="bg-slate-50 dark:bg-slate-950 border-b border-slate-100 dark:border-slate-800 font-bold uppercase text-slate-500 sticky top-0">
-                                <th className="px-4 py-2">Supplier Name</th>
-                                <th className="px-4 py-2">Email</th>
-                                <th className="px-4 py-2">Order Code</th>
-                                <th className="px-4 py-2">Product Item</th>
-                                <th className="px-4 py-2 text-right">Quoted Price</th>
-                                <th className="px-4 py-2 text-right">Lead Time</th>
-                              </tr>
-                            </thead>
-                            <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-                              {pastePreview.map((row, idx) => (
-                                <tr key={idx} className="text-slate-700 dark:text-slate-305 hover:bg-slate-50/50 dark:hover:bg-slate-900/10">
-                                  <td className="px-4 py-2 font-semibold">{row.supplierName}</td>
-                                  <td className="px-4 py-2">{row.email || '—'}</td>
-                                  <td className="px-4 py-2 font-bold text-[#5c59e9]">{row.orderCode || '—'}</td>
-                                  <td className="px-4 py-2 font-medium">{row.productName || '—'}</td>
-                                  <td className="px-4 py-2 text-right font-bold text-slate-900 dark:text-white">
-                                    ${Number(row.quotedPrice).toLocaleString('en-US', { minimumFractionDigits: 2 })}
-                                  </td>
-                                  <td className="px-4 py-2 text-right">{row.leadTime} days</td>
-                                </tr>
-                              ))}
-                            </tbody>
-                          </table>
-                        </div>
-                        
-                        <div className="flex gap-3 pt-2">
-                          <Button
-                            variant="outline"
-                            onClick={() => {
-                              setPasteText('')
-                              setPastePreview([])
-                              setPasteErrorMessage(null)
-                            }}
-                            disabled={isPasteImporting}
-                            className="flex-1 h-9 text-sm cursor-pointer"
-                          >
-                            Clear
-                          </Button>
-                          <Button
-                            onClick={async () => {
-                              setIsPasteImporting(true)
-                              setPasteErrorMessage(null)
-                              const res = await bulkImportSuppliersAction(pastePreview)
-                              setIsPasteImporting(false)
-                              if (res.success) {
-                                setPasteImportStatus({
-                                  success: true,
-                                  msg: `Imported ${res.importedSuppliersCount} unique suppliers, ${res.importedBidsCount} active bids, and ${res.importedCapabilitiesCount} capability records.`
-                                })
-                              } else if (res.duplicateDetected) {
-                                setPendingActionType('paste')
-                                setPendingPayload(pastePreview)
-                                setConflictingDuplicates(res.duplicates)
-                                setIsConflictDialogOpen(true)
-                              } else {
-                                setPasteImportStatus({
-                                  success: false,
-                                  error: res.error || 'Import failed.'
-                                })
-                              }
-                            }}
-                            disabled={isPasteImporting}
-                            className="flex-1 h-9 text-sm bg-[#5c59e9] hover:bg-[#4a47d2] cursor-pointer gap-2"
-                          >
-                            {isPasteImporting ? (
-                              <><Loader2 size={14} className="animate-spin" /> Appending...</>
-                            ) : (
-                              <>Append to Order</>
-                            )}
-                          </Button>
-                        </div>
+                    <div className="flex justify-between items-center gap-3 pt-2">
+                      <div className="flex gap-2">
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          onClick={handleAddGridRow}
+                          className="h-8 text-xs font-semibold cursor-pointer border border-slate-200 text-slate-700 hover:bg-slate-50 rounded-lg flex items-center gap-1"
+                        >
+                          <Plus size={12} />
+                          <span>Add Row</span>
+                        </Button>
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          onClick={handleClearGrid}
+                          className="h-8 text-xs font-semibold cursor-pointer border border-slate-200 text-slate-700 hover:bg-slate-50 rounded-lg"
+                        >
+                          <span>Clear Table</span>
+                        </Button>
                       </div>
-                    )}
+                      
+                      <Button
+                        onClick={async () => {
+                          const validRows = pasteGrid
+                            .map(r => {
+                              const cleanPriceStr = String(r.quotedPrice || '').replace(/[^0-9.]/g, '')
+                              const quotedPrice = parseFloat(cleanPriceStr) || 0
+                              const cleanLeadTimeStr = String(r.leadTime || '').replace(/[^0-9]/g, '')
+                              const leadTime = parseInt(cleanLeadTimeStr) || 0
+                              
+                              let orderCode = r.orderCode || ''
+                              const isBlankOrder = !orderCode || orderCode.trim() === '' || orderCode.trim() === '-'
+                              if (isBlankOrder && viewMode === 'order' && selectedOrder) {
+                                const productName = r.productName || ''
+                                const matchesActiveOrderItems = selectedOrder.order_items?.some(
+                                  (item: any) => item.item_name.toLowerCase().trim() === productName.toLowerCase().trim()
+                                )
+                                if (matchesActiveOrderItems) {
+                                  orderCode = selectedOrder.order_code
+                                }
+                              }
+
+                              return {
+                                supplierName: r.supplierName ? r.supplierName.trim() : '',
+                                email: r.email ? r.email.trim() : '',
+                                phone: r.phone ? r.phone.trim() : '',
+                                address: r.address ? r.address.trim() : '',
+                                productName: r.productName ? r.productName.trim() : '',
+                                quotedPrice,
+                                leadTime,
+                                website: r.website ? r.website.trim() : '',
+                                contactPerson: r.contactPerson ? r.contactPerson.trim() : '',
+                                taxId: r.taxId ? r.taxId.trim() : '',
+                                businessType: r.businessType ? r.businessType.trim() : '',
+                                orderCode
+                              }
+                            })
+                            .filter(r => r.supplierName !== '')
+
+                          if (validRows.length === 0) {
+                            setPasteErrorMessage('Please enter at least one supplier row with a Supplier Name.')
+                            return
+                          }
+
+                          setIsPasteImporting(true)
+                          setPasteErrorMessage(null)
+                          const res = await bulkImportSuppliersAction(validRows)
+                          setIsPasteImporting(false)
+                          
+                          if (res.success) {
+                            setPasteImportStatus({
+                              success: true,
+                              msg: `Imported ${res.importedSuppliersCount} unique suppliers, ${res.importedBidsCount} active bids, and ${res.importedCapabilitiesCount} capability records.`
+                            })
+                          } else if (res.duplicateDetected) {
+                            setPendingActionType('paste')
+                            setPendingPayload(validRows)
+                            setConflictingDuplicates(res.duplicates)
+                            setIsConflictDialogOpen(true)
+                          } else {
+                            setPasteImportStatus({
+                              success: false,
+                              error: res.error || 'Import failed.'
+                            })
+                          }
+                        }}
+                        disabled={isPasteImporting}
+                        className="h-8 text-xs bg-[#5c59e9] hover:bg-[#4a47d2] cursor-pointer gap-2 font-semibold px-4 rounded-lg"
+                      >
+                        {isPasteImporting ? (
+                          <><Loader2 size={12} className="animate-spin" /> Appending...</>
+                        ) : (
+                          <>Append to Order ({pasteGrid.filter(r => r.supplierName !== '').length} rows)</>
+                        )}
+                      </Button>
+                    </div>
                   </>
                 )
               )}

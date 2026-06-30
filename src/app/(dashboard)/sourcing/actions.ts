@@ -19,6 +19,8 @@ export interface AddSupplierInput {
 export async function addSupplierAction(input: AddSupplierInput) {
   try {
     const supabase = await createClient()
+    const { data: { user } } = await supabase.auth.getUser()
+    const userEmail = user?.email || null
 
     const { data, error } = await supabase
       .from('order_suppliers')
@@ -28,7 +30,8 @@ export async function addSupplierAction(input: AddSupplierInput) {
         supplier_name: input.supplierName,
         quoted_price: input.quotedPrice,
         lead_time_days: input.leadTimeDays,
-        is_shortlisted: false
+        is_shortlisted: false,
+        created_by: userEmail
       })
       .select()
       .single()
@@ -90,28 +93,32 @@ export async function updateShortlistBatchAction(supplierIds: string[], isShortl
   }
 }
 
-export async function deleteSupplierAction(supplierId: string) {
+export async function deleteSupplierAction(id: string, deleteProfile: boolean = false) {
   try {
     const supabase = await createClient()
 
-    // 1. Try to delete from order_suppliers first
-    const { data: orderSupplier, error: fetchError } = await supabase
-      .from('order_suppliers')
-      .select('id, supplier_id')
-      .eq('id', supplierId)
-      .maybeSingle()
+    if (deleteProfile) {
+      // 1. Delete the master supplier profile from suppliers table (will cascade delete order_suppliers bids)
+      const { error: deleteError } = await supabase
+        .from('suppliers')
+        .delete()
+        .eq('id', id)
 
-    const targetSupplierId = orderSupplier ? orderSupplier.supplier_id : supplierId
+      if (deleteError) {
+        console.error('Error deleting supplier profile:', deleteError.message)
+        return { success: false, error: deleteError.message }
+      }
+    } else {
+      // 2. Delete only the bid from order_suppliers table
+      const { error: deleteError } = await supabase
+        .from('order_suppliers')
+        .delete()
+        .eq('id', id)
 
-    // 2. Delete the supplier profile from suppliers table (will cascade delete order_suppliers bids)
-    const { error: deleteError } = await supabase
-      .from('suppliers')
-      .delete()
-      .eq('id', targetSupplierId)
-
-    if (deleteError) {
-      console.error('Error deleting supplier profile:', deleteError.message)
-      return { success: false, error: deleteError.message }
+      if (deleteError) {
+        console.error('Error deleting supplier bid:', deleteError.message)
+        return { success: false, error: deleteError.message }
+      }
     }
 
     revalidatePath('/sourcing')
@@ -366,6 +373,8 @@ async function detectDuplicates(
 export async function bulkImportSuppliersAction(rows: BulkSupplierRow[], resolution?: 'skip' | 'overwrite' | null) {
   try {
     const supabase = await createClient()
+    const { data: { user } } = await supabase.auth.getUser()
+    const userEmail = user?.email || null
 
     const incomingRows = rows.map(r => ({
       email: r.email,
@@ -439,7 +448,9 @@ export async function bulkImportSuppliersAction(rows: BulkSupplierRow[], resolut
             website: row.website ? row.website.trim() : null,
             contact_person: row.contactPerson ? row.contactPerson.trim() : null,
             tax_id: row.taxId ? row.taxId.trim() : null,
-            business_type: row.businessType ? row.businessType.trim() : null
+            business_type: row.businessType ? row.businessType.trim() : null,
+            main_products: row.productName ? row.productName.split(/[,;\n]+/).map((s: string) => s.trim()).filter(Boolean) : [],
+            created_by: userEmail
           }, { onConflict: 'name' })
           .select('id')
           .single()
@@ -521,7 +532,8 @@ export async function bulkImportSuppliersAction(rows: BulkSupplierRow[], resolut
             supplier_name: row.supplierName.trim(),
             quoted_price: row.quotedPrice,
             lead_time_days: row.leadTime,
-            is_shortlisted: false
+            is_shortlisted: false,
+            created_by: userEmail
           })
 
         if (!bidError) {
@@ -580,7 +592,8 @@ export async function bulkImportSuppliersAction(rows: BulkSupplierRow[], resolut
             supplier_name: row.supplierName.trim(),
             quoted_price: row.quotedPrice,
             lead_time_days: row.leadTime,
-            is_shortlisted: false
+            is_shortlisted: false,
+            created_by: userEmail
           })
 
         if (!bidError) {
@@ -654,6 +667,8 @@ export interface ManualNormalizedInput {
 export async function addSupplierNormalizedAction(input: ManualNormalizedInput, resolution?: 'skip' | 'overwrite' | null) {
   try {
     const supabase = await createClient()
+    const { data: { user } } = await supabase.auth.getUser()
+    const userEmail = user?.email || null
 
     // 1. Resolve orderCode and itemNames
     let orderCode = ''
@@ -740,7 +755,8 @@ export async function addSupplierNormalizedAction(input: ManualNormalizedInput, 
         website: input.website ? input.website.trim() : null,
         contact_person: input.contactPerson ? input.contactPerson.trim() : null,
         tax_id: input.taxId ? input.taxId.trim() : null,
-        business_type: input.businessType ? input.businessType.trim() : null
+        business_type: input.businessType ? input.businessType.trim() : null,
+        created_by: userEmail
       }, { onConflict: 'name' })
       .select('id')
       .single()
@@ -761,7 +777,8 @@ export async function addSupplierNormalizedAction(input: ManualNormalizedInput, 
         supplier_name: input.supplierName.trim(),
         quoted_price: item.quotedPrice,
         lead_time_days: item.leadTimeDays,
-        is_shortlisted: false
+        is_shortlisted: false,
+        created_by: userEmail
       }))
 
       const { error: bidsError } = await supabase
@@ -804,35 +821,32 @@ export async function addSupplierNormalizedAction(input: ManualNormalizedInput, 
     return { success: false, error: error.message || 'An unexpected error occurred' }
   }
 }
-export async function deleteSuppliersBatchAction(ids: string[]) {
+export async function deleteSuppliersBatchAction(ids: string[], deleteProfile: boolean = false) {
   try {
     const supabase = await createClient()
 
-    // 1. Get all supplier_ids associated with these order_suppliers bids
-    const { data: bids } = await supabase
-      .from('order_suppliers')
-      .select('supplier_id')
-      .in('id', ids)
+    if (deleteProfile) {
+      // Delete master supplier profiles from suppliers table
+      const { error: sError } = await supabase
+        .from('suppliers')
+        .delete()
+        .in('id', ids)
 
-    const supplierIds = new Set<string>()
-    if (bids) {
-      bids.forEach(b => {
-        if (b.supplier_id) supplierIds.add(b.supplier_id)
-      })
-    }
-    // BUG 12 FIX: removed incorrect `ids.forEach(id => supplierIds.add(id))` which was
-    // adding raw order_suppliers bid IDs (not supplier profile IDs) into the delete set.
-    // The bid ID and supplier_id are different UUIDs; mixing them caused undefined behavior.
+      if (sError) {
+        console.error('Error batch deleting supplier profiles:', sError.message)
+        return { success: false, error: sError.message }
+      }
+    } else {
+      // Delete bids from order_suppliers table only
+      const { error: bidsError } = await supabase
+        .from('order_suppliers')
+        .delete()
+        .in('id', ids)
 
-    // 2. Delete all these suppliers from the suppliers table (will cascade delete order_suppliers)
-    const { error: sError } = await supabase
-      .from('suppliers')
-      .delete()
-      .in('id', Array.from(supplierIds))
-
-    if (sError) {
-      console.error('Error batch deleting supplier profiles:', sError.message)
-      return { success: false, error: sError.message }
+      if (bidsError) {
+        console.error('Error batch deleting supplier bids:', bidsError.message)
+        return { success: false, error: bidsError.message }
+      }
     }
 
     revalidatePath('/sourcing')
