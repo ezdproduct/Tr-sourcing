@@ -414,7 +414,7 @@ export function SourcingClient({ initialOrders, initialSuppliers, initialAudits 
           setIsConflictDialogOpen(false)
         }
       } else if (pendingActionType === 'csv') {
-        const res = await bulkImportSuppliersAction(pendingPayload, resolution)
+        const res = await bulkImportSuppliersAction(pendingPayload, resolution, subtab === 'suppliers')
         if (res.success) {
           setImportStatus({
             success: true,
@@ -432,7 +432,7 @@ export function SourcingClient({ initialOrders, initialSuppliers, initialAudits 
           setIsConflictDialogOpen(false)
         }
       } else if (pendingActionType === 'paste') {
-        const res = await bulkImportSuppliersAction(pendingPayload, resolution)
+        const res = await bulkImportSuppliersAction(pendingPayload, resolution, subtab === 'suppliers')
         if (res.success) {
           setPasteImportStatus({
             success: true,
@@ -2862,7 +2862,7 @@ export function SourcingClient({ initialOrders, initialSuppliers, initialAudits 
                                         <Plus size={12} className="text-[#5c59e9]" />
                                         <span>Add Supplier</span>
                                       </DropdownMenuItem>
-                                      /* Import Excel/CSV */
+                                      {/* Import Excel/CSV */}
                                       <DropdownMenuItem
                                         onClick={() => {
                                           setCsvPreview([])
@@ -2877,7 +2877,7 @@ export function SourcingClient({ initialOrders, initialSuppliers, initialAudits 
                                         <span>Import Excel/CSV</span>
                                       </DropdownMenuItem>
 
-                                      /* Paste from Sheets */
+                                      {/* Paste from Sheets */}
                                       <DropdownMenuItem
                                         onClick={() => {
                                           setPasteImportStatus(null)
@@ -4121,7 +4121,7 @@ export function SourcingClient({ initialOrders, initialSuppliers, initialAudits 
                           <Button
                             onClick={async () => {
                               setIsImporting(true)
-                              const res = await bulkImportSuppliersAction(csvPreview)
+                              const res = await bulkImportSuppliersAction(csvPreview, null, subtab === 'suppliers')
                               setIsImporting(false)
                               if (res.success) {
                                 setImportStatus({
@@ -4293,7 +4293,7 @@ export function SourcingClient({ initialOrders, initialSuppliers, initialAudits 
                                 }
                               }
 
-                              return {
+                                return {
                                 supplierName: r.supplierName ? r.supplierName.trim() : '',
                                 email: r.email ? r.email.trim() : '',
                                 phone: r.phone ? r.phone.trim() : '',
@@ -4317,7 +4317,7 @@ export function SourcingClient({ initialOrders, initialSuppliers, initialAudits 
 
                           setIsPasteImporting(true)
                           setPasteErrorMessage(null)
-                          const res = await bulkImportSuppliersAction(validRows)
+                          const res = await bulkImportSuppliersAction(validRows, null, subtab === 'suppliers')
                           setIsPasteImporting(false)
                           
                           if (res.success) {

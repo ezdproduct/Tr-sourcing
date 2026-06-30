@@ -370,7 +370,11 @@ async function detectDuplicates(
   return duplicates
 }
 
-export async function bulkImportSuppliersAction(rows: BulkSupplierRow[], resolution?: 'skip' | 'overwrite' | null) {
+export async function bulkImportSuppliersAction(
+  rows: BulkSupplierRow[], 
+  resolution?: 'skip' | 'overwrite' | null,
+  isProfilesTab?: boolean
+) {
   try {
     const supabase = await createClient()
     const { data: { user } } = await supabase.auth.getUser()
@@ -382,10 +386,10 @@ export async function bulkImportSuppliersAction(rows: BulkSupplierRow[], resolut
       productName: r.productName || ''
     }))
 
-    const duplicates = await detectDuplicates(supabase, incomingRows)
+    const duplicates = isProfilesTab ? [] : await detectDuplicates(supabase, incomingRows)
 
     if (resolution === undefined || resolution === null) {
-      if (duplicates.length > 0) {
+      if (!isProfilesTab && duplicates.length > 0) {
         return {
           success: false,
           duplicateDetected: true,
@@ -463,6 +467,25 @@ export async function bulkImportSuppliersAction(rows: BulkSupplierRow[], resolut
         supplierId = supplier.id
         supplierCache[row.supplierName] = supplierId
         importedSuppliersCount++
+      }
+
+      if (isProfilesTab) {
+        if (row.productName && row.productName.trim()) {
+          const { error: capError } = await supabase
+            .from('supplier_capabilities')
+            .insert({
+              supplier_id: supplierId,
+              product_name: row.productName.trim(),
+              target_price: row.quotedPrice || 0
+            })
+
+          if (!capError) {
+            importedCapabilitiesCount++
+          } else {
+            console.error('Error inserting supplier capability:', capError.message)
+          }
+        }
+        continue
       }
 
       let orderMatched = false
