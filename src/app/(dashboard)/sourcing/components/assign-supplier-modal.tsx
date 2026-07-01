@@ -58,14 +58,14 @@ export function AssignSupplierModal({
   const [itemBids, setItemBids] = useState<Record<string, { checked: boolean; price: string; leadTime: string; selectedCapId?: string }>>({})
 
   // Check if a capability is already assigned to a specific item
-  const isAlreadyAssigned = (supplierId: string, itemId: string, targetPrice?: number) => {
+  const isAlreadyAssigned = React.useCallback((supplierId: string, itemId: string, targetPrice?: number) => {
     return existingBids?.some(bid => 
       bid.order_id === manualForm.orderId &&
       (bid.supplier_id === supplierId || bid.supplier_name === manualForm.supplierName) &&
       bid.order_item_id === itemId &&
       (targetPrice === undefined || Number(bid.quoted_price) === Number(targetPrice))
     ) || false
-  }
+  }, [existingBids, manualForm.orderId, manualForm.supplierName])
 
   // External Capabilities (Product Catalog)
   const [capabilities, setCapabilities] = useState<Array<{
@@ -179,7 +179,7 @@ export function AssignSupplierModal({
       }
       return changed ? updated : prev
     })
-  }, [manualForm.supplierName, uniqueSuppliers, selectedOrder])
+  }, [manualForm.supplierName, uniqueSuppliers, selectedOrder, isAlreadyAssigned])
 
   // Handle Associated Order change
   const handleSelectOrder = (orderId: string) => {
@@ -344,7 +344,9 @@ export function AssignSupplierModal({
       <div className="relative z-10 w-full max-w-3xl bg-white dark:bg-slate-900 rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-800">
         <div className="flex items-center justify-between px-6 py-5 border-b border-slate-100 dark:border-slate-800">
           <div>
-            <h2 className="text-base font-bold text-slate-900 dark:text-white">Add Supplier</h2>
+            <h2 className="text-base font-bold text-slate-900 dark:text-white">
+              {viewMode === 'order' ? 'Assign Supplier' : 'Add Supplier'}
+            </h2>
             <p className="text-xs text-slate-400 mt-0.5">
               {viewMode === 'order' && selectedOrder
                 ? `For order ${selectedOrder.order_code}`
@@ -1110,12 +1112,12 @@ export function AssignSupplierModal({
               {isSubmitting ? (
                 <>
                   <Loader2 size={14} className="animate-spin" />
-                  Adding...
+                  {viewMode === 'order' ? 'Assigning...' : 'Adding...'}
                 </>
               ) : (
                 <>
                   <Plus size={14} />
-                  Add Supplier
+                  {viewMode === 'order' ? 'Assign Supplier' : 'Add Supplier'}
                 </>
               )}
             </Button>

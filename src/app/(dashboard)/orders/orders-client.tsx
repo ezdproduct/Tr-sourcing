@@ -43,8 +43,34 @@ import {
   ChevronDown,
   SlidersHorizontal,
   Search,
-  ChevronRight
+  ChevronRight,
+  Users2,
+  User,
+  Mail,
+  Phone,
+  Globe,
+  MapPin
 } from 'lucide-react'
+
+export interface SupplierDetails {
+  id: string
+  name: string
+  email?: string | null
+  phone?: string | null
+  address?: string | null
+  website?: string | null
+  contact_person?: string | null
+  tax_id?: string | null
+  business_type?: string | null
+  supplier_code?: string | null
+  legal_name?: string | null
+  main_products?: string[] | null
+  short_description?: string | null
+  status?: string | null
+  sourcing_stage?: string | null
+  quality_rating?: string | null
+  reliability_score?: number | null
+}
 
 export interface DatabaseOrderItem {
   id: string
@@ -56,9 +82,7 @@ export interface DatabaseOrderItem {
   item_type?: string
   uom?: string
   selected_supplier_id?: string | null
-  suppliers?: {
-    name: string
-  } | null
+  suppliers?: SupplierDetails | null
 }
 
 export interface DatabaseStageTimeline {
@@ -81,12 +105,23 @@ export interface DatabaseOrder {
   estimated_delivery_date: string | null
   order_items?: DatabaseOrderItem[]
   order_stage_timelines?: DatabaseStageTimeline[]
-  suppliers?: {
-    name: string
-  } | null
+  suppliers?: SupplierDetails | null
   order_suppliers?: {
     supplier_name: string
     is_shortlisted: boolean
+    supplier_id?: string | null
+    suppliers?: SupplierDetails | null
+    quoted_price?: string | null
+    lead_time_days?: number | null
+    order_items?: {
+      item_name: string
+    } | null
+  }[]
+  factory_audits?: {
+    id: string
+    supplier_id: string
+    audit_status: string
+    suppliers?: SupplierDetails | null
   }[]
 }
 
@@ -200,6 +235,7 @@ export function OrdersClient({ initialOrders }: OrdersClientProps) {
   const [editingOrder, setEditingOrder] = useState<DatabaseOrder | null>(null)
   const [deletingOrder, setDeletingOrder] = useState<DatabaseOrder | null>(null)
   const [selectedOrderIds, setSelectedOrderIds] = useState<string[]>([])
+  const [selectedSupplierForModal, setSelectedSupplierForModal] = useState<any | null>(null)
   const [isBulkDeleting, setIsBulkDeleting] = useState(false)
   const [isBulkDeleteConfirmOpen, setIsBulkDeleteConfirmOpen] = useState(false)
 
@@ -1021,21 +1057,50 @@ export function OrdersClient({ initialOrders }: OrdersClientProps) {
                       const stageProgressPct = (activeIdx / (stages.length - 1)) * 100
 
                       const selectedSuppliers = (() => {
-                        const names = new Set<string>()
+                        const list: { name: string; details?: any }[] = []
+                        const seen = new Set<string>()
                         selectedOrder.order_suppliers?.forEach(os => {
-                          if (os.supplier_name) {
-                            names.add(os.supplier_name)
+                          if (os.supplier_name && !seen.has(os.supplier_name)) {
+                            seen.add(os.supplier_name)
+                            list.push({
+                              name: os.supplier_name,
+                              details: os.suppliers || { name: os.supplier_name }
+                            })
                           }
                         })
-                        if (selectedOrder.suppliers?.name) {
-                          names.add(selectedOrder.suppliers.name)
+                        if (selectedOrder.suppliers?.name && !seen.has(selectedOrder.suppliers.name)) {
+                          seen.add(selectedOrder.suppliers.name)
+                          list.push({
+                            name: selectedOrder.suppliers.name,
+                            details: selectedOrder.suppliers
+                          })
                         }
                         selectedOrder.order_items?.forEach(item => {
-                          if (item.suppliers?.name) {
-                            names.add(item.suppliers.name)
+                          if (item.suppliers?.name && !seen.has(item.suppliers.name)) {
+                            seen.add(item.suppliers.name)
+                            list.push({
+                              name: item.suppliers.name,
+                              details: item.suppliers
+                            })
                           }
                         })
-                        return Array.from(names)
+                        return list
+                      })()
+
+                      const qcSuppliers = (() => {
+                        const list: { name: string; details?: any }[] = []
+                        const seen = new Set<string>()
+                        selectedOrder.factory_audits?.forEach(audit => {
+                          const name = audit.suppliers?.name
+                          if (name && !seen.has(name)) {
+                            seen.add(name)
+                            list.push({
+                              name: name,
+                              details: audit.suppliers
+                            })
+                          }
+                        })
+                        return list
                       })()
                       
                       return (
@@ -1086,14 +1151,35 @@ export function OrdersClient({ initialOrders }: OrdersClientProps) {
                                     </span>
                                     {idx === 1 && selectedSuppliers.length > 0 && (
                                       <div className="flex flex-col items-center gap-1 mt-1.5 w-full">
-                                        {selectedSuppliers.map((supplierName) => (
-                                          <span
-                                            key={supplierName}
-                                            className="inline-flex items-center text-[9px] font-bold px-1.5 py-0.5 rounded bg-indigo-50 text-indigo-700 border border-indigo-150 dark:bg-indigo-950/40 dark:text-indigo-400 dark:border-indigo-900/50 max-w-[90px] truncate"
-                                            title={supplierName}
+                                        {selectedSuppliers.map((sup) => (
+                                          <button
+                                            key={sup.name}
+                                            onClick={(e) => {
+                                              e.stopPropagation()
+                                              setSelectedSupplierForModal(sup.details)
+                                            }}
+                                            className="inline-flex items-center text-[9px] font-bold px-1.5 py-0.5 rounded bg-indigo-50 text-indigo-700 border border-indigo-150 hover:bg-indigo-100 hover:text-indigo-800 dark:bg-indigo-950/40 dark:text-indigo-400 dark:border-indigo-900/50 dark:hover:bg-indigo-900/50 dark:hover:text-indigo-300 max-w-[90px] truncate cursor-pointer transition-colors"
+                                            title={`Click to view ${sup.name} details`}
                                           >
-                                            {supplierName}
-                                          </span>
+                                            {sup.name}
+                                          </button>
+                                        ))}
+                                      </div>
+                                    )}
+                                    {idx === 2 && qcSuppliers.length > 0 && (
+                                      <div className="flex flex-col items-center gap-1 mt-1.5 w-full">
+                                        {qcSuppliers.map((sup) => (
+                                          <button
+                                            key={sup.name}
+                                            onClick={(e) => {
+                                              e.stopPropagation()
+                                              setSelectedSupplierForModal(sup.details)
+                                            }}
+                                            className="inline-flex items-center text-[9px] font-bold px-1.5 py-0.5 rounded bg-indigo-50 text-indigo-700 border border-indigo-150 hover:bg-indigo-100 hover:text-indigo-800 dark:bg-indigo-950/40 dark:text-indigo-400 dark:border-indigo-900/50 dark:hover:bg-indigo-900/50 dark:hover:text-indigo-300 max-w-[90px] truncate cursor-pointer transition-colors"
+                                            title={`Click to view ${sup.name} details`}
+                                          >
+                                            {sup.name}
+                                          </button>
                                         ))}
                                       </div>
                                     )}
@@ -1879,6 +1965,234 @@ export function OrdersClient({ initialOrders }: OrdersClientProps) {
                 disabled={isBulkDeleting}
               >
                 {isBulkDeleting ? 'Deleting...' : 'Yes, Delete Selected'}
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* SUPPLIER DETAILS Modal Dialog */}
+      {selectedSupplierForModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-xs p-4 overflow-y-auto">
+          <div className="w-full max-w-2xl bg-white dark:bg-slate-900 rounded-xl p-6 shadow-xl border border-slate-200 dark:border-slate-800 animate-in zoom-in-95 duration-150 relative max-h-[90vh] overflow-y-auto [&::-webkit-scrollbar]:hidden [scrollbar-width:none]">
+            <button
+              onClick={() => setSelectedSupplierForModal(null)}
+              className="absolute top-4 right-4 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 cursor-pointer"
+            >
+              <X size={18} />
+            </button>
+
+            <div className="flex items-center gap-3 mb-4 pb-3 border-b border-slate-100 dark:border-slate-800">
+              <span className="flex h-10 w-10 items-center justify-center rounded-lg bg-indigo-50 dark:bg-indigo-950/40 text-indigo-600 dark:text-indigo-400 shrink-0">
+                <Users2 size={20} />
+              </span>
+              <div>
+                <h2 className="text-lg font-bold text-slate-900 dark:text-white">
+                  {selectedSupplierForModal.name || selectedSupplierForModal.supplier_name}
+                </h2>
+                <p className="text-xs text-slate-450 dark:text-slate-500 font-semibold">
+                  Supplier Profile Details
+                </p>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6 text-sm">
+              {/* Left Column: General & Contact Info */}
+              <div className="space-y-4">
+                <h3 className="text-xs font-bold text-indigo-600 dark:text-indigo-400 uppercase tracking-wider">Contact Information</h3>
+                
+                <div>
+                  <span className="text-slate-400 block text-xs font-medium mb-0.5">Contact Person</span>
+                  <span className="font-semibold text-slate-800 dark:text-slate-250 flex items-center gap-1.5">
+                    <User size={13} className="text-slate-400" />
+                    {selectedSupplierForModal.contact_person || '-'}
+                  </span>
+                </div>
+
+                <div>
+                  <span className="text-slate-400 block text-xs font-medium mb-0.5">Email</span>
+                  {selectedSupplierForModal.email ? (
+                    <a href={`mailto:${selectedSupplierForModal.email}`} className="font-semibold text-indigo-600 hover:underline flex items-center gap-1.5">
+                      <Mail size={13} className="text-indigo-500" />
+                      {selectedSupplierForModal.email}
+                    </a>
+                  ) : (
+                    <span className="text-slate-800 dark:text-slate-250">-</span>
+                  )}
+                </div>
+
+                <div>
+                  <span className="text-slate-400 block text-xs font-medium mb-0.5">Phone</span>
+                  {selectedSupplierForModal.phone ? (
+                    <a href={`tel:${selectedSupplierForModal.phone}`} className="font-semibold text-slate-800 dark:text-slate-250 hover:underline flex items-center gap-1.5">
+                      <Phone size={13} className="text-slate-400" />
+                      {selectedSupplierForModal.phone}
+                    </a>
+                  ) : (
+                    <span className="text-slate-800 dark:text-slate-250">-</span>
+                  )}
+                </div>
+
+                <div>
+                  <span className="text-slate-400 block text-xs font-medium mb-0.5">Website</span>
+                  {selectedSupplierForModal.website ? (
+                    <a href={selectedSupplierForModal.website.startsWith('http') ? selectedSupplierForModal.website : `https://${selectedSupplierForModal.website}`} target="_blank" rel="noopener noreferrer" className="font-semibold text-indigo-600 hover:underline flex items-center gap-1.5">
+                      <Globe size={13} className="text-indigo-500" />
+                      {selectedSupplierForModal.website}
+                    </a>
+                  ) : (
+                    <span className="text-slate-800 dark:text-slate-250">-</span>
+                  )}
+                </div>
+
+                <div>
+                  <span className="text-slate-400 block text-xs font-medium mb-0.5">Address</span>
+                  <span className="font-semibold text-slate-800 dark:text-slate-250 flex items-start gap-1.5 leading-relaxed">
+                    <MapPin size={13} className="text-slate-400 mt-1 shrink-0" />
+                    {selectedSupplierForModal.address || '-'}
+                  </span>
+                </div>
+              </div>
+
+              {/* Right Column: Business & Performance Details */}
+              <div className="space-y-4">
+                <h3 className="text-xs font-bold text-indigo-600 dark:text-indigo-400 uppercase tracking-wider">Business Details</h3>
+                
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <span className="text-slate-400 block text-xs font-medium mb-0.5">Supplier Code</span>
+                    <span className="font-mono font-bold text-slate-700 dark:text-slate-350">
+                      {selectedSupplierForModal.supplier_code || '-'}
+                    </span>
+                  </div>
+                  <div>
+                    <span className="text-slate-400 block text-xs font-medium mb-0.5">Business Type</span>
+                    <span className="font-semibold text-slate-800 dark:text-slate-250">
+                      {selectedSupplierForModal.business_type || '-'}
+                    </span>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <span className="text-slate-400 block text-xs font-medium mb-0.5">Status</span>
+                    {selectedSupplierForModal.status ? (
+                      <span className="inline-flex items-center text-[10px] font-bold px-2 py-0.5 rounded bg-emerald-50 text-emerald-700 border border-emerald-250 dark:bg-emerald-950/20 dark:text-emerald-455 dark:border-emerald-900/50">
+                        {selectedSupplierForModal.status}
+                      </span>
+                    ) : (
+                      <span className="text-slate-850 dark:text-slate-250">-</span>
+                    )}
+                  </div>
+                  <div>
+                    <span className="text-slate-400 block text-xs font-medium mb-0.5">Sourcing Stage</span>
+                    {selectedSupplierForModal.sourcing_stage ? (
+                      <span className="inline-flex items-center text-[10px] font-bold px-2 py-0.5 rounded bg-indigo-50 text-indigo-700 border border-indigo-200 dark:bg-indigo-950/20 dark:text-indigo-400 dark:border-indigo-900/50">
+                        {selectedSupplierForModal.sourcing_stage}
+                      </span>
+                    ) : (
+                      <span className="text-slate-850 dark:text-slate-250">-</span>
+                    )}
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <span className="text-slate-400 block text-xs font-medium mb-0.5">Quality Rating</span>
+                    {selectedSupplierForModal.quality_rating ? (
+                      <span className="font-bold text-amber-500 dark:text-amber-400">
+                        ★ {selectedSupplierForModal.quality_rating}
+                      </span>
+                    ) : (
+                      <span className="text-slate-850 dark:text-slate-250">-</span>
+                    )}
+                  </div>
+                  <div>
+                    <span className="text-slate-400 block text-xs font-medium mb-0.5">Reliability Score</span>
+                    {selectedSupplierForModal.reliability_score !== undefined && selectedSupplierForModal.reliability_score !== null ? (
+                      <span className="font-bold text-slate-800 dark:text-slate-200">
+                        {selectedSupplierForModal.reliability_score}%
+                      </span>
+                    ) : (
+                      <span className="text-slate-850 dark:text-slate-250">-</span>
+                    )}
+                  </div>
+                </div>
+
+                <div>
+                  <span className="text-slate-400 block text-xs font-medium mb-1">Main Products</span>
+                  {selectedSupplierForModal.main_products && selectedSupplierForModal.main_products.length > 0 ? (
+                    <div className="flex flex-wrap gap-1.5">
+                      {selectedSupplierForModal.main_products.map((product: string) => (
+                        <Badge key={product} variant="outline" className="text-[10px] bg-slate-50 text-slate-600 dark:bg-slate-900 dark:text-slate-400">
+                          {product}
+                        </Badge>
+                      ))}
+                    </div>
+                  ) : (
+                    <span className="text-slate-800 dark:text-slate-250">-</span>
+                  )}
+                </div>
+              </div>
+            </div>
+
+            {/* Products Supplied for this Order */}
+            {(() => {
+              const supplierBids = selectedOrder?.order_suppliers?.filter(os => 
+                os.supplier_name === (selectedSupplierForModal.name || selectedSupplierForModal.supplier_name) || 
+                (os.supplier_id && os.supplier_id === selectedSupplierForModal.id)
+              ) || []
+
+              return (
+                <div className="mt-6 pt-4 border-t border-slate-100 dark:border-slate-800">
+                  <h3 className="text-xs font-bold text-indigo-600 dark:text-indigo-400 uppercase tracking-wider mb-3">Products Supplied for this Order</h3>
+                  {supplierBids.length > 0 ? (
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                      {supplierBids.map((bid, bidIdx) => (
+                        <div 
+                          key={bidIdx}
+                          className="p-3 bg-slate-50 dark:bg-slate-900/40 rounded-lg border border-slate-150 dark:border-slate-800/80 flex flex-col gap-1.5"
+                        >
+                          <div className="flex items-center justify-between">
+                            <span className="font-bold text-slate-800 dark:text-slate-200">
+                              {bid.order_items?.item_name || 'General Product'}
+                            </span>
+                            {bid.is_shortlisted && (
+                              <span className="text-[9px] font-bold px-1.5 py-0.5 rounded bg-emerald-50 text-emerald-700 border border-emerald-250 dark:bg-emerald-950/20 dark:text-emerald-450 dark:border-emerald-900/50">
+                                Shortlisted
+                              </span>
+                            )}
+                          </div>
+                          <div className="grid grid-cols-2 gap-2 text-xs text-slate-500">
+                            <div>
+                              <span className="block text-slate-400">Quoted Price:</span>
+                              <span className="font-semibold text-slate-700 dark:text-slate-350">
+                                {bid.quoted_price ? `$${Number(bid.quoted_price).toLocaleString('en-US')}` : '-'}
+                              </span>
+                            </div>
+                            <div>
+                              <span className="block text-slate-400">Lead Time:</span>
+                              <span className="font-semibold text-slate-700 dark:text-slate-350">
+                                {bid.lead_time_days ? `${bid.lead_time_days} days` : '-'}
+                              </span>
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="text-xs text-slate-400 italic">No specific product bids found for this order.</p>
+                  )}
+                </div>
+              )
+            })()}
+
+            <div className="mt-6 pt-4 border-t border-slate-100 dark:border-slate-800 flex justify-end">
+              <Button
+                onClick={() => setSelectedSupplierForModal(null)}
+                className="h-9 px-4 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-xs font-semibold cursor-pointer"
+              >
+                Close Profile
               </Button>
             </div>
           </div>

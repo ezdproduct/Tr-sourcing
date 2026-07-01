@@ -1976,18 +1976,6 @@ export function SourcingClient({ initialOrders, initialSuppliers, initialAudits 
                           </Button>
                         </DropdownMenuTrigger>
                         <DropdownMenuContent align="end" className="w-56 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-1 shadow-md z-50">
-                          {/* Add Supplier */}
-                          <DropdownMenuItem
-                            onClick={() => {
-                                      setIsAddOpen(true)
-                                      setErrorMessage(null)
-                                    }}
-                            className="flex items-center gap-2 px-2.5 py-1.5 text-xs rounded-lg cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-800 font-semibold text-slate-700 dark:text-slate-300"
-                          >
-                            <Plus size={12} className="text-[#5c59e9]" />
-                            <span>Add Supplier</span>
-                          </DropdownMenuItem>
-
                           {/* Import Excel/CSV */}
                           <DropdownMenuItem
                             onClick={() => {
@@ -2622,6 +2610,33 @@ export function SourcingClient({ initialOrders, initialSuppliers, initialAudits 
                                         <span>Send Shortlist to QC</span>
                                       </DropdownMenuItem>
 
+                                      {/* Create PO (Only visible when 1 supplier is selected and it has passed QC) */}
+                                      {selectedSupplierIds.length === 1 && (() => {
+                                        const supplier = suppliers.find(s => s.id === selectedSupplierIds[0])
+                                        if (!supplier) return null
+                                        const audit = audits.find(a => a.supplier_id === supplier.supplier_id && a.order_id === supplier.order_id)
+                                        const hasPassedQC = audit && 
+                                          audit.audit_status === 'Completed' && 
+                                          (audit.audit_verdict === 'PASS' || audit.audit_verdict === 'PASS WITH CONDITIONS')
+
+                                        return (
+                                          <DropdownMenuItem
+                                            disabled={!hasPassedQC || (selectedOrder?.stage !== 'Sourcing' && selectedOrder?.stage !== 'Ready for PO')}
+                                            onClick={() => {
+                                              setPoSupplier(supplier)
+                                              const qty = selectedOrder?.order_items?.find(item => item.id === supplier.order_item_id)?.quantity || 1
+                                              setPoContractValue(Number(supplier.quoted_price) * qty)
+                                              setIsPoConfirming(false)
+                                              setErrorMessage(null)
+                                            }}
+                                            className="flex items-center gap-2 px-2.5 py-1.5 text-xs rounded-lg cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-800 font-semibold text-emerald-600 dark:text-emerald-450 disabled:opacity-50 disabled:cursor-not-allowed"
+                                          >
+                                            <CheckCircle2 size={12} className="text-emerald-500" />
+                                            <span>Create PO</span>
+                                          </DropdownMenuItem>
+                                        )
+                                      })()}
+
                                       {/* Edit Classification */}
                                       <DropdownMenuItem
                                         onClick={() => setIsEditingClassification(true)}
@@ -2983,6 +2998,13 @@ export function SourcingClient({ initialOrders, initialSuppliers, initialAudits 
                 You are selecting <strong className="font-semibold text-slate-800 dark:text-slate-200">{poSupplier.supplier_name}</strong> as the final supplier for the item <strong className="font-semibold text-slate-800 dark:text-slate-200">{poSupplier.order_items?.item_name}</strong>.
               </p>
 
+              {!poSupplier.suppliers?.email && (
+                <div className="p-3.5 bg-red-50 text-red-700 dark:bg-red-950/20 dark:text-red-400 rounded-xl text-xs font-semibold border border-red-200 dark:border-red-900/50 flex items-start gap-2.5">
+                  <AlertCircle size={15} className="flex-shrink-0 mt-0.5" />
+                  <span>This supplier does not have an email address configured. You must set an email address for their profile in the Supplier Profiles tab before you can issue a Purchase Order.</span>
+                </div>
+              )}
+
               <div className="bg-slate-50 dark:bg-slate-950/40 p-3.5 rounded-xl border border-slate-100 dark:border-slate-800 text-xs space-y-1.5 font-medium text-slate-600 dark:text-slate-400">
                 <div className="flex justify-between">
                   <span>Quoted Price:</span>
@@ -3083,7 +3105,8 @@ export function SourcingClient({ initialOrders, initialSuppliers, initialAudits 
                     isPoConfirming || 
                     !poContractValue || poContractValue <= 0 || 
                     !poTargetDeliveryDate || 
-                    !poDeliveryAddress
+                    !poDeliveryAddress ||
+                    !poSupplier.suppliers?.email
                   }
                   onClick={async () => {
                     const activeOrderId = selectedOrderId || poSupplier.order_id
@@ -3107,6 +3130,15 @@ export function SourcingClient({ initialOrders, initialSuppliers, initialAudits 
                     if (res.success) {
                       setPoSupplier(null)
                       await invalidateSourcingData()
+                      if (res.emailSent) {
+                        if (res.supplierEmail) {
+                          triggerToast(`Purchase Order created successfully. Notification email sent to ${res.supplierEmail}.`)
+                        } else {
+                          triggerToast("Purchase Order created successfully. Email notification simulated.")
+                        }
+                      } else {
+                        triggerToast("Purchase Order created, but email was skipped (supplier has no email address).")
+                      }
                     } else {
                       setErrorMessage(res.error || 'Failed to create PO')
                     }

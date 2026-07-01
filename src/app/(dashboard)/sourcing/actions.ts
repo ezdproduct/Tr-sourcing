@@ -1466,6 +1466,10 @@ export async function confirmSupplierAndCreatePoAction(formData: FormData) {
       return { success: false, error: 'Supplier not found' }
     }
 
+    if (!supplier.email || supplier.email.trim() === '') {
+      return { success: false, error: 'Supplier has no contact email configured. Please add an email in their profile first.' }
+    }
+
     // 2. Update selected_supplier_id for this specific order item
     const { error: itemUpdateError } = await supabase
       .from('order_items')
@@ -1731,10 +1735,11 @@ export async function confirmSupplierAndCreatePoAction(formData: FormData) {
     } else {
       if (!resendApiKey) {
         console.warn('RESEND_API_KEY is not configured. Simulating successful email send for local testing.')
+        emailSent = true
       } else {
         console.warn('Supplier has no contact email. Skipping email notification.')
+        emailSent = false
       }
-      emailSent = true
     }
 
     revalidatePath('/sourcing')
