@@ -24,6 +24,58 @@ interface AssignSupplierModalProps {
   existingBids?: any[]
 }
 
+// Helper function to match product names using Keyword Intersection matching with a 60% threshold
+// Incorporates a fallback to general category matching (e.g. matching "Round Chair" with any "Chair")
+const matchProductNames = (nameA: string, nameB: string): boolean => {
+  const cleanA = (nameA || '').toLowerCase().trim()
+  const cleanB = (nameB || '').toLowerCase().trim()
+  
+  if (!cleanA || !cleanB) return false
+
+  // 1. Direct substring match (quick check)
+  if (cleanA.includes(cleanB) || cleanB.includes(cleanA)) return true
+
+  // 2. Keyword Intersection check:
+  // Split both names into words, filter out empty spaces and single character / common short noise words
+  const wordsA = cleanA.split(/\s+/).filter(w => w.length > 1)
+  const wordsB = cleanB.split(/\s+/).filter(w => w.length > 1)
+
+  if (wordsA.length === 0 || wordsB.length === 0) return false
+
+  // Check if at least 60% of the keywords of the shorter phrase are present in the longer phrase
+  const shorter = wordsA.length < wordsB.length ? wordsA : wordsB
+  const longer = wordsA.length < wordsB.length ? cleanB : cleanA
+
+  const matchCount = shorter.filter(word => longer.includes(word)).length
+  const matchRatio = matchCount / shorter.length
+
+  if (matchRatio >= 0.6) return true
+
+  // 3. Fallback: Category matching (handles English suffix nouns and Vietnamese prefix nouns)
+  const lastWordA = wordsA[wordsA.length - 1]
+  const lastWordB = wordsB[wordsB.length - 1]
+  const firstWordA = wordsA[0]
+  const firstWordB = wordsB[0]
+
+  // English fallback: Check if the primary noun at the end of the phrase matches (e.g. "chair" and "armchair")
+  if (lastWordA && lastWordB && (lastWordA.includes(lastWordB) || lastWordB.includes(lastWordA))) {
+    return true
+  }
+
+  // Vietnamese fallback: Check if the category noun at the start of the phrase matches (e.g. "bàn", "ghế")
+  const vnFurniturePrefixes = [
+    'bàn', 'ban', 'ghế', 'ghe', 'tủ', 'tu', 'giường', 'giuong', 
+    'kệ', 'ke', 'đèn', 'den', 'chậu', 'chau', 'sofa', 'nệm', 'nem'
+  ]
+  if (firstWordA && firstWordB && (firstWordA.includes(firstWordB) || firstWordB.includes(firstWordA))) {
+    if (vnFurniturePrefixes.includes(firstWordA) || vnFurniturePrefixes.includes(firstWordB)) {
+      return true
+    }
+  }
+
+  return false
+}
+
 export function AssignSupplierModal({
   isOpen,
   onClose,
@@ -153,11 +205,9 @@ export function AssignSupplierModal({
         if (bid.checked) {
           const orderItem = selectedOrder?.order_items?.find(item => item.id === itemId)
           if (orderItem) {
-            const itemCaps = (matchedSupplier.supplier_capabilities as any[])?.filter((cap: any) => {
-              const capName = (cap.product_name || '').toLowerCase().trim()
-              const itemName = (orderItem.item_name || '').toLowerCase().trim()
-              return capName.includes(itemName) || itemName.includes(capName)
-            }) || []
+            const itemCaps = (matchedSupplier.supplier_capabilities as any[])?.filter((cap: any) => 
+              matchProductNames(cap.product_name, orderItem.item_name)
+            ) || []
             const firstUnassignedCap = itemCaps.find((cap: any) => 
               !isAlreadyAssigned(matchedSupplier?.id || '', orderItem.id, Number(cap.target_price))
             )
@@ -205,19 +255,13 @@ export function AssignSupplierModal({
   const suggestedSuppliers = uniqueSuppliers.filter(sup => {
     if (checkedItemNames.length === 0) return false
 
-    const hasMatchingCapability = (sup.supplier_capabilities as any[])?.some((cap: any) => {
-      const capName = (cap.product_name || '').toLowerCase().trim()
-      return checkedItemNames.some(itemName =>
-        capName.includes(itemName) || itemName.includes(capName)
-      )
-    })
+    const hasMatchingCapability = (sup.supplier_capabilities as any[])?.some((cap: any) => 
+      checkedItemNames.some(itemName => matchProductNames(cap.product_name, itemName))
+    )
 
-    const hasMatchingProduct = (sup.main_products as string[])?.some((prod: string) => {
-      const prodName = (prod || '').toLowerCase().trim()
-      return checkedItemNames.some(itemName =>
-        prodName.includes(itemName) || itemName.includes(prodName)
-      )
-    })
+    const hasMatchingProduct = (sup.main_products as string[])?.some((prod: string) => 
+      checkedItemNames.some(itemName => matchProductNames(prod, itemName))
+    )
 
     return hasMatchingCapability || hasMatchingProduct
   })
@@ -256,11 +300,9 @@ export function AssignSupplierModal({
           if (!cap && (isNaN(priceNum) || isNaN(leadTimeNum)) && matchedSupplier) {
             const orderItem = selectedOrder?.order_items?.find(item => item.id === itemId)
             if (orderItem) {
-              cap = (matchedSupplier.supplier_capabilities as any[])?.find((c: any) => {
-                const cName = (c.product_name || '').toLowerCase().trim()
-                const oName = (orderItem.item_name || '').toLowerCase().trim()
-                return cName.includes(oName) || oName.includes(cName)
-              })
+              cap = (matchedSupplier.supplier_capabilities as any[])?.find((c: any) => 
+                matchProductNames(c.product_name, orderItem.item_name)
+              )
             }
           }
 
@@ -494,11 +536,9 @@ export function AssignSupplierModal({
                       // Find matching capabilities for this specific item
                       const matchedSupplier = uniqueSuppliers.find(sup => sup.name === manualForm.supplierName)
                       const itemCaps = matchedSupplier
-                        ? (matchedSupplier.supplier_capabilities as any[])?.filter((cap: any) => {
-                            const capName = (cap.product_name || '').toLowerCase().trim()
-                            const itemName = (item.item_name || '').toLowerCase().trim()
-                            return capName.includes(itemName) || itemName.includes(capName)
-                          })
+                        ? (matchedSupplier.supplier_capabilities as any[])?.filter((cap: any) => 
+                            matchProductNames(cap.product_name, item.item_name)
+                          )
                         : []
 
                       const areAllCapsAssigned = itemCaps.length > 0 && itemCaps.every((cap: any) => 
@@ -618,89 +658,128 @@ export function AssignSupplierModal({
                     </button>
 
                     {isSupplierDropdownOpen && (
-                      <div className="absolute z-50 mt-1 w-full rounded-md border border-slate-200 bg-white shadow-lg dark:border-slate-800 dark:bg-slate-900 max-h-60 overflow-y-auto">
-                        <div className="flex items-center border-b border-slate-100 dark:border-slate-800 px-2 py-1 bg-slate-50 dark:bg-slate-950">
-                          <Search size={12} className="text-slate-400 mr-2" />
-                          <input
-                            type="text"
-                            placeholder="Search suggested suppliers..."
-                            value={supplierSearchQuery}
-                            onChange={e => setSupplierSearchQuery(e.target.value)}
-                            className="w-full bg-transparent text-xs py-1 outline-none text-slate-800 dark:text-slate-200 placeholder:text-slate-400"
-                            onClick={(e) => e.stopPropagation()}
-                          />
-                        </div>
-                        <ul role="listbox" className="divide-y divide-slate-100 dark:divide-slate-800">
-                          <li
-                            role="option"
-                            aria-selected={manualForm.supplierName === ''}
-                            className="px-3 py-2 text-xs font-semibold text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer"
-                            onClick={() => {
-                              setManualForm(f => ({
-                                ...f,
-                                supplierName: '',
-                                email: '',
-                                phone: '',
-                                address: '',
-                                website: '',
-                                contactPerson: '',
-                                taxId: '',
-                                businessType: ''
-                              }))
-                              setIsSupplierDropdownOpen(false)
-                            }}
+                      <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 backdrop-blur-xs p-4">
+                        <div className="w-full max-w-2xl bg-white dark:bg-slate-900 rounded-xl p-6 shadow-xl border border-slate-200 dark:border-slate-800 animate-in zoom-in-95 duration-150 relative max-h-[85vh] flex flex-col">
+                          <button
+                            type="button"
+                            onClick={() => setIsSupplierDropdownOpen(false)}
+                            className="absolute top-4 right-4 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 cursor-pointer"
                           >
-                            Clear Selection (Unassign)
-                          </li>
-                          {suggestedSuppliers
-                            .filter(sup => sup.name.toLowerCase().includes(supplierSearchQuery.toLowerCase()))
-                            .map(sup => {
-                              const matchingCaps = sup.supplier_capabilities?.filter((cap: any) => {
-                                const capName = (cap.product_name || '').toLowerCase().trim()
-                                return checkedItemNames.some(itemName =>
-                                  capName.includes(itemName) || itemName.includes(capName)
+                            <X size={18} />
+                          </button>
+
+                          <h3 className="text-base font-bold text-slate-900 dark:text-white mb-1 flex items-center gap-1.5">
+                            <Sparkles size={16} className="text-indigo-600 fill-indigo-600/20" />
+                            <span>Select Suggested Supplier</span>
+                          </h3>
+                          <p className="text-sm text-slate-400 mb-4">
+                            Select a supplier matched by capabilities and products for this order.
+                          </p>
+
+                          {/* Search Input */}
+                          <div className="flex items-center border border-slate-200 dark:border-slate-800 rounded-lg px-3 py-2 bg-slate-50 dark:bg-slate-950 mb-3 shrink-0">
+                            <Search size={14} className="text-slate-400 mr-2" />
+                            <input
+                              type="text"
+                              placeholder="Search suggested suppliers by name or products..."
+                              value={supplierSearchQuery}
+                              onChange={e => setSupplierSearchQuery(e.target.value)}
+                              className="w-full bg-transparent text-sm outline-none text-slate-800 dark:text-slate-200 placeholder:text-slate-400"
+                              autoFocus
+                            />
+                          </div>
+
+                          {/* Suppliers List */}
+                          <div className="overflow-y-auto flex-1 pr-1 -mr-1">
+                            <ul role="listbox" className="divide-y divide-slate-100 dark:divide-slate-800 border border-slate-100 dark:border-slate-800/80 rounded-lg overflow-hidden">
+                              <li
+                                role="option"
+                                aria-selected={manualForm.supplierName === ''}
+                                className="px-3 py-3 text-sm font-semibold text-rose-600 hover:bg-rose-50 dark:hover:bg-rose-950/20 cursor-pointer transition-colors"
+                                onClick={() => {
+                                  setManualForm(f => ({
+                                    ...f,
+                                    supplierName: '',
+                                    email: '',
+                                    phone: '',
+                                    address: '',
+                                    website: '',
+                                    contactPerson: '',
+                                    taxId: '',
+                                    businessType: ''
+                                  }))
+                                  setIsSupplierDropdownOpen(false)
+                                }}
+                              >
+                                Clear Selection (Unassign)
+                              </li>
+                              {suggestedSuppliers
+                                .filter(sup => 
+                                  sup.name.toLowerCase().includes(supplierSearchQuery.toLowerCase()) ||
+                                  (sup.main_products && sup.main_products.some(p => p.toLowerCase().includes(supplierSearchQuery.toLowerCase())))
                                 )
-                              }) || []
+                                .map(sup => {
+                                  const matchingCaps = sup.supplier_capabilities?.filter((cap: any) => 
+                                    checkedItemNames.some(itemName => matchProductNames(cap.product_name, itemName))
+                                  ) || []
 
-                              const hasPrice = matchingCaps.length > 0
-                              const priceText = hasPrice
-                                ? ` ($${Number(matchingCaps[0].target_price).toFixed(2)})`
-                                : ' (Match)'
+                                  const hasPrice = matchingCaps.length > 0
+                                  const priceText = hasPrice
+                                    ? ` ($${Number(matchingCaps[0].target_price).toFixed(2)})`
+                                    : ' (Match)'
 
-                              return (
-                                <li
-                                  key={sup.id}
-                                  role="option"
-                                  aria-selected={manualForm.supplierName === sup.name}
-                                  className="px-3 py-2 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer text-xs flex flex-col gap-0.5"
-                                  onClick={() => {
-                                    setManualForm(f => ({
-                                      ...f,
-                                      supplierName: sup.name,
-                                      email: sup.email || '',
-                                      phone: sup.phone || '',
-                                      address: sup.address || '',
-                                      website: sup.website || '',
-                                      contactPerson: sup.contact_person || '',
-                                      taxId: sup.tax_id || '',
-                                      businessType: sup.business_type || ''
-                                    }))
-                                    setIsSupplierDropdownOpen(false)
-                                    setSupplierSearchQuery('')
-                                  }}
-                                >
-                                  <span className="font-bold text-slate-800 dark:text-slate-200">
-                                    {sup.name}
-                                    <span className="text-indigo-600 dark:text-indigo-400 font-bold">{priceText}</span>
-                                  </span>
-                                  <span className="text-[10px] text-slate-400 truncate">
-                                    Products: {sup.main_products ? sup.main_products.join(', ') : 'N/A'}
-                                  </span>
-                                </li>
-                              )
-                            })
-                          }
-                        </ul>
+                                  return (
+                                    <li
+                                      key={sup.id}
+                                      role="option"
+                                      aria-selected={manualForm.supplierName === sup.name}
+                                      className="px-3 py-3 hover:bg-slate-50 dark:hover:bg-slate-800/50 cursor-pointer text-sm flex flex-col gap-1 transition-colors"
+                                      onClick={() => {
+                                        setManualForm(f => ({
+                                          ...f,
+                                          supplierName: sup.name,
+                                          email: sup.email || '',
+                                          phone: sup.phone || '',
+                                          address: sup.address || '',
+                                          website: sup.website || '',
+                                          contactPerson: sup.contact_person || '',
+                                          taxId: sup.tax_id || '',
+                                          businessType: sup.business_type || ''
+                                        }))
+                                        setIsSupplierDropdownOpen(false)
+                                        setSupplierSearchQuery('')
+                                      }}
+                                    >
+                                      <div className="flex items-center justify-between">
+                                        <span className="font-bold text-slate-800 dark:text-slate-200">
+                                          {sup.name}
+                                          <span className="text-indigo-600 dark:text-indigo-400 font-bold">{priceText}</span>
+                                        </span>
+                                        {manualForm.supplierName === sup.name && (
+                                          <span className="text-xs font-bold text-indigo-600 dark:text-indigo-400">Selected</span>
+                                        )}
+                                      </div>
+                                      <div className="text-xs text-slate-450 dark:text-slate-500 leading-normal">
+                                        <span className="font-medium text-slate-400">Products: </span>
+                                        {sup.main_products ? sup.main_products.join(', ') : 'N/A'}
+                                      </div>
+                                    </li>
+                                  )
+                                })
+                              }
+                            </ul>
+                          </div>
+
+                          <div className="mt-4 pt-3 border-t border-slate-100 dark:border-slate-800 flex justify-end shrink-0">
+                            <Button
+                              type="button"
+                              onClick={() => setIsSupplierDropdownOpen(false)}
+                              className="h-8 px-4 rounded-lg bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-semibold cursor-pointer"
+                            >
+                              Close
+                            </Button>
+                          </div>
+                        </div>
                       </div>
                     )}
                   </div>
@@ -825,12 +904,9 @@ export function AssignSupplierModal({
             {subtab !== 'suppliers' && manualForm.supplierName && (() => {
               const matchedSupplier = uniqueSuppliers.find(sup => sup.name === manualForm.supplierName)
               const matchingCapabilities = matchedSupplier
-                ? (matchedSupplier.supplier_capabilities as any[])?.filter((cap: any) => {
-                    const capName = (cap.product_name || '').toLowerCase().trim()
-                    return checkedItemNames.some(itemName =>
-                      capName.includes(itemName) || itemName.includes(capName)
-                    )
-                  })
+                ? (matchedSupplier.supplier_capabilities as any[])?.filter((cap: any) => 
+                    checkedItemNames.some(itemName => matchProductNames(cap.product_name, itemName))
+                  )
                 : []
 
               if (matchingCapabilities.length === 0) return null
@@ -853,9 +929,7 @@ export function AssignSupplierModal({
                       const assignedItem = orders.find(o => o.id === manualForm.orderId)?.order_items?.find(item => {
                         const isAssigned = isAlreadyAssigned(matchedSupplier?.id || '', item.id, Number(cap.target_price))
                         if (!isAssigned) return false
-                        const capName = (cap.product_name || '').toLowerCase().trim()
-                        const itemName = (item.item_name || '').toLowerCase().trim()
-                        return capName.includes(itemName) || itemName.includes(capName)
+                        return matchProductNames(cap.product_name, item.item_name)
                       })
 
                       // Find checked order items that match this capability (excluding already assigned)
@@ -864,9 +938,7 @@ export function AssignSupplierModal({
                         const isAssigned = isAlreadyAssigned(matchedSupplier?.id || '', item.id, Number(cap.target_price))
                         if (!bid?.checked || isAssigned) return false
                         
-                        const capName = (cap.product_name || '').toLowerCase().trim()
-                        const itemName = (item.item_name || '').toLowerCase().trim()
-                        return capName.includes(itemName) || itemName.includes(capName)
+                        return matchProductNames(cap.product_name, item.item_name)
                       }) || []
                       const hasMatches = matchedOrderItems.length > 0
 
