@@ -1,7 +1,9 @@
 'use client'
 
+/* eslint-disable react-hooks/set-state-in-effect */
+
 import React, { useState, useEffect, useRef } from 'react'
-import { X, Search, ChevronRight, ChevronDown, Download, AlertCircle, Loader2, Plus, Sparkles, Tag, Globe } from 'lucide-react'
+import { X, Search, ChevronRight, ChevronDown, Download, AlertCircle, Loader2, Plus, Sparkles, Tag, Globe, Check } from 'lucide-react'
 import { Label } from '@/components/ui/label'
 import { Input } from '@/components/ui/input'
 import { Button } from '@/components/ui/button'
@@ -17,8 +19,9 @@ interface AssignSupplierModalProps {
   viewMode: 'order' | 'all'
   subtab: 'overview' | 'suppliers' | 'workplace'
   onSuccess: () => Promise<void>
-  addSupplierNormalizedAction: (payload: any, resolution?: 'skip' | 'overwrite' | null) => Promise<any>
+  addSupplierNormalizedAction: (payload: any, resolution?: 'skip' | 'overwrite' | null, isProfilesTab?: boolean) => Promise<any>
   onDuplicateDetected?: (duplicates: any[], payload: any) => void
+  existingBids?: any[]
 }
 
 export function AssignSupplierModal({
@@ -31,7 +34,8 @@ export function AssignSupplierModal({
   subtab,
   onSuccess,
   addSupplierNormalizedAction,
-  onDuplicateDetected
+  onDuplicateDetected,
+  existingBids = []
 }: AssignSupplierModalProps) {
   // Modal states
   const [isSubmitting, setIsSubmitting] = useState(false)
@@ -50,8 +54,18 @@ export function AssignSupplierModal({
     businessType: ''
   })
 
-  // Checklist of items: orderItemId -> { checked, price, leadTime }
-  const [itemBids, setItemBids] = useState<Record<string, { checked: boolean; price: string; leadTime: string }>>({})
+  // Checklist of items: orderItemId -> { checked, price, leadTime, selectedCapId }
+  const [itemBids, setItemBids] = useState<Record<string, { checked: boolean; price: string; leadTime: string; selectedCapId?: string }>>({})
+
+  // Check if a capability is already assigned to a specific item
+  const isAlreadyAssigned = (supplierId: string, itemId: string, targetPrice?: number) => {
+    return existingBids?.some(bid => 
+      bid.order_id === manualForm.orderId &&
+      (bid.supplier_id === supplierId || bid.supplier_name === manualForm.supplierName) &&
+      bid.order_item_id === itemId &&
+      (targetPrice === undefined || Number(bid.quoted_price) === Number(targetPrice))
+    ) || false
+  }
 
   // External Capabilities (Product Catalog)
   const [capabilities, setCapabilities] = useState<Array<{
@@ -73,6 +87,23 @@ export function AssignSupplierModal({
 
   // Focus ref for accessibility close button
   const closeButtonRef = useRef<HTMLButtonElement>(null)
+
+  // Derive checked items and suggested suppliers
+  const selectedOrder = orders.find(o => o.id === manualForm.orderId) || null
+
+  // Initialize bids checklist helper
+  const initializeChecklist = React.useCallback((orderId: string) => {
+    const selectedOrd = orders.find(o => o.id === orderId)
+    if (selectedOrd?.order_items) {
+      const initialBids: Record<string, { checked: boolean; price: string; leadTime: string; selectedCapId?: string }> = {}
+      selectedOrd.order_items.forEach(item => {
+        initialBids[item.id] = { checked: false, price: '', leadTime: '', selectedCapId: '' }
+      })
+      setItemBids(initialBids)
+    } else {
+      setItemBids({})
+    }
+  }, [orders])
 
   // Initialize/Reset states on open
   useEffect(() => {
@@ -107,21 +138,48 @@ export function AssignSupplierModal({
         closeButtonRef.current?.focus()
       }, 100)
     }
-  }, [isOpen, selectedOrderId])
+  }, [isOpen, selectedOrderId, initializeChecklist])
 
-  // Initialize bids checklist helper
-  const initializeChecklist = (orderId: string) => {
-    const selectedOrd = orders.find(o => o.id === orderId)
-    if (selectedOrd?.order_items) {
-      const initialBids: Record<string, { checked: boolean; price: string; leadTime: string }> = {}
-      selectedOrd.order_items.forEach(item => {
-        initialBids[item.id] = { checked: false, price: '', leadTime: '' }
-      })
-      setItemBids(initialBids)
-    } else {
-      setItemBids({})
-    }
-  }
+  // Auto-map capabilities when supplierName changes
+  useEffect(() => {
+    if (!manualForm.supplierName) return
+    const matchedSupplier = uniqueSuppliers.find(sup => sup.name === manualForm.supplierName)
+    if (!matchedSupplier) return
+
+    setItemBids(prev => {
+      const updated = { ...prev }
+      let changed = false
+      for (const [itemId, bid] of Object.entries(updated)) {
+        if (bid.checked) {
+          const orderItem = selectedOrder?.order_items?.find(item => item.id === itemId)
+          if (orderItem) {
+            const itemCaps = (matchedSupplier.supplier_capabilities as any[])?.filter((cap: any) => {
+              const capName = (cap.product_name || '').toLowerCase().trim()
+              const itemName = (orderItem.item_name || '').toLowerCase().trim()
+              return capName.includes(itemName) || itemName.includes(capName)
+            }) || []
+            const firstUnassignedCap = itemCaps.find((cap: any) => 
+              !isAlreadyAssigned(matchedSupplier?.id || '', orderItem.id, Number(cap.target_price))
+            )
+            if (firstUnassignedCap) {
+              const capId = firstUnassignedCap.id || firstUnassignedCap.product_name
+              if (bid.selectedCapId !== capId) {
+                updated[itemId] = { ...bid, selectedCapId: capId }
+                changed = true
+              }
+            } else if (itemCaps.length > 0) {
+              const capId = itemCaps[0].id || itemCaps[0].product_name
+              if (bid.selectedCapId !== capId) {
+                updated[itemId] = { ...bid, selectedCapId: capId }
+                changed = true
+              }
+            }
+          }
+        }
+      }
+      return changed ? updated : prev
+    })
+  }, [manualForm.supplierName, uniqueSuppliers, selectedOrder])
 
   // Handle Associated Order change
   const handleSelectOrder = (orderId: string) => {
@@ -136,8 +194,6 @@ export function AssignSupplierModal({
   }
 
   // Derive checked items and suggested suppliers
-  const selectedOrder = orders.find(o => o.id === manualForm.orderId) || null
-
   const checkedItemNames = Object.entries(itemBids)
     .filter(([_, bidVal]) => bidVal.checked)
     .map(([itemId, _]) => {
@@ -188,20 +244,29 @@ export function AssignSupplierModal({
           let priceNum = parseFloat(bidVal.price)
           let leadTimeNum = parseInt(bidVal.leadTime)
 
+          // Lookup capability
+          let cap: any = null
+          if (bidVal.selectedCapId && matchedSupplier) {
+            cap = (matchedSupplier.supplier_capabilities as any[])?.find(
+              (c: any) => (c.id || c.product_name) === bidVal.selectedCapId
+            )
+          }
+
           // Auto lookup capability price & lead time if left empty and supplier match exists
-          if ((isNaN(priceNum) || isNaN(leadTimeNum)) && matchedSupplier) {
+          if (!cap && (isNaN(priceNum) || isNaN(leadTimeNum)) && matchedSupplier) {
             const orderItem = selectedOrder?.order_items?.find(item => item.id === itemId)
             if (orderItem) {
-              const cap = (matchedSupplier.supplier_capabilities as any[])?.find((c: any) => {
+              cap = (matchedSupplier.supplier_capabilities as any[])?.find((c: any) => {
                 const cName = (c.product_name || '').toLowerCase().trim()
                 const oName = (orderItem.item_name || '').toLowerCase().trim()
                 return cName.includes(oName) || oName.includes(cName)
               })
-              if (cap) {
-                if (isNaN(priceNum)) priceNum = parseFloat(cap.target_price || 0)
-                if (isNaN(leadTimeNum)) leadTimeNum = parseInt(cap.lead_time_days || 0)
-              }
             }
+          }
+
+          if (cap) {
+            if (isNaN(priceNum)) priceNum = parseFloat(cap.target_price || 0)
+            if (isNaN(leadTimeNum)) leadTimeNum = parseInt(cap.lead_time_days || 0)
           }
 
           bids.push({
@@ -239,7 +304,7 @@ export function AssignSupplierModal({
         contactPerson,
         taxId,
         businessType
-      })
+      }, null, subtab === 'suppliers')
 
       if (result.success) {
         await onSuccess()
@@ -345,151 +410,41 @@ export function AssignSupplierModal({
           )}
 
           {/* SECTION 2: Order Selection & Product items mapping */}
-          <div className="space-y-3.5 border-b border-slate-100 dark:border-slate-800 pb-4">
-            <h3 className="text-xs font-bold text-indigo-600 uppercase tracking-wider">Order &amp; Capability Mapping</h3>
+          {subtab !== 'suppliers' && (
+            <div className="space-y-3.5 border-b border-slate-100 dark:border-slate-800 pb-4">
+              <h3 className="text-xs font-bold text-indigo-600 uppercase tracking-wider">Order &amp; Capability Mapping</h3>
 
-            {/* Searchable Order Combobox */}
-            <div className="space-y-1.5">
-              <Label className="text-xs font-semibold text-slate-700 dark:text-slate-300">
-                Associated Order
-              </Label>
-              <div className="relative">
-                <button
-                  type="button"
-                  aria-haspopup="listbox"
-                  aria-expanded={isOrderDropdownOpen}
-                  className="flex h-9 w-full items-center justify-between rounded-md border border-slate-200 bg-white px-3 py-2 text-xs text-slate-800 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-200 cursor-pointer text-left focus:outline-none focus:ring-1 focus:ring-indigo-500"
-                  onClick={() => setIsOrderDropdownOpen(!isOrderDropdownOpen)}
-                >
-                  <span>
-                    {manualForm.orderId
-                      ? orders.find(o => o.id === manualForm.orderId)?.order_code
-                      : "No Associated Order (Unassigned)"
-                    }
-                  </span>
-                  <ChevronRight size={14} className="transform rotate-90" />
-                </button>
-
-                {isOrderDropdownOpen && (
-                  <div className="absolute z-50 mt-1 w-full rounded-md border border-slate-200 bg-white shadow-lg dark:border-slate-800 dark:bg-slate-900 max-h-60 overflow-y-auto">
-                    <div className="flex items-center border-b border-slate-100 dark:border-slate-800 px-2 py-1 bg-slate-50 dark:bg-slate-950">
-                      <Search size={12} className="text-slate-400 mr-2" />
-                      <input
-                        type="text"
-                        placeholder="Search orders..."
-                        value={orderSearchQuery}
-                        onChange={e => setOrderSearchQuery(e.target.value)}
-                        className="w-full bg-transparent text-xs py-1 outline-none text-slate-800 dark:text-slate-200 placeholder:text-slate-400"
-                        onClick={(e) => e.stopPropagation()}
-                      />
-                    </div>
-                    <ul role="listbox" className="divide-y divide-slate-100 dark:divide-slate-800">
-                      <li
-                        role="option"
-                        aria-selected={manualForm.orderId === ''}
-                        className="px-3 py-2 text-xs font-semibold text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer"
-                        onClick={() => handleSelectOrder('')}
-                      >
-                        No Associated Order (Unassigned)
-                      </li>
-                      {orders
-                        .filter(o => o.order_code.toLowerCase().includes(orderSearchQuery.toLowerCase()))
-                        .map(o => (
-                          <li
-                            key={o.id}
-                            role="option"
-                            aria-selected={manualForm.orderId === o.id}
-                            className="px-3 py-2 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer text-xs flex flex-col gap-0.5"
-                            onClick={() => handleSelectOrder(o.id)}
-                          >
-                            <span className="font-bold text-slate-800 dark:text-slate-200">{o.order_code}</span>
-                            <span className="text-[10px] text-slate-400">Date: {o.order_date || '—'}</span>
-                          </li>
-                        ))
-                      }
-                    </ul>
-                  </div>
-                )}
-              </div>
-            </div>
-
-            {/* Checklist of Order Items */}
-            {manualForm.orderId && (
-              <div className="space-y-2.5">
+              {/* Searchable Order Combobox */}
+              <div className="space-y-1.5">
                 <Label className="text-xs font-semibold text-slate-700 dark:text-slate-300">
-                  Select Product Item(s) to Quote
+                  Associated Order
                 </Label>
-                <div className="grid gap-2 sm:grid-cols-2">
-                  {orders.find(o => o.id === manualForm.orderId)?.order_items?.map(item => {
-                    const bid = itemBids[item.id] || { checked: false, price: '', leadTime: '' }
-                    return (
-                      <div
-                        key={item.id}
-                        className={`p-3 rounded-xl border transition-all duration-200 ${
-                          bid.checked
-                            ? 'border-indigo-200 bg-indigo-50/20 dark:border-indigo-900/40 dark:bg-indigo-950/10'
-                            : 'border-slate-200/60 hover:bg-slate-50 dark:border-slate-800 dark:hover:bg-slate-900/30'
-                        }`}
-                      >
-                        <div className="flex items-center gap-2">
-                          <input
-                            type="checkbox"
-                            id={`item-check-${item.id}`}
-                            checked={bid.checked}
-                            onChange={e => setItemBids(prev => ({
-                              ...prev,
-                              [item.id]: { ...bid, checked: e.target.checked }
-                            }))}
-                            className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 h-4 w-4 cursor-pointer"
-                          />
-                          <Label
-                            htmlFor={`item-check-${item.id}`}
-                            className="text-xs font-semibold text-slate-800 dark:text-slate-200 cursor-pointer truncate flex-1"
-                          >
-                            {item.item_name}
-                          </Label>
-                        </div>
-                      </div>
-                    )
-                  })}
-                </div>
-              </div>
-            )}
-
-            {/* Suggested Suppliers Section based on checked items */}
-            {subtab !== 'suppliers' && suggestedSuppliers.length > 0 && (
-              <div className="space-y-1.5 pt-1 animate-in fade-in duration-200">
-                <Label className="text-xs font-bold text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
-                  <Sparkles size={13} className="text-indigo-600 fill-indigo-600/20" />
-                  <span>Suggested Suppliers for Selected Items</span>
-                </Label>
-
                 <div className="relative">
                   <button
                     type="button"
                     aria-haspopup="listbox"
-                    aria-expanded={isSupplierDropdownOpen}
+                    aria-expanded={isOrderDropdownOpen}
                     className="flex h-9 w-full items-center justify-between rounded-md border border-slate-200 bg-white px-3 py-2 text-xs text-slate-800 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-200 cursor-pointer text-left focus:outline-none focus:ring-1 focus:ring-indigo-500"
-                    onClick={() => setIsSupplierDropdownOpen(!isSupplierDropdownOpen)}
+                    onClick={() => setIsOrderDropdownOpen(!isOrderDropdownOpen)}
                   >
-                    <span className="truncate font-semibold">
-                      {manualForm.supplierName
-                        ? manualForm.supplierName
-                        : `Select Suggested Supplier (${suggestedSuppliers.length} matches)...`
+                    <span>
+                      {manualForm.orderId
+                        ? orders.find(o => o.id === manualForm.orderId)?.order_code
+                        : "No Associated Order (Unassigned)"
                       }
                     </span>
-                    <ChevronDown size={14} className="text-slate-400 animate-in duration-100" />
+                    <ChevronRight size={14} className="transform rotate-90" />
                   </button>
 
-                  {isSupplierDropdownOpen && (
+                  {isOrderDropdownOpen && (
                     <div className="absolute z-50 mt-1 w-full rounded-md border border-slate-200 bg-white shadow-lg dark:border-slate-800 dark:bg-slate-900 max-h-60 overflow-y-auto">
                       <div className="flex items-center border-b border-slate-100 dark:border-slate-800 px-2 py-1 bg-slate-50 dark:bg-slate-950">
                         <Search size={12} className="text-slate-400 mr-2" />
                         <input
                           type="text"
-                          placeholder="Search suggested suppliers..."
-                          value={supplierSearchQuery}
-                          onChange={e => setSupplierSearchQuery(e.target.value)}
+                          placeholder="Search orders..."
+                          value={orderSearchQuery}
+                          onChange={e => setOrderSearchQuery(e.target.value)}
                           className="w-full bg-transparent text-xs py-1 outline-none text-slate-800 dark:text-slate-200 placeholder:text-slate-400"
                           onClick={(e) => e.stopPropagation()}
                         />
@@ -497,80 +452,260 @@ export function AssignSupplierModal({
                       <ul role="listbox" className="divide-y divide-slate-100 dark:divide-slate-800">
                         <li
                           role="option"
-                          aria-selected={manualForm.supplierName === ''}
+                          aria-selected={manualForm.orderId === ''}
                           className="px-3 py-2 text-xs font-semibold text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer"
-                          onClick={() => {
-                            setManualForm(f => ({
-                              ...f,
-                              supplierName: '',
-                              email: '',
-                              phone: '',
-                              address: '',
-                              website: '',
-                              contactPerson: '',
-                              taxId: '',
-                              businessType: ''
-                            }))
-                            setIsSupplierDropdownOpen(false)
-                          }}
+                          onClick={() => handleSelectOrder('')}
                         >
-                          Clear Selection (Unassign)
+                          No Associated Order (Unassigned)
                         </li>
-                        {suggestedSuppliers
-                          .filter(sup => sup.name.toLowerCase().includes(supplierSearchQuery.toLowerCase()))
-                          .map(sup => {
-                            const matchingCaps = sup.supplier_capabilities?.filter((cap: any) => {
-                              const capName = (cap.product_name || '').toLowerCase().trim()
-                              return checkedItemNames.some(itemName =>
-                                capName.includes(itemName) || itemName.includes(capName)
-                              )
-                            }) || []
-
-                            const hasPrice = matchingCaps.length > 0
-                            const priceText = hasPrice
-                              ? ` ($${Number(matchingCaps[0].target_price).toFixed(2)})`
-                              : ' (Match)'
-
-                            return (
-                              <li
-                                key={sup.id}
-                                role="option"
-                                aria-selected={manualForm.supplierName === sup.name}
-                                className="px-3 py-2 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer text-xs flex flex-col gap-0.5"
-                                onClick={() => {
-                                  setManualForm(f => ({
-                                    ...f,
-                                    supplierName: sup.name,
-                                    email: sup.email || '',
-                                    phone: sup.phone || '',
-                                    address: sup.address || '',
-                                    website: sup.website || '',
-                                    contactPerson: sup.contact_person || '',
-                                    taxId: sup.tax_id || '',
-                                    businessType: sup.business_type || ''
-                                  }))
-                                  setIsSupplierDropdownOpen(false)
-                                  setSupplierSearchQuery('')
-                                }}
-                              >
-                                <span className="font-bold text-slate-800 dark:text-slate-200">
-                                  {sup.name}
-                                  <span className="text-indigo-600 dark:text-indigo-400 font-bold">{priceText}</span>
-                                </span>
-                                <span className="text-[10px] text-slate-400 truncate">
-                                  Products: {sup.main_products ? sup.main_products.join(', ') : 'N/A'}
-                                </span>
-                              </li>
-                            )
-                          })
+                        {orders
+                          .filter(o => o.order_code.toLowerCase().includes(orderSearchQuery.toLowerCase()))
+                          .map(o => (
+                            <li
+                              key={o.id}
+                              role="option"
+                              aria-selected={manualForm.orderId === o.id}
+                              className="px-3 py-2 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer text-xs flex flex-col gap-0.5"
+                              onClick={() => handleSelectOrder(o.id)}
+                            >
+                              <span className="font-bold text-slate-800 dark:text-slate-200">{o.order_code}</span>
+                              <span className="text-[10px] text-slate-400">Date: {o.order_date || '—'}</span>
+                            </li>
+                          ))
                         }
                       </ul>
                     </div>
                   )}
                 </div>
               </div>
-            )}
-          </div>
+
+              {/* Checklist of Order Items */}
+              {manualForm.orderId && (
+                <div className="space-y-2.5">
+                  <Label className="text-xs font-semibold text-slate-700 dark:text-slate-300">
+                    Select Product Item(s) to Quote
+                  </Label>
+                  <div className="grid gap-2 sm:grid-cols-2">
+                    {orders.find(o => o.id === manualForm.orderId)?.order_items?.map(item => {
+                      const bid = itemBids[item.id] || { checked: false, price: '', leadTime: '', selectedCapId: '' }
+                      
+                      // Find matching capabilities for this specific item
+                      const matchedSupplier = uniqueSuppliers.find(sup => sup.name === manualForm.supplierName)
+                      const itemCaps = matchedSupplier
+                        ? (matchedSupplier.supplier_capabilities as any[])?.filter((cap: any) => {
+                            const capName = (cap.product_name || '').toLowerCase().trim()
+                            const itemName = (item.item_name || '').toLowerCase().trim()
+                            return capName.includes(itemName) || itemName.includes(capName)
+                          })
+                        : []
+
+                      const areAllCapsAssigned = itemCaps.length > 0 && itemCaps.every((cap: any) => 
+                        isAlreadyAssigned(matchedSupplier?.id || '', item.id, Number(cap.target_price))
+                      )
+                      const isItemAssigned = itemCaps.length > 0 ? areAllCapsAssigned : isAlreadyAssigned(matchedSupplier?.id || '', item.id)
+
+                      return (
+                        <div
+                          key={item.id}
+                          className={`p-3 rounded-xl border transition-all duration-200 ${
+                            isItemAssigned
+                              ? 'border-amber-100 bg-amber-50/5 dark:border-amber-900/30 dark:bg-amber-950/5 opacity-85'
+                              : bid.checked
+                              ? 'border-indigo-200 bg-indigo-50/20 dark:border-indigo-900/40 dark:bg-indigo-950/10'
+                              : 'border-slate-200/60 hover:bg-slate-50 dark:border-slate-800 dark:hover:bg-slate-900/30'
+                          }`}
+                        >
+                          <div className="flex items-center gap-2">
+                            <input
+                              type="checkbox"
+                              id={`item-check-${item.id}`}
+                              checked={bid.checked || isItemAssigned}
+                              disabled={isItemAssigned}
+                              onChange={e => {
+                                const isChecked = e.target.checked
+                                const firstUnassignedCap = itemCaps.find((cap: any) => 
+                                  !isAlreadyAssigned(matchedSupplier?.id || '', item.id, Number(cap.target_price))
+                                )
+                                const defaultCapId = (isChecked && firstUnassignedCap) 
+                                  ? (firstUnassignedCap.id || firstUnassignedCap.product_name) 
+                                  : (isChecked && itemCaps.length > 0 ? (itemCaps[0].id || itemCaps[0].product_name) : '')
+
+                                setItemBids(prev => ({
+                                  ...prev,
+                                  [item.id]: { ...bid, checked: isChecked, selectedCapId: defaultCapId }
+                                }))
+                              }}
+                              className="rounded border-slate-300 text-indigo-600 focus:ring-indigo-500 h-4 w-4 cursor-pointer disabled:opacity-50"
+                            />
+                            <Label
+                              htmlFor={`item-check-${item.id}`}
+                              className={`text-xs font-semibold text-slate-800 dark:text-slate-200 truncate flex-1 ${isItemAssigned ? 'cursor-not-allowed opacity-60' : 'cursor-pointer'}`}
+                            >
+                              {item.item_name}
+                            </Label>
+                          </div>
+
+                          {isItemAssigned && (
+                            <div className="mt-1.5 pl-6">
+                              <span className="text-[10px] font-bold text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/30 border border-amber-200/30 px-1.5 py-0.5 rounded-md w-fit flex items-center gap-0.5 select-none">
+                                <AlertCircle size={9} />
+                                <span>Already Assigned</span>
+                              </span>
+                            </div>
+                          )}
+
+                          {bid.checked && itemCaps.length > 1 && (
+                            <div className="mt-2.5 space-y-1 pl-6">
+                              <Label className="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">
+                                Select Matching Capability
+                              </Label>
+                              <select
+                                value={bid.selectedCapId || ''}
+                                onChange={e => setItemBids(prev => ({
+                                  ...prev,
+                                  [item.id]: { ...bid, selectedCapId: e.target.value }
+                                }))}
+                                className="h-8 w-full rounded-lg border border-slate-200 bg-white px-2 py-1 text-xs text-slate-850 dark:border-slate-800 dark:bg-slate-900 focus:outline-none focus:ring-1 focus:ring-indigo-500 cursor-pointer"
+                              >
+                                <option value="">-- Choose matching product --</option>
+                                {itemCaps.map((cap: any) => {
+                                  const isCapAssigned = isAlreadyAssigned(matchedSupplier?.id || '', item.id, Number(cap.target_price))
+                                  return (
+                                    <option 
+                                      key={cap.id || cap.product_name} 
+                                      value={cap.id || cap.product_name}
+                                      disabled={isCapAssigned}
+                                    >
+                                      {cap.product_name} (${Number(cap.target_price).toFixed(2)}){isCapAssigned ? ' (Already Assigned)' : ''}
+                                    </option>
+                                  )
+                                })}
+                              </select>
+                            </div>
+                          )}
+                        </div>
+                      )
+                    })}
+                  </div>
+                </div>
+              )}
+
+              {/* Suggested Suppliers Section based on checked items */}
+              {suggestedSuppliers.length > 0 && (
+                <div className="space-y-1.5 pt-1 animate-in fade-in duration-200">
+                  <Label className="text-xs font-bold text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
+                    <Sparkles size={13} className="text-indigo-600 fill-indigo-600/20" />
+                    <span>Suggested Suppliers for Selected Items</span>
+                  </Label>
+
+                  <div className="relative">
+                    <button
+                      type="button"
+                      aria-haspopup="listbox"
+                      aria-expanded={isSupplierDropdownOpen}
+                      className="flex h-9 w-full items-center justify-between rounded-md border border-slate-200 bg-white px-3 py-2 text-xs text-slate-800 dark:border-slate-800 dark:bg-slate-900 dark:text-slate-200 cursor-pointer text-left focus:outline-none focus:ring-1 focus:ring-indigo-500"
+                      onClick={() => setIsSupplierDropdownOpen(!isSupplierDropdownOpen)}
+                    >
+                      <span className="truncate font-semibold">
+                        {manualForm.supplierName
+                          ? manualForm.supplierName
+                          : `Select Suggested Supplier (${suggestedSuppliers.length} matches)...`
+                        }
+                      </span>
+                      <ChevronDown size={14} className="text-slate-400 animate-in duration-100" />
+                    </button>
+
+                    {isSupplierDropdownOpen && (
+                      <div className="absolute z-50 mt-1 w-full rounded-md border border-slate-200 bg-white shadow-lg dark:border-slate-800 dark:bg-slate-900 max-h-60 overflow-y-auto">
+                        <div className="flex items-center border-b border-slate-100 dark:border-slate-800 px-2 py-1 bg-slate-50 dark:bg-slate-950">
+                          <Search size={12} className="text-slate-400 mr-2" />
+                          <input
+                            type="text"
+                            placeholder="Search suggested suppliers..."
+                            value={supplierSearchQuery}
+                            onChange={e => setSupplierSearchQuery(e.target.value)}
+                            className="w-full bg-transparent text-xs py-1 outline-none text-slate-800 dark:text-slate-200 placeholder:text-slate-400"
+                            onClick={(e) => e.stopPropagation()}
+                          />
+                        </div>
+                        <ul role="listbox" className="divide-y divide-slate-100 dark:divide-slate-800">
+                          <li
+                            role="option"
+                            aria-selected={manualForm.supplierName === ''}
+                            className="px-3 py-2 text-xs font-semibold text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer"
+                            onClick={() => {
+                              setManualForm(f => ({
+                                ...f,
+                                supplierName: '',
+                                email: '',
+                                phone: '',
+                                address: '',
+                                website: '',
+                                contactPerson: '',
+                                taxId: '',
+                                businessType: ''
+                              }))
+                              setIsSupplierDropdownOpen(false)
+                            }}
+                          >
+                            Clear Selection (Unassign)
+                          </li>
+                          {suggestedSuppliers
+                            .filter(sup => sup.name.toLowerCase().includes(supplierSearchQuery.toLowerCase()))
+                            .map(sup => {
+                              const matchingCaps = sup.supplier_capabilities?.filter((cap: any) => {
+                                const capName = (cap.product_name || '').toLowerCase().trim()
+                                return checkedItemNames.some(itemName =>
+                                  capName.includes(itemName) || itemName.includes(capName)
+                                )
+                              }) || []
+
+                              const hasPrice = matchingCaps.length > 0
+                              const priceText = hasPrice
+                                ? ` ($${Number(matchingCaps[0].target_price).toFixed(2)})`
+                                : ' (Match)'
+
+                              return (
+                                <li
+                                  key={sup.id}
+                                  role="option"
+                                  aria-selected={manualForm.supplierName === sup.name}
+                                  className="px-3 py-2 hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer text-xs flex flex-col gap-0.5"
+                                  onClick={() => {
+                                    setManualForm(f => ({
+                                      ...f,
+                                      supplierName: sup.name,
+                                      email: sup.email || '',
+                                      phone: sup.phone || '',
+                                      address: sup.address || '',
+                                      website: sup.website || '',
+                                      contactPerson: sup.contact_person || '',
+                                      taxId: sup.tax_id || '',
+                                      businessType: sup.business_type || ''
+                                    }))
+                                    setIsSupplierDropdownOpen(false)
+                                    setSupplierSearchQuery('')
+                                  }}
+                                >
+                                  <span className="font-bold text-slate-800 dark:text-slate-200">
+                                    {sup.name}
+                                    <span className="text-indigo-600 dark:text-indigo-400 font-bold">{priceText}</span>
+                                  </span>
+                                  <span className="text-[10px] text-slate-400 truncate">
+                                    Products: {sup.main_products ? sup.main_products.join(', ') : 'N/A'}
+                                  </span>
+                                </li>
+                              )
+                            })
+                          }
+                        </ul>
+                      </div>
+                    )}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
 
           {/* SECTION 3: Supplier Basic Profile info */}
           <div className="space-y-3.5 pb-2">
@@ -705,21 +840,85 @@ export function AssignSupplierModal({
                     <span>Matching Product Capabilities</span>
                   </h3>
                   <div className="grid gap-3 sm:grid-cols-2">
-                    {matchingCapabilities.map((cap: any) => (
-                      <div
-                        key={cap.id || cap.product_name}
-                        className="p-3.5 rounded-xl border border-indigo-100 dark:border-indigo-900/50 bg-indigo-50/5 dark:bg-indigo-950/5 space-y-2.5 flex flex-col justify-between"
-                      >
-                        <div className="flex justify-between items-start gap-2">
-                          <span className="font-bold text-slate-800 dark:text-slate-200 text-xs truncate max-w-[200px]">
-                            {cap.product_name}
-                          </span>
-                          {cap.sku && (
-                            <span className="text-[9px] font-bold bg-indigo-150 text-indigo-800 dark:bg-indigo-900/50 dark:text-indigo-300 px-1.5 py-0.5 rounded uppercase tracking-wider">
-                              {cap.sku}
-                            </span>
-                          )}
-                        </div>
+                    {matchingCapabilities.map((cap: any) => {
+                      const mappingItem = orders.find(o => o.id === manualForm.orderId)?.order_items?.find(item => {
+                        const bid = itemBids[item.id]
+                        return bid?.checked && bid.selectedCapId === (cap.id || cap.product_name)
+                      })
+                      const isSelected = !!mappingItem
+
+                      // Find if this capability matches an already assigned order item
+                      const assignedItem = orders.find(o => o.id === manualForm.orderId)?.order_items?.find(item => {
+                        const isAssigned = isAlreadyAssigned(matchedSupplier?.id || '', item.id, Number(cap.target_price))
+                        if (!isAssigned) return false
+                        const capName = (cap.product_name || '').toLowerCase().trim()
+                        const itemName = (item.item_name || '').toLowerCase().trim()
+                        return capName.includes(itemName) || itemName.includes(capName)
+                      })
+
+                      // Find checked order items that match this capability (excluding already assigned)
+                      const matchedOrderItems = orders.find(o => o.id === manualForm.orderId)?.order_items?.filter(item => {
+                        const bid = itemBids[item.id]
+                        const isAssigned = isAlreadyAssigned(matchedSupplier?.id || '', item.id, Number(cap.target_price))
+                        if (!bid?.checked || isAssigned) return false
+                        
+                        const capName = (cap.product_name || '').toLowerCase().trim()
+                        const itemName = (item.item_name || '').toLowerCase().trim()
+                        return capName.includes(itemName) || itemName.includes(capName)
+                      }) || []
+                      const hasMatches = matchedOrderItems.length > 0
+
+                      const handleCardClick = () => {
+                        if (hasMatches) {
+                          const targetItem = matchedOrderItems[0]
+                          setItemBids(prev => ({
+                            ...prev,
+                            [targetItem.id]: {
+                              ...prev[targetItem.id],
+                              selectedCapId: cap.id || cap.product_name
+                            }
+                          }))
+                        }
+                      }
+
+                      return (
+                        <div
+                          key={cap.id || cap.product_name}
+                          onClick={hasMatches ? handleCardClick : undefined}
+                          className={`p-3.5 rounded-xl border transition-all duration-200 space-y-2.5 flex flex-col justify-between select-none ${
+                            isSelected
+                              ? 'border-indigo-500 bg-indigo-50/20 dark:border-indigo-500 dark:bg-indigo-950/10 shadow-sm'
+                              : 'border-indigo-100 dark:border-indigo-900/50 bg-indigo-50/5 dark:bg-indigo-950/5'
+                          } ${
+                            hasMatches 
+                              ? 'cursor-pointer hover:border-indigo-400 dark:hover:border-indigo-700 hover:bg-slate-50/10' 
+                              : ''
+                          }`}
+                        >
+                          <div className="flex justify-between items-start gap-2">
+                            <div className="flex flex-col gap-1">
+                              <span className="font-bold text-slate-800 dark:text-slate-200 text-xs truncate max-w-[200px]">
+                                {cap.product_name}
+                              </span>
+                              {isSelected && (
+                                <span className="text-[9px] font-bold text-emerald-600 dark:text-emerald-400 bg-emerald-50 dark:bg-emerald-950/30 border border-emerald-500/20 px-1.5 py-0.5 rounded-md w-fit flex items-center gap-0.5">
+                                  <Check size={9} />
+                                  <span>Mapped: {mappingItem.item_name}</span>
+                                </span>
+                              )}
+                              {assignedItem && !isSelected && (
+                                <span className="text-[9px] font-bold text-amber-600 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/30 border border-amber-500/20 px-1.5 py-0.5 rounded-md w-fit flex items-center gap-0.5">
+                                  <AlertCircle size={9} />
+                                  <span>Already Assigned ({assignedItem.item_name})</span>
+                                </span>
+                              )}
+                            </div>
+                            {cap.sku && (
+                              <span className="text-[9px] font-bold bg-indigo-150 text-indigo-800 dark:bg-indigo-900/50 dark:text-indigo-300 px-1.5 py-0.5 rounded uppercase tracking-wider">
+                                {cap.sku}
+                              </span>
+                            )}
+                          </div>
 
                         <div className="grid grid-cols-3 gap-2 py-1.5 border-t border-b border-indigo-50/30 text-xs text-slate-600 dark:text-slate-400">
                           <div className="flex flex-col gap-0.5 border-r border-indigo-50/20 pr-1.5">
@@ -766,7 +965,7 @@ export function AssignSupplierModal({
                           </div>
                         )}
                       </div>
-                    ))}
+                    )})}
                   </div>
                 </div>
               )

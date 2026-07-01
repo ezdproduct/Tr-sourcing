@@ -47,6 +47,7 @@ import {
   Plus,
   Trash2,
   X,
+  ArrowUpDown,
   AlertCircle,
   ChevronRight,
   Package,
@@ -219,6 +220,7 @@ export function SourcingClient({ initialOrders, initialSuppliers, initialAudits 
       queryClient.invalidateQueries({ queryKey: ['sourcing', 'orders'] }),
       queryClient.invalidateQueries({ queryKey: ['sourcing', 'audits'] }),
     ])
+    router.refresh()
   }
 
   const { data: suppliersData } = useQuery({
@@ -267,6 +269,10 @@ export function SourcingClient({ initialOrders, initialSuppliers, initialAudits 
   const initialSubtab = (searchParams.get('subtab') as 'overview' | 'suppliers' | 'workplace') || 'overview'
   const [subtab, setSubtab] = useState<'overview' | 'suppliers' | 'workplace'>(initialSubtab)
   const [supplierSearch, setSupplierSearch] = useState('')
+  const [supplierSort, setSupplierSort] = useState<{ field: 'name' | 'created_by' | null; order: 'asc' | 'desc' }>({
+    field: null,
+    order: 'asc'
+  })
   const [isDeletingBatch, setIsDeletingBatch] = useState(false)
 
   const subtabParam = searchParams.get('subtab')
@@ -361,7 +367,6 @@ export function SourcingClient({ initialOrders, initialSuppliers, initialAudits 
 
   // Selection states for bulk delete in All Suppliers Overview
   const [selectedSupplierIds, setSelectedSupplierIds] = useState<string[]>([])
-  const [isBulkDeleting, setIsBulkDeleting] = useState(false)
   const [isBulkDeleteConfirmOpen, setIsBulkDeleteConfirmOpen] = useState(false)
   const [isManageMode, setIsManageMode] = useState(false)
 
@@ -388,7 +393,7 @@ export function SourcingClient({ initialOrders, initialSuppliers, initialAudits 
 
     try {
       if (pendingActionType === 'manual') {
-        const res = await addSupplierNormalizedAction(pendingPayload, resolution)
+        const res = await addSupplierNormalizedAction(pendingPayload, resolution, subtab === 'suppliers')
         if (res.success) {
           setIsAddOpen(false)
           setIsConflictDialogOpen(false)
@@ -896,6 +901,38 @@ export function SourcingClient({ initialOrders, initialSuppliers, initialAudits 
       (s.contact_person || '').toLowerCase().includes(q)
     )
   })
+
+  const sortedUniqueSuppliers = React.useMemo(() => {
+    if (!supplierSort.field) return filteredUniqueSuppliers
+    return [...filteredUniqueSuppliers].sort((a, b) => {
+      let valA = ''
+      let valB = ''
+      if (supplierSort.field === 'name') {
+        valA = (a.name || '').toLowerCase().trim()
+        valB = (b.name || '').toLowerCase().trim()
+      } else if (supplierSort.field === 'created_by') {
+        valA = (a.created_by || '').toLowerCase().trim()
+        valB = (b.created_by || '').toLowerCase().trim()
+      }
+      if (supplierSort.order === 'asc') {
+        return valA.localeCompare(valB)
+      } else {
+        return valB.localeCompare(valA)
+      }
+    })
+  }, [filteredUniqueSuppliers, supplierSort])
+
+  const handleSort = (field: 'name' | 'created_by') => {
+    setSupplierSort(prev => {
+      if (prev.field !== field) {
+        return { field, order: 'asc' }
+      }
+      if (prev.order === 'asc') {
+        return { field, order: 'desc' }
+      }
+      return { field: null, order: 'asc' }
+    })
+  }
 
   // ─── Handlers ────────────────────────────────────────────────────────────────
 
@@ -1607,11 +1644,11 @@ export function SourcingClient({ initialOrders, initialSuppliers, initialAudits 
           {isManageMode ? (
             <div className="flex items-center gap-2">
               <Button
-                disabled={selectedSupplierIds.length === 0 || isDeletingBatch}
-                onClick={handleConfirmBatchDelete}
+                disabled={selectedSupplierIds.length === 0}
+                onClick={() => setIsBulkDeleteConfirmOpen(true)}
                 className="bg-red-600 hover:bg-red-700 disabled:opacity-50 disabled:bg-red-600 text-white gap-1.5 h-9 px-4 rounded-lg text-xs font-semibold cursor-pointer"
               >
-                {isDeletingBatch ? <Loader2 size={12} className="animate-spin" /> : <Trash2 size={12} />}
+                <Trash2 size={12} />
                 <span>Delete Selected ({selectedSupplierIds.length})</span>
               </Button>
               <Button
@@ -1690,7 +1727,7 @@ export function SourcingClient({ initialOrders, initialSuppliers, initialAudits 
 
         <Card className="border-slate-200/60 dark:border-slate-800 shadow-sm">
           <CardContent className="p-0">
-            {filteredUniqueSuppliers.length === 0 ? (
+            {sortedUniqueSuppliers.length === 0 ? (
               <div className="p-12 flex flex-col items-center justify-center gap-3 text-center min-h-[300px]">
                 <Users2 size={36} className="text-slate-200 dark:text-slate-700" />
                 <p className="text-sm text-slate-400 font-medium">No suppliers found</p>
@@ -1704,10 +1741,10 @@ export function SourcingClient({ initialOrders, initialSuppliers, initialAudits 
                         <th className="px-6 py-4 w-12 text-center">
                           <input 
                             type="checkbox"
-                            checked={filteredUniqueSuppliers.length > 0 && selectedSupplierIds.length === filteredUniqueSuppliers.length}
+                            checked={sortedUniqueSuppliers.length > 0 && selectedSupplierIds.length === sortedUniqueSuppliers.length}
                             onChange={(e) => {
                               if (e.target.checked) {
-                                setSelectedSupplierIds(filteredUniqueSuppliers.map(s => s.id))
+                                setSelectedSupplierIds(sortedUniqueSuppliers.map(s => s.id))
                               } else {
                                 setSelectedSupplierIds([])
                               }
@@ -1716,18 +1753,34 @@ export function SourcingClient({ initialOrders, initialSuppliers, initialAudits 
                           />
                         </th>
                       )}
-                      <th className="px-6 py-4 w-[20%] min-w-[220px]">Supplier Name</th>
+                      <th 
+                        className="px-6 py-4 w-[20%] min-w-[220px] cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors select-none"
+                        onClick={() => handleSort('name')}
+                      >
+                        <div className="flex items-center gap-1">
+                          <span>Supplier Name</span>
+                          <ArrowUpDown size={12} className={supplierSort.field === 'name' ? 'text-indigo-600 dark:text-indigo-400' : 'text-slate-400 dark:text-slate-600 opacity-50'} />
+                        </div>
+                      </th>
                       <th className="px-6 py-4 w-[15%] min-w-[180px]">Email</th>
                       <th className="px-6 py-4 w-[10%] min-w-[130px]">Phone</th>
                       <th className="px-6 py-4 w-[12%] min-w-[150px]">Contact Person</th>
                       <th className="px-6 py-4 w-[12%] min-w-[150px]">Website</th>
                       <th className="px-6 py-4 w-[15%] min-w-[200px]">Address</th>
                       <th className="px-6 py-4 w-[16%] min-w-[200px]">Main Products</th>
-                      <th className="px-6 py-4 w-[10%] min-w-[110px] text-center"><span className="block text-center w-full">Upload By</span></th>
+                      <th 
+                        className="px-6 py-4 w-[10%] min-w-[110px] text-center cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors select-none"
+                        onClick={() => handleSort('created_by')}
+                      >
+                        <div className="flex items-center justify-center gap-1 w-full">
+                          <span>Upload By</span>
+                          <ArrowUpDown size={12} className={supplierSort.field === 'created_by' ? 'text-indigo-600 dark:text-indigo-400' : 'text-slate-400 dark:text-slate-600 opacity-50'} />
+                        </div>
+                      </th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100 dark:divide-slate-800 text-xs">
-                    {filteredUniqueSuppliers.map(supplier => {
+                    {sortedUniqueSuppliers.map(supplier => {
                       const isSelected = selectedSupplierIds.includes(supplier.id)
                       return (
                         <tr key={supplier.id} className={`hover:bg-slate-50/50 dark:hover:bg-slate-900/20 ${isSelected ? 'bg-indigo-50/30 dark:bg-indigo-950/10' : ''}`}>
@@ -2471,21 +2524,7 @@ export function SourcingClient({ initialOrders, initialSuppliers, initialAudits 
                                       ))}
                                     </DropdownMenuContent>
                                   </DropdownMenu>
-
-                                  {/* Assign Supplier Button */}
-                                  <Button
-                                    variant="outline"
-                                    size="sm"
-                                    onClick={() => {
-                                      setIsAddOpen(true)
-                                      setErrorMessage(null)
-                                    }}
-                                    className="flex items-center gap-1.5 h-8 px-3 rounded-lg border border-indigo-200 bg-indigo-50/40 text-indigo-700 hover:bg-indigo-50 dark:border-indigo-900/60 dark:bg-indigo-950/20 dark:text-indigo-400 dark:hover:bg-indigo-950/30 transition-colors cursor-pointer text-xs font-semibold"
-                                  >
-                                    <Plus size={12} />
-                                    <span>Assign Supplier</span>
-                                  </Button>
-
+ 
                                   {/* Add Dropdown */}
                                   <DropdownMenu>
                                     <DropdownMenuTrigger asChild>
@@ -2612,7 +2651,7 @@ export function SourcingClient({ initialOrders, initialSuppliers, initialAudits 
                                   className="mt-2 gap-1.5 bg-[#5c59e9] hover:bg-[#4a47d2]"
                                 >
                                   <Plus size={14} />
-                                  <span>Add First Supplier</span>
+                                  <span>Assign Supplier</span>
                                 </Button>
                               </div>
                             ) : (
@@ -2885,6 +2924,7 @@ export function SourcingClient({ initialOrders, initialSuppliers, initialAudits 
           setConflictingDuplicates(duplicates)
           setIsConflictDialogOpen(true)
         }}
+        existingBids={suppliers}
       />
 
       {/* Delete Confirmation Modal */}
@@ -3495,16 +3535,26 @@ export function SourcingClient({ initialOrders, initialSuppliers, initialAudits 
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
           <div
             className="absolute inset-0 bg-black/40 backdrop-blur-sm"
-            onClick={() => { if (!isBulkDeleting) setIsBulkDeleteConfirmOpen(false); }}
+            onClick={() => { if (!isDeletingBatch) setIsBulkDeleteConfirmOpen(false); }}
           />
           <div className="relative z-10 w-full max-w-sm bg-white dark:bg-slate-900 rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-800 p-6">
             <div className="flex items-center gap-3 text-red-600 dark:text-red-400 mb-4">
               <AlertCircle size={22} className="flex-shrink-0 text-red-600 dark:text-red-400" />
-              <h3 className="text-base font-bold text-slate-900 dark:text-white">Delete Selected Suppliers</h3>
+              <h3 className="text-base font-bold text-slate-900 dark:text-white">
+                {subtab === 'suppliers' ? 'Delete Selected Supplier Profiles' : 'Delete Selected Suppliers'}
+              </h3>
             </div>
             
             <p className="text-xs text-slate-600 dark:text-slate-400 mb-6 leading-relaxed">
-              Are you sure you want to delete the <strong className="font-semibold text-slate-800 dark:text-slate-200">{selectedSupplierIds.length}</strong> selected supplier quotes? This action cannot be undone and will remove them from all comparison matrices.
+              {subtab === 'suppliers' ? (
+                <>
+                  Are you sure you want to delete the <strong className="font-semibold text-slate-800 dark:text-slate-200">{selectedSupplierIds.length}</strong> selected supplier profiles? This action cannot be undone and will permanently remove all their credentials, capabilities, and history.
+                </>
+              ) : (
+                <>
+                  Are you sure you want to delete the <strong className="font-semibold text-slate-800 dark:text-slate-200">{selectedSupplierIds.length}</strong> selected supplier quotes? This action cannot be undone and will remove them from all comparison matrices.
+                </>
+              )}
             </p>
 
             <div className="flex gap-3">
@@ -3513,35 +3563,17 @@ export function SourcingClient({ initialOrders, initialSuppliers, initialAudits 
                 variant="outline"
                 onClick={() => setIsBulkDeleteConfirmOpen(false)}
                 className="flex-1 h-9 text-sm cursor-pointer"
-                disabled={isBulkDeleting}
+                disabled={isDeletingBatch}
               >
                 Cancel
               </Button>
               <Button
                 type="button"
-                onClick={async () => {
-                  setIsBulkDeleting(true)
-                  const deletedItems = suppliers.filter(s => selectedSupplierIds.includes(s.id))
-                  const deletedSupplierIds = deletedItems.map(s => s.supplier_id)
-
-                  const res = await deleteSuppliersBatchAction(selectedSupplierIds)
-                  setIsBulkDeleting(false)
-                  setIsBulkDeleteConfirmOpen(false)
-                  if (res.success) {
-                    setSuppliers(prev => prev.filter(s => 
-                      !selectedSupplierIds.includes(s.id) && 
-                      !deletedSupplierIds.includes(s.supplier_id)
-                    ))
-                    setSelectedSupplierIds([])
-                    setIsManageMode(false)
-                  } else {
-                    alert(res.error || 'Failed to delete suppliers.')
-                  }
-                }}
-                disabled={isBulkDeleting}
+                onClick={handleConfirmBatchDelete}
+                disabled={isDeletingBatch}
                 className="flex-1 h-9 text-sm bg-red-600 hover:bg-red-700 text-white cursor-pointer gap-2"
               >
-                {isBulkDeleting ? <><Loader2 size={13} className="animate-spin" /> Deleting...</> : 'Delete'}
+                {isDeletingBatch ? <><Loader2 size={13} className="animate-spin" /> Deleting...</> : 'Delete'}
               </Button>
             </div>
           </div>

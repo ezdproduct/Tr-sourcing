@@ -1,5 +1,7 @@
 'use client'
 
+/* eslint-disable react-hooks/set-state-in-effect */
+
 import React, { useState, useEffect } from 'react'
 import { useSearchParams } from 'next/navigation'
 import { useSourcing } from '@/providers/sourcing-provider'
@@ -54,6 +56,9 @@ export interface DatabaseOrderItem {
   item_type?: string
   uom?: string
   selected_supplier_id?: string | null
+  suppliers?: {
+    name: string
+  } | null
 }
 
 export interface DatabaseStageTimeline {
@@ -76,6 +81,13 @@ export interface DatabaseOrder {
   estimated_delivery_date: string | null
   order_items?: DatabaseOrderItem[]
   order_stage_timelines?: DatabaseStageTimeline[]
+  suppliers?: {
+    name: string
+  } | null
+  order_suppliers?: {
+    supplier_name: string
+    is_shortlisted: boolean
+  }[]
 }
 
 // Helper to upload a file to Cloudflare R2 via proxy API
@@ -925,7 +937,7 @@ export function OrdersClient({ initialOrders }: OrdersClientProps) {
 
                 <div className="space-y-6">
                   {/* Order Meta Info */}
-                  <div className="grid grid-cols-2 gap-5 border-b border-slate-100 dark:border-slate-800 pb-5 text-xs sm:text-sm">
+                  <div className="grid grid-cols-2 sm:grid-cols-5 gap-5 border-b border-slate-100 dark:border-slate-800 pb-5 text-xs sm:text-sm">
                     <div>
                       <span className="text-slate-400 block mb-0.5 font-medium">Order Code</span>
                       <span className="font-bold text-slate-900 dark:text-white text-sm sm:text-base">{selectedOrder.order_code}</span>
@@ -1007,13 +1019,31 @@ export function OrdersClient({ initialOrders }: OrdersClientProps) {
                       
                       const activeIdx = getStageIndex(selectedOrder.stage)
                       const stageProgressPct = (activeIdx / (stages.length - 1)) * 100
+
+                      const selectedSuppliers = (() => {
+                        const names = new Set<string>()
+                        selectedOrder.order_suppliers?.forEach(os => {
+                          if (os.supplier_name) {
+                            names.add(os.supplier_name)
+                          }
+                        })
+                        if (selectedOrder.suppliers?.name) {
+                          names.add(selectedOrder.suppliers.name)
+                        }
+                        selectedOrder.order_items?.forEach(item => {
+                          if (item.suppliers?.name) {
+                            names.add(item.suppliers.name)
+                          }
+                        })
+                        return Array.from(names)
+                      })()
                       
                       return (
                         <div className="space-y-4 py-2 px-1 min-w-[700px]">
-                          <div className="relative flex items-center justify-between w-full h-14">
-                            <div className="absolute left-[40px] right-[40px] top-7 h-1 bg-slate-100 dark:bg-slate-800 z-0 rounded-full border border-slate-200/20" />
+                          <div className="relative flex items-start justify-between w-full h-auto pb-4">
+                            <div className="absolute left-[40px] right-[40px] top-[22px] h-1 bg-slate-100 dark:bg-slate-800 z-0 rounded-full border border-slate-200/20" />
                             <div 
-                              className="absolute left-[40px] top-7 h-1 bg-[#5c59e9] transition-all duration-500 z-0 rounded-full"
+                              className="absolute left-[40px] top-[22px] h-1 bg-[#5c59e9] transition-all duration-500 z-0 rounded-full"
                               style={{ width: `calc((100% - 80px) * (${stageProgressPct} / 100))` }}
                             />
                             
@@ -1022,7 +1052,7 @@ export function OrdersClient({ initialOrders }: OrdersClientProps) {
                               const isActive = idx === activeIdx
                               
                               return (
-                                <div key={idx} className="relative flex flex-col items-center z-10 w-20">
+                                <div key={idx} className="relative flex flex-col items-center z-10 w-20 pt-2">
                                   <div 
                                     className={`h-7 w-7 rounded-full flex items-center justify-center text-[10px] font-bold border transition-all duration-300 ${
                                       isCompleted 
@@ -1042,7 +1072,7 @@ export function OrdersClient({ initialOrders }: OrdersClientProps) {
                                       <span className="opacity-40">{idx + 1}</span>
                                     )}
                                   </div>
-                                  <div className="absolute top-9 text-center w-24">
+                                  <div className="mt-2 text-center w-24 flex flex-col items-center">
                                     <span 
                                       className={`block text-[10px] font-bold tracking-tight transition-colors duration-300 ${
                                         isActive 
@@ -1054,6 +1084,19 @@ export function OrdersClient({ initialOrders }: OrdersClientProps) {
                                     >
                                       {stage.name}
                                     </span>
+                                    {idx === 1 && selectedSuppliers.length > 0 && (
+                                      <div className="flex flex-col items-center gap-1 mt-1.5 w-full">
+                                        {selectedSuppliers.map((supplierName) => (
+                                          <span
+                                            key={supplierName}
+                                            className="inline-flex items-center text-[9px] font-bold px-1.5 py-0.5 rounded bg-indigo-50 text-indigo-700 border border-indigo-150 dark:bg-indigo-950/40 dark:text-indigo-400 dark:border-indigo-900/50 max-w-[90px] truncate"
+                                            title={supplierName}
+                                          >
+                                            {supplierName}
+                                          </span>
+                                        ))}
+                                      </div>
+                                    )}
                                   </div>
                                 </div>
                               )

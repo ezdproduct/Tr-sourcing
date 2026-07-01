@@ -46,7 +46,7 @@ export function useAssignSupplier(options?: { onSuccess?: () => void; onError?: 
 
   return useMutation({
     mutationFn: (payload: AssignSupplierPayload) =>
-      addSupplierNormalizedAction(payload as any),
+      addSupplierNormalizedAction(payload as any, null, payload.subtabIsSuppliers),
     onSuccess: async (result) => {
       if (!result.success) {
         options?.onError?.(result.error || 'Failed to add supplier.')

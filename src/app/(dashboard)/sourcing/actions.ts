@@ -119,6 +119,7 @@ export async function addSupplierAction(input: AddSupplierInput) {
     }
 
     revalidatePath('/sourcing')
+    revalidatePath('/orders')
     return { success: true, supplier: data }
   } catch (error: any) {
     console.error('Uncaught error adding supplier:', error)
@@ -141,6 +142,7 @@ export async function updateShortlistAction(supplierId: string, isShortlisted: b
     }
 
     revalidatePath('/sourcing')
+    revalidatePath('/orders')
     return { success: true }
   } catch (error: any) {
     console.error('Uncaught error updating shortlist:', error)
@@ -163,6 +165,7 @@ export async function updateShortlistBatchAction(supplierIds: string[], isShortl
     }
 
     revalidatePath('/sourcing')
+    revalidatePath('/orders')
     return { success: true }
   } catch (error: any) {
     console.error('Uncaught error updating batch shortlist:', error)
@@ -199,6 +202,7 @@ export async function deleteSupplierAction(id: string, deleteProfile: boolean = 
     }
 
     revalidatePath('/sourcing')
+    revalidatePath('/orders')
     return { success: true }
   } catch (error: any) {
     console.error('Uncaught error deleting supplier:', error)
@@ -761,6 +765,7 @@ export async function bulkImportSuppliersAction(
     }
 
     revalidatePath('/sourcing')
+    revalidatePath('/orders')
     return {
       success: true,
       importedSuppliersCount,
@@ -803,7 +808,7 @@ export interface ManualNormalizedInput {
   businessType?: string
 }
 
-export async function addSupplierNormalizedAction(input: ManualNormalizedInput, resolution?: 'skip' | 'overwrite' | null) {
+export async function addSupplierNormalizedAction(input: ManualNormalizedInput, resolution?: 'skip' | 'overwrite' | null, isProfilesTab: boolean = false) {
   try {
     const supabase = await createClient()
     const { data: { user } } = await supabase.auth.getUser()
@@ -883,29 +888,104 @@ export async function addSupplierNormalizedAction(input: ManualNormalizedInput, 
       itemsToProcess = input.items.filter((_, idx) => !duplicateIndices.has(idx))
     }
 
-    // 1. Upsert supplier basic details
-    const { data: supplier, error: supplierError } = await supabase
-      .from('suppliers')
-      .upsert({
-        name: input.supplierName.trim(),
-        email: input.email ? input.email.trim() : null,
-        phone: input.phone ? input.phone.trim() : null,
-        address: input.address ? input.address.trim() : null,
-        website: input.website ? input.website.trim() : null,
-        contact_person: input.contactPerson ? input.contactPerson.trim() : null,
-        tax_id: input.taxId ? input.taxId.trim() : null,
-        business_type: input.businessType ? input.businessType.trim() : null,
-        created_by: userEmail
-      }, { onConflict: 'name' })
-      .select('id')
-      .single()
+    let supplierId: string | null = null
 
-    if (supplierError) {
-      console.error('Error upserting supplier in manual entry:', supplierError.message)
-      return { success: false, error: supplierError.message }
+    // Find existing supplier by name
+    const { data: existingSupplier } = await supabase
+      .from('suppliers')
+      .select('id')
+      .eq('name', input.supplierName.trim())
+      .maybeSingle()
+
+    if (isProfilesTab) {
+      if (existingSupplier) {
+        return {
+          success: false,
+          error: `A supplier profile with the name "${input.supplierName.trim()}" already exists.`
+        }
+      }
+
+      // Create new supplier profile
+      const { data: supplier, error: supplierError } = await supabase
+        .from('suppliers')
+        .insert({
+          name: input.supplierName.trim(),
+          email: input.email ? input.email.trim() : null,
+          phone: input.phone ? input.phone.trim() : null,
+          address: input.address ? input.address.trim() : null,
+          website: input.website ? input.website.trim() : null,
+          contact_person: input.contactPerson ? input.contactPerson.trim() : null,
+          tax_id: input.taxId ? input.taxId.trim() : null,
+          business_type: input.businessType ? input.businessType.trim() : null,
+          created_by: userEmail
+        })
+        .select('id')
+        .single()
+
+      if (supplierError) {
+        console.error('Error inserting supplier in manual entry:', supplierError.message)
+        return { success: false, error: supplierError.message }
+      }
+      supplierId = supplier.id
+    } else {
+      if (existingSupplier) {
+        supplierId = existingSupplier.id
+      } else {
+        // Create new supplier profile on-the-fly
+        const { data: supplier, error: supplierError } = await supabase
+          .from('suppliers')
+          .insert({
+            name: input.supplierName.trim(),
+            email: input.email ? input.email.trim() : null,
+            phone: input.phone ? input.phone.trim() : null,
+            address: input.address ? input.address.trim() : null,
+            website: input.website ? input.website.trim() : null,
+            contact_person: input.contactPerson ? input.contactPerson.trim() : null,
+            tax_id: input.taxId ? input.taxId.trim() : null,
+            business_type: input.businessType ? input.businessType.trim() : null,
+            created_by: userEmail
+          })
+          .select('id')
+          .single()
+
+        if (supplierError) {
+          console.error('Error inserting supplier on-the-fly:', supplierError.message)
+          return { success: false, error: supplierError.message }
+        }
+        supplierId = supplier.id
+      }
     }
 
-    const supplierId = supplier.id
+    if (!supplierId) {
+      return { success: false, error: 'Failed to resolve supplier.' }
+    }
+
+    // Check if supplier is already assigned to any of these order items
+    if (input.orderId && itemsToProcess.length > 0) {
+      const orderItemIds = itemsToProcess.map(item => item.orderItemId)
+      const { data: existingAssignments } = await supabase
+        .from('order_suppliers')
+        .select('order_item_id, quoted_price')
+        .eq('order_id', input.orderId)
+        .eq('supplier_id', supplierId)
+        .in('order_item_id', orderItemIds)
+
+      if (existingAssignments && existingAssignments.length > 0) {
+        for (const item of itemsToProcess) {
+          const duplicate = existingAssignments.find(assign => 
+            assign.order_item_id === item.orderItemId && 
+            Number(assign.quoted_price) === Number(item.quotedPrice)
+          )
+          if (duplicate) {
+            const duplicateItemName = itemNames[item.orderItemId] || 'this item'
+            return {
+              success: false,
+              error: `Supplier "${input.supplierName.trim()}" is already assigned to "${duplicateItemName}" with a price of $${Number(item.quotedPrice).toFixed(2)}.`
+            }
+          }
+        }
+      }
+    }
 
     // 2. Insert order items bids
     if (input.orderId && itemsToProcess.length > 0) {
@@ -968,6 +1048,7 @@ export async function addSupplierNormalizedAction(input: ManualNormalizedInput, 
     }
 
     revalidatePath('/sourcing')
+    revalidatePath('/orders')
     return { success: true, supplierId }
   } catch (error: any) {
     console.error('Manual normalized add supplier uncaught error:', error)
@@ -1003,6 +1084,7 @@ export async function deleteSuppliersBatchAction(ids: string[], deleteProfile: b
     }
 
     revalidatePath('/sourcing')
+    revalidatePath('/orders')
     return { success: true }
   } catch (error: any) {
     console.error('Uncaught error in batch delete:', error)

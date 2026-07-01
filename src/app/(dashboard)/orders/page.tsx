@@ -8,7 +8,7 @@ async function OrdersLoader() {
 
   const { data: orders, error } = await supabase
     .from('orders')
-    .select('*, order_items(*), order_stage_timelines(*)')
+    .select('*, order_items(*, suppliers(name)), order_stage_timelines(*), suppliers(name), order_suppliers(supplier_name, is_shortlisted)')
     .order('created_at', { ascending: false })
 
   if (error) {

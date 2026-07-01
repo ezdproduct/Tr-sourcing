@@ -4,6 +4,7 @@ import React from 'react'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Users2, Package, Shield } from 'lucide-react'
 import { DatabaseOrder, DatabaseSupplier } from '../types'
+import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts'
 
 interface SourcingAnalyticsProps {
   suppliers: DatabaseSupplier[]
@@ -12,6 +13,23 @@ interface SourcingAnalyticsProps {
 }
 
 export function SourcingAnalytics({ suppliers, orders, setSubtab }: SourcingAnalyticsProps) {
+  // Aggregate suppliers by main_products
+  const categoryCounts = React.useMemo(() => {
+    const counts: Record<string, number> = {}
+    suppliers.forEach(supplier => {
+      const products = supplier.suppliers?.main_products || []
+      products.forEach(product => {
+        counts[product] = (counts[product] || 0) + 1
+      })
+    })
+
+    // Convert to array, sort by count descending, and take top 7
+    return Object.entries(counts)
+      .map(([name, count]) => ({ name, count }))
+      .sort((a, b) => b.count - a.count)
+      .slice(0, 7)
+  }, [suppliers])
+
   // KPI values
   const totalSuppliers = suppliers.length
   const activeBidsCount = suppliers.filter(s => s.quoted_price > 0).length
@@ -68,32 +86,7 @@ export function SourcingAnalytics({ suppliers, orders, setSubtab }: SourcingAnal
 
       {/* Sourcing Distribution and Recent actions */}
       <div className="grid gap-6 md:grid-cols-2">
-        <Card className="border-slate-200/60 dark:border-slate-800">
-          <CardHeader>
-            <CardTitle className="text-sm font-bold text-slate-900 dark:text-white">Sourcing Category Division</CardTitle>
-            <CardDescription className="text-xs">Shortlist allocation across wood/metal components</CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            {[
-              { label: 'Binh Duong Woodworks (Oakwood)', pct: '85%' },
-              { label: 'Dong Nai Metalware (Fasteners)', pct: '70%' },
-              { label: 'Long An Plastics (Cases)', pct: '45%' },
-              { label: 'Da Nang Electronics (Cables)', pct: '60%' }
-            ].map((item, idx) => (
-              <div key={idx} className="space-y-1.5">
-                <div className="flex items-center justify-between text-xs font-semibold">
-                  <span className="text-slate-700 dark:text-slate-300">{item.label}</span>
-                  <span className="text-indigo-600 dark:text-indigo-400">{item.pct}</span>
-                </div>
-                <div className="h-1.5 w-full bg-slate-100 rounded-full dark:bg-slate-900">
-                  <div className="h-full bg-indigo-500 rounded-full" style={{ width: item.pct }} />
-                </div>
-              </div>
-            ))}
-          </CardContent>
-        </Card>
-
-        <Card className="border-slate-200/60 dark:border-slate-800">
+        <Card className="border-slate-200/60 dark:border-slate-800 bg-white dark:bg-slate-900">
           <CardHeader>
             <CardTitle className="text-sm font-bold text-slate-900 dark:text-white">Recent Shortlists & Bids</CardTitle>
             <CardDescription className="text-xs">Latest supplier entries added to sourcing matrix</CardDescription>
@@ -122,6 +115,48 @@ export function SourcingAnalytics({ suppliers, orders, setSubtab }: SourcingAnal
                   </div>
                 </div>
               ))
+            )}
+          </CardContent>
+        </Card>
+
+        <Card className="border-slate-200/60 dark:border-slate-800 bg-white dark:bg-slate-900">
+          <CardHeader>
+            <CardTitle className="text-sm font-bold text-slate-900 dark:text-white">Category Distribution</CardTitle>
+            <CardDescription className="text-xs">Number of registered suppliers by product category</CardDescription>
+          </CardHeader>
+          <CardContent className="h-[280px]">
+            {categoryCounts.length === 0 ? (
+              <div className="h-full flex items-center justify-center text-slate-400 text-xs italic">No category data available</div>
+            ) : (
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart
+                  data={categoryCounts}
+                  layout="vertical"
+                  margin={{ top: 5, right: 10, left: -25, bottom: 5 }}
+                >
+                  <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="#f1f5f9" />
+                  <XAxis type="number" fontSize={11} tickLine={false} axisLine={false} />
+                  <YAxis
+                    dataKey="name"
+                    type="category"
+                    fontSize={10}
+                    width={130}
+                    tickLine={false}
+                    axisLine={false}
+                    tickFormatter={(value) => value.length > 20 ? `${value.substring(0, 18)}...` : value}
+                  />
+                  <Tooltip
+                    contentStyle={{
+                      backgroundColor: 'rgba(255, 255, 255, 0.95)',
+                      borderRadius: '8px',
+                      border: '1px solid #e2e8f0',
+                      fontSize: '11px'
+                    }}
+                    formatter={(value) => [`${value} suppliers`, 'Count']}
+                  />
+                  <Bar dataKey="count" name="Suppliers" fill="#5c59e9" radius={[0, 4, 4, 0]} />
+                </BarChart>
+              </ResponsiveContainer>
             )}
           </CardContent>
         </Card>
