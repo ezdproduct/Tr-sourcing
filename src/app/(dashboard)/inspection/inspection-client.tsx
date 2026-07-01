@@ -12,6 +12,7 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
 import { DataTable } from '@/components/ui/data-table'
 import { updateOrderStageAction } from '@/app/(dashboard)/orders/actions'
 import { KanbanBoard } from '@/app/(dashboard)/orders/kanban-board'
+import { TimelineProposalCard } from '@/components/timeline-proposal-card'
 import {
   Anchor,
   FileText,
@@ -62,6 +63,8 @@ export interface SidebarOrderRecord {
   order_type?: string | null
   stage: string
   order_date?: string | null
+  estimated_delivery_date?: string | null
+  order_stage_timelines?: any[]
 }
 
 interface InspectionClientProps {
@@ -428,6 +431,21 @@ export function InspectionClient({ initialInspections, activeOrders, initialOrde
                               }`}>
                                 {order.order_code}
                               </span>
+                              {(() => {
+                                const timelines = order.order_stage_timelines
+                                if (!timelines) return null
+                                const stages = ['Inspection']
+                                const isPending = stages.some(stageName => {
+                                  const match = timelines.find((t: any) => t.stage_name.toLowerCase() === stageName.toLowerCase())
+                                  return !match || !match.estimated_start_date || !match.estimated_end_date
+                                })
+                                if (!isPending) return null
+                                return (
+                                  <span className="ml-1 inline-flex items-center px-1.5 py-0.5 rounded text-[8px] font-extrabold uppercase bg-amber-50 text-amber-700 border border-amber-200 dark:bg-amber-955/20 dark:text-amber-400 shrink-0 select-none">
+                                    Setup
+                                  </span>
+                                )
+                              })()}
                             </div>
                             <ChevronRight size={12} className={isSelected ? 'text-indigo-500' : 'text-slate-300'} />
                           </button>
@@ -441,6 +459,20 @@ export function InspectionClient({ initialInspections, activeOrders, initialOrde
 
             {/* Workplace Content Column */}
             <div className="flex flex-col h-full overflow-y-auto p-3 space-y-6">
+              {(() => {
+                const selectedOrderDetails = initialOrders.find(o => o.id === selectedOrderId)
+                if (!selectedOrderDetails) return null
+                return (
+                  <TimelineProposalCard
+                    orderId={selectedOrderDetails.id}
+                    orderCode={selectedOrderDetails.order_code}
+                    orderDate={selectedOrderDetails.order_date || ''}
+                    estimatedDeliveryDate={selectedOrderDetails.estimated_delivery_date || ''}
+                    userDepartment="inspection"
+                    existingTimelines={selectedOrderDetails.order_stage_timelines || []}
+                  />
+                )
+              })()}
               {/* Active Shipments Awaiting Quality Check Checklist */}
               <Card className="border-slate-200/60 dark:border-slate-800">
                 <CardHeader className="pb-3">

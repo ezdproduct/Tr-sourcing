@@ -7,6 +7,7 @@ import { DataTable } from '@/components/ui/data-table'
 import { useSourcing } from '@/providers/sourcing-provider'
 import { updateOrderStageAction } from '@/app/(dashboard)/orders/actions'
 import { KanbanBoard } from '@/app/(dashboard)/orders/kanban-board'
+import { TimelineProposalCard } from '@/components/timeline-proposal-card'
 import { 
   scheduleAuditAction, 
   submitAuditResultAction, 
@@ -188,6 +189,8 @@ export function AuditClient({
   const [isCopied, setIsCopied] = useState(false)
   const [selectedOrderId, setSelectedOrderId] = useState<string | null>(null)
   const [sidebarOrderSearch, setSidebarOrderSearch] = useState('')
+
+  const selectedOrder = initialOrders.find(o => o.id === selectedOrderId)
 
   const filteredOrders = initialOrders.filter(order => {
     const query = sidebarOrderSearch.toLowerCase()
@@ -654,6 +657,21 @@ export function AuditClient({
                         }`}>
                           {order.order_code}
                         </span>
+                        {(() => {
+                          const timelines = order.order_stage_timelines
+                          if (!timelines) return null
+                          const stages = ['QC']
+                          const isPending = stages.some(stageName => {
+                            const match = timelines.find((t: any) => t.stage_name.toLowerCase() === stageName.toLowerCase())
+                            return !match || !match.estimated_start_date || !match.estimated_end_date
+                          })
+                          if (!isPending) return null
+                          return (
+                            <span className="ml-1 inline-flex items-center px-1.5 py-0.5 rounded text-[8px] font-extrabold uppercase bg-amber-50 text-amber-700 border border-amber-200 dark:bg-amber-955/20 dark:text-amber-400 shrink-0 select-none">
+                              Setup
+                            </span>
+                          )
+                        })()}
                       </div>
                       <ChevronRight size={12} className={selectedOrderId === order.id ? 'text-indigo-500' : 'text-slate-300'} />
                     </button>
@@ -665,7 +683,17 @@ export function AuditClient({
         </div>
 
         {/* Right column: main workplace card */}
-        <div className="flex flex-col h-full overflow-y-auto p-3">
+        <div className="flex flex-col h-full overflow-y-auto p-3 space-y-4">
+          {selectedOrder && (
+            <TimelineProposalCard
+              orderId={selectedOrder.id}
+              orderCode={selectedOrder.order_code}
+              orderDate={selectedOrder.order_date}
+              estimatedDeliveryDate={selectedOrder.estimated_delivery_date || ''}
+              userDepartment="audit"
+              existingTimelines={selectedOrder.order_stage_timelines || []}
+            />
+          )}
           <Card className="border-slate-200/60 dark:border-slate-800">
         <CardHeader className="pb-4 border-b border-slate-100 dark:border-slate-800">
           <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">

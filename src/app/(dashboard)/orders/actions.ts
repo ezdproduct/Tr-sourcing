@@ -77,31 +77,85 @@ export async function createOrderAction(input: CreateOrderInput) {
         .update({ stage: 'Order' })
         .eq('id', rpcResult.order_id)
 
-      // Insert stage timelines
-      if (input.stageTimelines && input.stageTimelines.length > 0) {
-        const timelinesToInsert = input.stageTimelines.map((st) => ({
-          order_id: rpcResult.order_id,
-          stage_name: st.stageName,
-          estimated_start_date: st.estimatedStartDate,
-          estimated_end_date: st.estimatedEndDate
-        }))
-        const { error: timelineError } = await supabase
-          .from('order_stage_timelines')
-          .insert(timelinesToInsert)
-        if (timelineError) {
-          console.error('Database timeline insert error:', timelineError.message)
+      // Automatically initialize 8 stage timelines
+      const stageNames = ['Order', 'Sourcing', 'QC', 'Create PO', 'Inspection', 'Logistic', 'Production', 'Order Done']
+      const timelinesToInsert = stageNames.map((name) => {
+        let estStart: string | null = null
+        let estEnd: string | null = null
+
+        if (name === 'Order') {
+          estStart = input.orderDate
+          estEnd = input.orderDate
+        } else if (name === 'Order Done') {
+          estStart = input.estimatedDeliveryDate
+          estEnd = input.estimatedDeliveryDate
         }
+
+        return {
+          order_id: rpcResult.order_id,
+          stage_name: name,
+          estimated_start_date: estStart,
+          estimated_end_date: estEnd
+        }
+      })
+      const { error: timelineError } = await supabase
+        .from('order_stage_timelines')
+        .insert(timelinesToInsert)
+      if (timelineError) {
+        console.error('Database timeline insert error:', timelineError.message)
       }
     }
 
     // Trigger Next.js App Router cache revalidation
     revalidatePath('/orders')
     revalidatePath('/sourcing')
+    revalidatePath('/audit')
+    revalidatePath('/inspection')
+    revalidatePath('/logistics')
+    revalidatePath('/production')
 
     return { success: true, orderCode: rpcResult.order_code, orderId: rpcResult.order_id }
   } catch (error: any) {
     console.error('Server Action uncaught error:', error)
     return { success: false, error: error.message || 'An unexpected error occurred' }
+  }
+}
+
+export async function proposeStageTimelineAction(
+  orderId: string,
+  stageName: string,
+  estimatedStartDate: string,
+  estimatedEndDate: string
+) {
+  try {
+    const supabase = await createClient()
+    const { error } = await supabase
+      .from('order_stage_timelines')
+      .update({
+        estimated_start_date: estimatedStartDate,
+        estimated_end_date: estimatedEndDate,
+        updated_at: new Date().toISOString()
+      })
+      .eq('order_id', orderId)
+      .eq('stage_name', stageName)
+
+    if (error) {
+      console.error('Error proposing stage timeline:', error.message)
+      return { success: false, error: error.message }
+    }
+
+    // Trigger Next.js App Router cache revalidation for all relevant pages
+    revalidatePath('/orders')
+    revalidatePath('/sourcing')
+    revalidatePath('/audit')
+    revalidatePath('/inspection')
+    revalidatePath('/logistics')
+    revalidatePath('/production')
+
+    return { success: true }
+  } catch (err: any) {
+    console.error('Uncaught error proposing stage timeline:', err)
+    return { success: false, error: err.message || 'An unexpected error occurred' }
   }
 }
 

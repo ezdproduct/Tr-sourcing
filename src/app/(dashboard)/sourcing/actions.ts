@@ -71,7 +71,7 @@ export async function fetchOrdersAction(): Promise<DatabaseOrder[]> {
   const supabase = await createClient()
   const { data, error } = await supabase
     .from('orders')
-    .select('*, order_items(*)')
+    .select('*, order_items(*), order_stage_timelines(*)')
     .order('created_at', { ascending: false })
 
   if (error) throw new Error(error.message)

@@ -12,10 +12,10 @@ async function ProductionLoader() {
     .select('*, orders(order_code, order_items(item_name))')
     .order('created_at', { ascending: false })
 
-  // Fetch all orders with their items for the Kanban board
+  // Fetch all orders for the sidebar
   const { data: orders, error: ordersError } = await supabase
     .from('orders')
-    .select('*, order_items(*)')
+    .select('id, order_code, order_type, stage, order_date, estimated_delivery_date, order_stage_timelines(*)')
     .order('created_at', { ascending: false })
 
   if (ordersError) {

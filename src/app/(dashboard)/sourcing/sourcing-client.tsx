@@ -27,6 +27,7 @@ import {
 } from './actions'
 import { KanbanBoard } from '@/app/(dashboard)/orders/kanban-board'
 import { updateOrderStageAction } from '@/app/(dashboard)/orders/actions'
+import { TimelineProposalCard } from '@/components/timeline-proposal-card'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -133,6 +134,7 @@ export interface DatabaseOrder {
   order_date: string
   estimated_delivery_date: string | null
   order_items?: DatabaseOrderItem[]
+  order_stage_timelines?: any[]
 }
 
 export interface DatabaseSupplier {
@@ -2327,6 +2329,16 @@ export function SourcingClient({ initialOrders, initialSuppliers, initialAudits 
               </Card>
             ) : (
               <>
+                {selectedOrder && (
+                  <TimelineProposalCard
+                    orderId={selectedOrder.id}
+                    orderCode={selectedOrder.order_code}
+                    orderDate={selectedOrder.order_date}
+                    estimatedDeliveryDate={selectedOrder.estimated_delivery_date || ''}
+                    userDepartment="sourcing"
+                    existingTimelines={selectedOrder.order_stage_timelines || []}
+                  />
+                )}
                 {isEditingClassification ? (
                   /* Card 1: Product Items Classification (Visible during editing or when items are pending) */
                   <Card className="border-slate-200/60 dark:border-slate-800">

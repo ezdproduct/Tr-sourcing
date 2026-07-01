@@ -118,6 +118,21 @@ export function OrderSidebar({
                     }`}>
                       {order.order_code}
                     </span>
+                    {(() => {
+                      const timelines = order.order_stage_timelines
+                      if (!timelines) return null
+                      const stages = ['Sourcing', 'Create PO']
+                      const isPending = stages.some(stageName => {
+                        const match = timelines.find((t: any) => t.stage_name.toLowerCase() === stageName.toLowerCase())
+                        return !match || !match.estimated_start_date || !match.estimated_end_date
+                      })
+                      if (!isPending) return null
+                      return (
+                        <span className="ml-1 inline-flex items-center px-1.5 py-0.5 rounded text-[8px] font-extrabold uppercase bg-amber-50 text-amber-700 border border-amber-200 dark:bg-amber-955/20 dark:text-amber-400 shrink-0 select-none">
+                          Setup
+                        </span>
+                      )
+                    })()}
                   </div>
                   <ChevronRight size={12} className={viewMode === 'order' && selectedOrderId === order.id ? 'text-indigo-500' : 'text-slate-300'} />
                 </button>

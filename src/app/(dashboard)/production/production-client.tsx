@@ -26,6 +26,7 @@ import {
   Search
 } from 'lucide-react'
 import { startProductionAssemblyAction, finalizeProductionAndCloseOrderAction } from './actions'
+import { TimelineProposalCard } from '@/components/timeline-proposal-card'
 
 export interface DatabaseProductionBatch {
   id: string
@@ -452,6 +453,22 @@ export function ProductionClient({ initialBatches, initialOrders }: ProductionCl
                               }`}>
                                 {code}
                               </span>
+                              {(() => {
+                                const order = initialOrders.find(o => o.id === batch.order_id)
+                                const timelines = order?.order_stage_timelines
+                                if (!timelines) return null
+                                const stages = ['Production']
+                                const isPending = stages.some(stageName => {
+                                  const match = timelines.find((t: any) => t.stage_name.toLowerCase() === stageName.toLowerCase())
+                                  return !match || !match.estimated_start_date || !match.estimated_end_date
+                                })
+                                if (!isPending) return null
+                                return (
+                                  <span className="ml-1 inline-flex items-center px-1.5 py-0.5 rounded text-[8px] font-extrabold uppercase bg-amber-50 text-amber-700 border border-amber-200 dark:bg-amber-955/20 dark:text-amber-400 shrink-0 select-none">
+                                    Setup
+                                  </span>
+                                )
+                              })()}
                             </div>
                             <ChevronRight size={12} className={isSelected ? 'text-indigo-500' : 'text-slate-300'} />
                           </button>
@@ -465,6 +482,24 @@ export function ProductionClient({ initialBatches, initialOrders }: ProductionCl
 
             {/* Active Workspace / Content */}
             <div className="flex flex-col h-full overflow-y-auto p-3 space-y-6">
+              {(() => {
+                if (viewMode === 'all') return null
+                const selectedBatch = initialBatches.find(b => b.id === selectedBatchId)
+                if (!selectedBatch) return null
+                const selectedOrderOfBatch = initialOrders.find(o => o.id === selectedBatch.order_id)
+                if (!selectedOrderOfBatch) return null
+
+                return (
+                  <TimelineProposalCard
+                    orderId={selectedOrderOfBatch.id}
+                    orderCode={selectedOrderOfBatch.order_code}
+                    orderDate={selectedOrderOfBatch.order_date || ''}
+                    estimatedDeliveryDate={selectedOrderOfBatch.estimated_delivery_date || ''}
+                    userDepartment="production"
+                    existingTimelines={selectedOrderOfBatch.order_stage_timelines || []}
+                  />
+                )
+              })()}
               {viewMode === 'all' ? (
                 /* Active Batches Table */
                 <Card className="border-slate-200/60 dark:border-slate-800">

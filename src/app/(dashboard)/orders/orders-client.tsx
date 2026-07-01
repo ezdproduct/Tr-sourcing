@@ -193,6 +193,15 @@ export function getOrderTypeFromItems(items?: DatabaseOrderItem[]): string {
   return 'PENDING'
 }
 
+function formatDateShort(dateStr: string | null) {
+  if (!dateStr) return ''
+  const d = new Date(dateStr)
+  if (isNaN(d.getTime())) return ''
+  const m = String(d.getMonth() + 1).padStart(2, '0')
+  const r = String(d.getDate()).padStart(2, '0')
+  return `${m}/${r}`
+}
+
 export function OrdersClient({ initialOrders }: OrdersClientProps) {
   const { userRole, searchQuery } = useSourcing()
   const searchParams = useSearchParams()
@@ -304,11 +313,6 @@ export function OrdersClient({ initialOrders }: OrdersClientProps) {
   const handleCreateDateChange = (field: 'orderDate' | 'estimatedDeliveryDate', value: string) => {
     const newFormData = { ...formData, [field]: value }
     setFormData(newFormData)
-    
-    if (newFormData.orderDate && newFormData.estimatedDeliveryDate) {
-      const calculated = calculateEqualStages(newFormData.orderDate, newFormData.estimatedDeliveryDate)
-      setStageTimelines(calculated)
-    }
   }
 
   const handleEditDateChange = (field: 'orderDate' | 'estimatedDeliveryDate', value: string) => {
@@ -417,12 +421,7 @@ export function OrdersClient({ initialOrders }: OrdersClientProps) {
       const result = await createOrderAction({
         orderDate: formData.orderDate,
         estimatedDeliveryDate: formData.estimatedDeliveryDate,
-        items: itemsInput,
-        stageTimelines: stageTimelines.map(st => ({
-          stageName: st.stageName.toLowerCase(),
-          estimatedStartDate: st.estimatedStartDate,
-          estimatedEndDate: st.estimatedEndDate
-        }))
+        items: itemsInput
       })
 
       setIsSubmitting(false)
@@ -1116,8 +1115,22 @@ export function OrdersClient({ initialOrders }: OrdersClientProps) {
                               const isCompleted = idx < activeIdx
                               const isActive = idx === activeIdx
                               
+                              const timelines = selectedOrder.order_stage_timelines
+                              const showTimelineDates = timelines && 
+                                timelines.length === 8 &&
+                                timelines.every(t => t.estimated_start_date && t.estimated_end_date)
+
+                              const matchingTimeline = (showTimelineDates && timelines) ? timelines.find(
+                                t => t.stage_name.toLowerCase() === stage.name.toLowerCase()
+                              ) : null
+
                               return (
                                 <div key={idx} className="relative flex flex-col items-center z-10 w-20 pt-2">
+                                  {matchingTimeline && (
+                                    <span className="absolute -top-4 text-[9px] font-extrabold text-indigo-600 dark:text-indigo-405 whitespace-nowrap bg-indigo-50/80 dark:bg-indigo-950/80 px-1 py-0.5 rounded border border-indigo-100/50 dark:border-indigo-900/50 scale-90">
+                                      {formatDateShort(matchingTimeline.estimated_start_date)} - {formatDateShort(matchingTimeline.estimated_end_date)}
+                                    </span>
+                                  )}
                                   <div 
                                     className={`h-7 w-7 rounded-full flex items-center justify-center text-[10px] font-bold border transition-all duration-300 ${
                                       isCompleted 
@@ -1341,46 +1354,7 @@ export function OrdersClient({ initialOrders }: OrdersClientProps) {
                 </div>
               </div>
 
-              {/* Stage Timelines Configuration */}
-              {stageTimelines.length > 0 && (
-                <div className="space-y-3 pt-3 border-t border-slate-100 dark:border-slate-800">
-                  <span className="text-xs font-bold text-slate-400 uppercase tracking-wider block">
-                    Estimated Stage Timelines (Auto-proposed)
-                  </span>
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3 max-h-[220px] overflow-y-auto pr-1">
-                    {stageTimelines.map((st, idx) => (
-                      <div key={idx} className="p-3 border border-slate-100 dark:border-slate-800/80 rounded-lg bg-slate-50/50 dark:bg-slate-900/30 space-y-2">
-                        <span className="text-xs font-bold text-slate-700 dark:text-slate-300 block">
-                          Stage {idx + 1}: {st.stageName}
-                        </span>
-                        <div className="grid grid-cols-2 gap-2">
-                          <div className="space-y-1">
-                            <label className="text-[10px] font-semibold text-slate-400">Start Date</label>
-                            <Input
-                              type="date"
-                              value={st.estimatedStartDate}
-                              onChange={(e) => handleStageTimelineChange(idx, 'estimatedStartDate', e.target.value)}
-                              className="h-8 text-xs px-2"
-                              required
-                            />
-                          </div>
-                          <div className="space-y-1">
-                            <label className="text-[10px] font-semibold text-slate-400">End Date</label>
-                            <Input
-                              type="date"
-                              value={st.estimatedEndDate}
-                              onChange={(e) => handleStageTimelineChange(idx, 'estimatedEndDate', e.target.value)}
-                              className="h-8 text-xs px-2"
-                              required
-                              min={st.estimatedStartDate}
-                            />
-                          </div>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
+              {/* Stage Timelines Configuration is hidden from creation modal per requirements */}
 
               {/* Dynamic items section */}
               <div className="space-y-2.5 pt-2 border-t border-slate-100 dark:border-slate-800">

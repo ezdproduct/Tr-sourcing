@@ -10,6 +10,7 @@ import { DataTable } from '@/components/ui/data-table'
 import { useSourcing } from '@/providers/sourcing-provider'
 import { updateOrderStageAction } from '@/app/(dashboard)/orders/actions'
 import { KanbanBoard } from '@/app/(dashboard)/orders/kanban-board'
+import { TimelineProposalCard } from '@/components/timeline-proposal-card'
 import {
   FileCheck2,
   CheckCircle,
@@ -369,6 +370,21 @@ export function LogisticsClient({ initialRecords, initialOrders }: LogisticsClie
                             }`}>
                               {order.order_code}
                             </span>
+                            {(() => {
+                              const timelines = order.order_stage_timelines
+                              if (!timelines) return null
+                              const stages = ['Logistic']
+                              const isPending = stages.some(stageName => {
+                                const match = timelines.find((t: any) => t.stage_name.toLowerCase() === stageName.toLowerCase())
+                                return !match || !match.estimated_start_date || !match.estimated_end_date
+                              })
+                              if (!isPending) return null
+                              return (
+                                <span className="ml-1 inline-flex items-center px-1.5 py-0.5 rounded text-[8px] font-extrabold uppercase bg-amber-50 text-amber-700 border border-amber-200 dark:bg-amber-955/20 dark:text-amber-400 shrink-0 select-none">
+                                  Setup
+                                </span>
+                              )
+                            })()}
                           </div>
                           <div className="flex items-center gap-1.5">
                             {recordsCount > 0 && (
@@ -388,7 +404,7 @@ export function LogisticsClient({ initialRecords, initialOrders }: LogisticsClie
           </div>
 
           {/* Right column: main workplace card */}
-          <div className="flex flex-col h-full overflow-y-auto p-4 bg-slate-50/30 dark:bg-slate-955/10">
+          <div className="flex flex-col h-full overflow-y-auto p-4 bg-slate-50/30 dark:bg-slate-955/10 space-y-6">
             {!selectedOrder ? (
               <Card className="border-slate-200/60 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-sm rounded-xl">
                 <CardContent className="p-12 flex flex-col items-center justify-center gap-3 text-center">
@@ -399,7 +415,16 @@ export function LogisticsClient({ initialRecords, initialOrders }: LogisticsClie
             ) : (() => {
               const orderRecords = initialRecords.filter(r => r.po_number === selectedOrder.order_code);
               return (
-                <Card className="border-slate-200/60 dark:border-slate-800 h-full flex flex-col overflow-hidden bg-white dark:bg-slate-900 shadow-sm rounded-xl">
+                <>
+                  <TimelineProposalCard
+                    orderId={selectedOrder.id}
+                    orderCode={selectedOrder.order_code}
+                    orderDate={selectedOrder.order_date || ''}
+                    estimatedDeliveryDate={selectedOrder.estimated_delivery_date || ''}
+                    userDepartment="logistics"
+                    existingTimelines={selectedOrder.order_stage_timelines || []}
+                  />
+                  <Card className="border-slate-200/60 dark:border-slate-800 flex flex-col overflow-hidden bg-white dark:bg-slate-900 shadow-sm rounded-xl">
                   <CardHeader className="pb-3 border-b border-slate-100 dark:border-slate-800 flex-shrink-0">
                     <CardTitle className="text-base font-bold flex items-center gap-2">
                       <Truck size={16} className="text-[#5c59e9]" />
@@ -516,6 +541,7 @@ export function LogisticsClient({ initialRecords, initialOrders }: LogisticsClie
                     )}
                   </CardContent>
                 </Card>
+                </>
               );
             })()}
           </div>

@@ -34,7 +34,7 @@ async function AuditLoader() {
   // 2. Fetch all orders for the sidebar
   const { data: orders, error: ordersError } = await supabase
     .from('orders')
-    .select('id, order_code, order_type, stage, order_date')
+    .select('id, order_code, order_type, stage, order_date, estimated_delivery_date, order_stage_timelines(*)')
     .order('created_at', { ascending: false })
 
   if (ordersError) {

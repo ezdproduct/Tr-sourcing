@@ -15,6 +15,7 @@ export interface DatabaseOrder {
   order_date: string
   estimated_delivery_date: string | null
   order_items?: DatabaseOrderItem[]
+  order_stage_timelines?: any[]
 }
 
 export interface DatabaseSupplier {
