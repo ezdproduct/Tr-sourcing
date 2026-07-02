@@ -3,7 +3,7 @@
 /* eslint-disable react-hooks/set-state-in-effect */
 
 import React, { useState, useEffect } from 'react'
-import { useSearchParams } from 'next/navigation'
+import { useRouter, useSearchParams } from 'next/navigation'
 import { useSourcing } from '@/providers/sourcing-provider'
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
 import { DataTable } from '@/components/ui/data-table'
@@ -203,6 +203,7 @@ function formatDateShort(dateStr: string | null) {
 }
 
 export function OrdersClient({ initialOrders }: OrdersClientProps) {
+  const router = useRouter()
   const { userRole, searchQuery } = useSourcing()
   const searchParams = useSearchParams()
   const initialSubtab = (searchParams.get('subtab') as 'overview' | 'workplace') || 'overview'
@@ -285,6 +286,7 @@ export function OrdersClient({ initialOrders }: OrdersClientProps) {
       alert(`Failed to update order stage: ${result.error}`)
       return false
     }
+    router.refresh()
     return true
   }
 
@@ -434,6 +436,7 @@ export function OrdersClient({ initialOrders }: OrdersClientProps) {
         setItems([{ itemName: '', quantity: 1, uom: 'pcs', specFiles: [] }])
         setStageTimelines([])
         setIsOpen(false)
+        router.refresh()
       } else {
         setErrorMessage(result.error || 'Failed to create order.')
       }
@@ -558,6 +561,7 @@ export function OrdersClient({ initialOrders }: OrdersClientProps) {
         setEditingOrder(null)
         setEditStage('')
         setEditStageTimelines([])
+        router.refresh()
       } else {
         setEditErrorMessage(result.error || 'Failed to update order.')
       }
@@ -584,6 +588,7 @@ export function OrdersClient({ initialOrders }: OrdersClientProps) {
 
     if (result.success) {
       setDeletingOrder(null)
+      router.refresh()
     } else {
       setDeleteErrorMessage(result.error || 'Failed to delete order.')
     }
@@ -1927,9 +1932,10 @@ export function OrdersClient({ initialOrders }: OrdersClientProps) {
                   setIsBulkDeleting(true)
                   const result = await deleteOrdersBatchAction(selectedOrderIds)
                   setIsBulkDeleting(false)
-                  if (result.success) {
+                   if (result.success) {
                     setSelectedOrderIds([])
                     setIsBulkDeleteConfirmOpen(false)
+                    router.refresh()
                   } else {
                     alert(result.error || 'Failed to delete selected orders.')
                   }

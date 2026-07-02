@@ -78,11 +78,12 @@ export function LogisticsClient({ initialRecords, initialOrders }: LogisticsClie
   const subtabParam = searchParams.get('subtab')
 
   useEffect(() => {
-    if (subtabParam === 'overview' || subtabParam === 'workplace') {
-      setSubtab(subtabParam)
-    } else {
-      setSubtab('overview')
-    }
+    const target = (subtabParam === 'overview' || subtabParam === 'workplace') ? subtabParam : 'overview'
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setSubtab(prev => {
+      if (prev !== target) return target
+      return prev
+    })
   }, [subtabParam])
 
   const handleTabChange = (val: 'overview' | 'workplace') => {
@@ -421,6 +422,7 @@ export function LogisticsClient({ initialRecords, initialOrders }: LogisticsClie
                     orderCode={selectedOrder.order_code}
                     orderDate={selectedOrder.order_date || ''}
                     estimatedDeliveryDate={selectedOrder.estimated_delivery_date || ''}
+                    orderType={selectedOrder.order_type || ''}
                     userDepartment="logistics"
                     existingTimelines={selectedOrder.order_stage_timelines || []}
                   />

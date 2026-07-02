@@ -129,6 +129,71 @@ export async function proposeStageTimelineAction(
 ) {
   try {
     const supabase = await createClient()
+    const { data: order, error: orderError } = await supabase
+      .from('orders')
+      .select('order_type, order_date, estimated_delivery_date')
+      .eq('id', orderId)
+      .single()
+
+    if (orderError || !order) {
+      return { success: false, error: 'Associated order not found.' }
+    }
+
+    const dbType = (order.order_type || '').toUpperCase()
+    const isMaterialOrMixed = dbType === 'MATERIAL' || dbType === 'MIXED'
+    
+    if (isMaterialOrMixed && stageName.toLowerCase() !== 'production') {
+      const { data: productionStage } = await supabase
+        .from('order_stage_timelines')
+        .select('estimated_start_date, estimated_end_date')
+        .eq('order_id', orderId)
+        .eq('stage_name', 'Production')
+        .maybeSingle()
+
+      const isProductionSetup = !!(productionStage?.estimated_start_date && productionStage?.estimated_end_date)
+      if (!isProductionSetup) {
+        return { success: false, error: 'For Material/Mixed orders, the Production department must set up the Production timeline first.' }
+      }
+    }
+
+    const orderDate = order.order_date
+    const estimatedDeliveryDate = order.estimated_delivery_date
+
+    if (orderDate && estimatedDeliveryDate) {
+      const getDateTimestamp = (d: string | Date) => {
+        const date = new Date(d)
+        date.setHours(0, 0, 0, 0)
+        return date.getTime()
+      }
+
+      const proposedStartMs = getDateTimestamp(estimatedStartDate)
+      const proposedEndMs = getDateTimestamp(estimatedEndDate)
+      const orderStartMs = getDateTimestamp(orderDate)
+      const orderEndMs = getDateTimestamp(estimatedDeliveryDate)
+
+      if (proposedStartMs < orderStartMs) {
+        return { success: false, error: `Start date cannot be before Order Date (${new Date(orderDate).toLocaleDateString()})` }
+      }
+      if (proposedEndMs > orderEndMs) {
+        return { success: false, error: `End date cannot be after Estimated Delivery Date (${new Date(estimatedDeliveryDate).toLocaleDateString()})` }
+      }
+
+      const totalDurationMs = orderEndMs - orderStartMs
+      const totalDays = Math.max(1, Math.round(totalDurationMs / (1000 * 60 * 60 * 24)) + 1)
+      
+      const proposedDurationMs = proposedEndMs - proposedStartMs
+      const proposedDays = Math.max(1, Math.round(proposedDurationMs / (1000 * 60 * 60 * 24)) + 1)
+      
+      const maxAllowedDays = Math.max(1, Math.floor(totalDays * 0.5))
+
+      if (proposedDays > maxAllowedDays) {
+        return { 
+          success: false, 
+          error: `This stage duration (${proposedDays} days) exceeds 50% of the total order timeline (maximum allowed: ${maxAllowedDays} days out of ${totalDays} total days).` 
+        }
+      }
+    }
+
     const { error } = await supabase
       .from('order_stage_timelines')
       .update({

@@ -22,6 +22,7 @@ interface TimelineProposalCardProps {
   orderCode: string
   orderDate: string
   estimatedDeliveryDate: string
+  orderType: string
   userDepartment: string
   existingTimelines: StageTimeline[]
 }
@@ -39,6 +40,7 @@ export function TimelineProposalCard({
   orderCode,
   orderDate,
   estimatedDeliveryDate,
+  orderType,
   userDepartment,
   existingTimelines
 }: TimelineProposalCardProps) {
@@ -63,6 +65,13 @@ export function TimelineProposalCard({
     return initial
   })
 
+  // Check if Production timeline setup is required first
+  const dbType = (orderType || '').toUpperCase()
+  const isMaterialOrMixed = dbType === 'MATERIAL' || dbType === 'MIXED'
+  const productionTimeline = existingTimelines.find(t => t.stage_name.toLowerCase() === 'production')
+  const isProductionSetup = !!(productionTimeline?.estimated_start_date && productionTimeline?.estimated_end_date)
+  const isLockedAwaitingProduction = isMaterialOrMixed && userDepartment !== 'production' && !isProductionSetup
+
   if (stagesToPropose.length === 0) return null
 
   const handleInputChange = (stage: string, field: 'start' | 'end', value: string) => {
@@ -78,6 +87,11 @@ export function TimelineProposalCard({
   }
 
   const handleSave = async (stage: string) => {
+    if (isLockedAwaitingProduction) {
+      setErrorMessage(`This is a Material/Mixed order. The Production department must propose the Production stage timeline first before other stages can be set.`)
+      return
+    }
+
     const input = stageInputs[stage]
     if (!input.start || !input.end) {
       setErrorMessage(`Please select start and end dates for Stage: ${stage}`)
@@ -87,6 +101,41 @@ export function TimelineProposalCard({
     if (new Date(input.end) < new Date(input.start)) {
       setErrorMessage(`End date cannot be before start date for Stage: ${stage}`)
       return
+    }
+
+    if (orderDate && estimatedDeliveryDate) {
+      const getDateTimestamp = (d: string | Date) => {
+        const date = new Date(d)
+        date.setHours(0, 0, 0, 0)
+        return date.getTime()
+      }
+
+      const proposedStartMs = getDateTimestamp(input.start)
+      const proposedEndMs = getDateTimestamp(input.end)
+      const orderStartMs = getDateTimestamp(orderDate)
+      const orderEndMs = getDateTimestamp(estimatedDeliveryDate)
+
+      if (proposedStartMs < orderStartMs) {
+        setErrorMessage(`Start date cannot be before Order Date (${new Date(orderDate).toLocaleDateString()})`)
+        return
+      }
+      if (proposedEndMs > orderEndMs) {
+        setErrorMessage(`End date cannot be after Estimated Delivery Date (${new Date(estimatedDeliveryDate).toLocaleDateString()})`)
+        return
+      }
+
+      const totalDurationMs = orderEndMs - orderStartMs
+      const totalDays = Math.max(1, Math.round(totalDurationMs / (1000 * 60 * 60 * 24)) + 1)
+      
+      const proposedDurationMs = proposedEndMs - proposedStartMs
+      const proposedDays = Math.max(1, Math.round(proposedDurationMs / (1000 * 60 * 60 * 24)) + 1)
+      
+      const maxAllowedDays = Math.max(1, Math.floor(totalDays * 0.5))
+
+      if (proposedDays > maxAllowedDays) {
+        setErrorMessage(`This stage duration (${proposedDays} days) exceeds 50% of the total order timeline (maximum allowed: ${maxAllowedDays} days out of ${totalDays} total days).`)
+        return
+      }
     }
 
     setErrorMessage(null)
@@ -116,6 +165,15 @@ export function TimelineProposalCard({
       </CardHeader>
       
       <CardContent className="p-4 space-y-4">
+        {isLockedAwaitingProduction && (
+          <div className="p-3 rounded-lg bg-amber-50 text-amber-800 text-xs flex items-start gap-2.5 font-medium border border-amber-250 dark:bg-amber-955/20 dark:text-amber-400">
+            <AlertCircle size={15} className="shrink-0 mt-0.5" />
+            <div className="space-y-0.5">
+              <span className="font-bold block">Production Schedule Lock Active</span>
+              <span>This is a Material/Mixed order. The Production department must set up the Production timeline first to establish the manufacturing window. Other stages are temporarily locked.</span>
+            </div>
+          </div>
+        )}
         {errorMessage && (
           <div className="p-2.5 rounded-lg bg-rose-50 text-rose-600 text-xs flex items-center gap-2 font-medium border border-rose-100/40 dark:bg-rose-950/20 dark:text-rose-455">
             <AlertCircle size={14} className="shrink-0" />
@@ -164,13 +222,14 @@ export function TimelineProposalCard({
                   <div className="flex items-center gap-2.5">
                     <div className="space-y-0.5">
                       <Label className="text-[9px] font-bold text-slate-400">Start Date</Label>
-                      <Input
+                       <Input
                         type="date"
                         min={orderDate}
                         max={estimatedDeliveryDate}
                         value={inputs.start}
+                        disabled={isLockedAwaitingProduction}
                         onChange={(e) => handleInputChange(stage, 'start', e.target.value)}
-                        className="h-8.5 text-xs w-32 rounded-lg py-1 px-2.5 focus-visible:ring-indigo-500"
+                        className="h-8.5 text-xs w-32 rounded-lg py-1 px-2.5 focus-visible:ring-indigo-500 disabled:opacity-50"
                       />
                     </div>
                     <div className="space-y-0.5">
@@ -180,8 +239,9 @@ export function TimelineProposalCard({
                         min={inputs.start || orderDate}
                         max={estimatedDeliveryDate}
                         value={inputs.end}
+                        disabled={isLockedAwaitingProduction}
                         onChange={(e) => handleInputChange(stage, 'end', e.target.value)}
-                        className="h-8.5 text-xs w-32 rounded-lg py-1 px-2.5 focus-visible:ring-indigo-500"
+                        className="h-8.5 text-xs w-32 rounded-lg py-1 px-2.5 focus-visible:ring-indigo-500 disabled:opacity-50"
                       />
                     </div>
 
@@ -189,7 +249,7 @@ export function TimelineProposalCard({
                       type="button"
                       size="sm"
                       onClick={() => handleSave(stage)}
-                      disabled={isPending || !inputs.start || !inputs.end}
+                      disabled={isPending || !inputs.start || !inputs.end || isLockedAwaitingProduction}
                       className={`h-8.5 self-end px-3 text-xs font-semibold rounded-lg shrink-0 cursor-pointer ${
                         isCompleted
                           ? 'bg-slate-100 text-slate-700 hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-300 dark:hover:bg-slate-700'

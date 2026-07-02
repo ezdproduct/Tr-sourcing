@@ -579,6 +579,7 @@ export function ProductionClient({ initialBatches, initialOrders }: ProductionCl
                     orderCode={orderToRender.order_code}
                     orderDate={orderToRender.order_date || ''}
                     estimatedDeliveryDate={orderToRender.estimated_delivery_date || ''}
+                    orderType={orderToRender.order_type || ''}
                     userDepartment="production"
                     existingTimelines={orderToRender.order_stage_timelines || []}
                   />

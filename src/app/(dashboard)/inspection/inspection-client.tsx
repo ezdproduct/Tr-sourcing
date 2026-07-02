@@ -105,11 +105,12 @@ export function InspectionClient({ initialInspections, activeOrders, initialOrde
   const subtabParam = searchParams.get('subtab')
 
   useEffect(() => {
-    if (subtabParam === 'overview' || subtabParam === 'workplace') {
-      setSubtab(subtabParam)
-    } else {
-      setSubtab('overview')
-    }
+    const target = (subtabParam === 'overview' || subtabParam === 'workplace') ? subtabParam : 'overview'
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setSubtab(prev => {
+      if (prev !== target) return target
+      return prev
+    })
   }, [subtabParam])
 
   const handleTabChange = (val: 'overview' | 'workplace') => {
@@ -468,6 +469,7 @@ export function InspectionClient({ initialInspections, activeOrders, initialOrde
                     orderCode={selectedOrderDetails.order_code}
                     orderDate={selectedOrderDetails.order_date || ''}
                     estimatedDeliveryDate={selectedOrderDetails.estimated_delivery_date || ''}
+                    orderType={selectedOrderDetails.order_type || ''}
                     userDepartment="inspection"
                     existingTimelines={selectedOrderDetails.order_stage_timelines || []}
                   />

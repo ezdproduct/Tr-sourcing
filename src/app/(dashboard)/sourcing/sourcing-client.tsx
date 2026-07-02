@@ -2347,6 +2347,7 @@ export function SourcingClient({ initialOrders, initialSuppliers, initialAudits 
                     orderCode={selectedOrder.order_code}
                     orderDate={selectedOrder.order_date}
                     estimatedDeliveryDate={selectedOrder.estimated_delivery_date || ''}
+                    orderType={selectedOrder.order_type || ''}
                     userDepartment="sourcing"
                     existingTimelines={selectedOrder.order_stage_timelines || []}
                   />
