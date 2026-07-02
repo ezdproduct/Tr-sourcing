@@ -12,6 +12,8 @@ import {
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
 } from '@/components/ui/dropdown-menu'
 import { 
   createOrderAction, 
@@ -202,6 +204,20 @@ function formatDateShort(dateStr: string | null) {
   return `${m}/${r}`
 }
 
+const UOM_LABELS: Record<string, string> = {
+  pcs: 'pcs',
+  sets: 'sets',
+  m3: 'm³',
+  m2: 'm²',
+  m: 'm',
+  yards: 'yds',
+  rolls: 'rolls',
+  kg: 'kg',
+  liters: 'L',
+}
+
+const getUomLabel = (uom: string) => UOM_LABELS[uom] || uom
+
 export function OrdersClient({ initialOrders }: OrdersClientProps) {
   const router = useRouter()
   const { userRole, searchQuery } = useSourcing()
@@ -264,8 +280,8 @@ export function OrdersClient({ initialOrders }: OrdersClientProps) {
     orderDate: new Date().toISOString().split('T')[0],
     estimatedDeliveryDate: ''
   })
-  const [items, setItems] = useState<Array<{ itemName: string; quantity: number | ''; uom: string; specFiles: File[] }>>([
-    { itemName: '', quantity: 1, uom: 'pcs', specFiles: [] }
+  const [items, setItems] = useState<Array<{ itemName: string; quantity: number | ''; uom: string; itemType: string; specFiles: File[] }>>([
+    { itemName: '', quantity: 1, uom: 'pcs', itemType: 'MATERIAL', specFiles: [] }
   ])
   const [stageTimelines, setStageTimelines] = useState<Array<{ stageName: string; estimatedStartDate: string; estimatedEndDate: string }>>([])
 
@@ -274,11 +290,23 @@ export function OrdersClient({ initialOrders }: OrdersClientProps) {
     orderDate: '',
     estimatedDeliveryDate: ''
   })
-  const [editItems, setEditItems] = useState<Array<{ itemName: string; quantity: number | ''; uom: string; specFiles: File[]; specFileUrls: string[]; itemType?: string }>>([])
+  const [editItems, setEditItems] = useState<Array<{ itemName: string; quantity: number | ''; uom: string; itemType?: string; specFiles: File[]; specFileUrls: string[] }>>([])
   const [editStage, setEditStage] = useState<string>('')
   const [editStageTimelines, setEditStageTimelines] = useState<Array<{ stageName: string; estimatedStartDate: string; estimatedEndDate: string }>>([])
 
   const isStaffOrAdmin = userRole === 'staff' || userRole === 'admin'
+
+  // Sync selectedOrder with initialOrders when initialOrders updates (e.g. after server revalidation)
+  useEffect(() => {
+    if (selectedOrder) {
+      const updated = initialOrders.find(o => o.id === selectedOrder.id)
+      if (updated) {
+        setSelectedOrder(updated)
+      } else {
+        setSelectedOrder(null)
+      }
+    }
+  }, [initialOrders, selectedOrder?.id])
 
   const handleStageChange = async (orderId: string, newStage: string) => {
     const result = await updateOrderStageAction(orderId, newStage)
@@ -341,7 +369,7 @@ export function OrdersClient({ initialOrders }: OrdersClientProps) {
 
   // --- Helpers for Item arrays (Create) ---
   const handleAddItem = () => {
-    setItems([...items, { itemName: '', quantity: 1, uom: 'pcs', specFiles: [] }])
+    setItems([...items, { itemName: '', quantity: 1, uom: 'pcs', itemType: 'MATERIAL', specFiles: [] }])
   }
 
   const handleRemoveItem = (index: number) => {
@@ -350,7 +378,7 @@ export function OrdersClient({ initialOrders }: OrdersClientProps) {
     setItems(newItems)
   }
 
-  const handleItemChange = (index: number, field: 'itemName' | 'quantity' | 'uom' | 'specFiles', value: any) => {
+  const handleItemChange = (index: number, field: 'itemName' | 'quantity' | 'uom' | 'itemType' | 'specFiles', value: any) => {
     const newItems = [...items]
     newItems[index] = {
       ...newItems[index],
@@ -361,7 +389,7 @@ export function OrdersClient({ initialOrders }: OrdersClientProps) {
 
   // --- Helpers for Item arrays (Edit) ---
   const handleAddEditItem = () => {
-    setEditItems([...editItems, { itemName: '', quantity: 1, uom: 'pcs', specFiles: [], specFileUrls: [] }])
+    setEditItems([...editItems, { itemName: '', quantity: 1, uom: 'pcs', itemType: 'MATERIAL', specFiles: [], specFileUrls: [] }])
   }
 
   const handleRemoveEditItem = (index: number) => {
@@ -370,7 +398,7 @@ export function OrdersClient({ initialOrders }: OrdersClientProps) {
     setEditItems(newItems)
   }
 
-  const handleEditItemChange = (index: number, field: 'itemName' | 'quantity' | 'uom' | 'specFiles' | 'specFileUrls', value: any) => {
+  const handleEditItemChange = (index: number, field: 'itemName' | 'quantity' | 'uom' | 'itemType' | 'specFiles' | 'specFileUrls', value: any) => {
     const newItems = [...editItems]
     newItems[index] = {
       ...newItems[index],
@@ -415,6 +443,7 @@ export function OrdersClient({ initialOrders }: OrdersClientProps) {
             itemName: item.itemName,
             quantity: Number(item.quantity),
             specFileUrl,
+            itemType: item.itemType || 'MATERIAL',
             uom: item.uom || 'pcs'
           }
         })
@@ -433,7 +462,7 @@ export function OrdersClient({ initialOrders }: OrdersClientProps) {
           orderDate: new Date().toISOString().split('T')[0],
           estimatedDeliveryDate: ''
         })
-        setItems([{ itemName: '', quantity: 1, uom: 'pcs', specFiles: [] }])
+        setItems([{ itemName: '', quantity: 1, uom: 'pcs', itemType: 'MATERIAL', specFiles: [] }])
         setStageTimelines([])
         setIsOpen(false)
         router.refresh()
@@ -535,7 +564,7 @@ export function OrdersClient({ initialOrders }: OrdersClientProps) {
             itemName: item.itemName,
             quantity: Number(item.quantity),
             specFileUrl,
-            itemType: item.itemType || 'PENDING',
+            itemType: item.itemType || 'MATERIAL',
             uom: item.uom || 'pcs'
           }
         })
@@ -543,7 +572,7 @@ export function OrdersClient({ initialOrders }: OrdersClientProps) {
 
       const result = await updateOrderAction({
         orderId: editingOrder.id,
-        orderType: getOrderTypeFromItems(editingOrder.order_items) as any,
+        orderType: getOrderTypeFromItems(itemsInput.map(item => ({ item_type: item.itemType } as any))) as any,
         orderDate: editFormData.orderDate,
         estimatedDeliveryDate: editFormData.estimatedDeliveryDate,
         stage: editStage,
@@ -1379,9 +1408,10 @@ export function OrdersClient({ initialOrders }: OrdersClientProps) {
                 <div className="space-y-2 max-h-[240px] overflow-y-auto pr-1 border border-slate-100 dark:border-slate-800 rounded-lg p-3 bg-slate-50/50 dark:bg-slate-900/30">
                   {/* Grid Headers */}
                   <div className="grid grid-cols-12 gap-3 mb-2 text-xs font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500 px-1">
-                    <div className="col-span-5">Product Name</div>
+                    <div className="col-span-4">Product Name</div>
+                    <div className="col-span-2">Classification</div>
                     <div className="col-span-2">Quantity</div>
-                    <div className="col-span-2">Unit</div>
+                    <div className="col-span-1 text-center">Unit</div>
                     <div className="col-span-2">Spec File</div>
                     <div className="col-span-1 text-center">Delete</div>
                   </div>
@@ -1390,7 +1420,7 @@ export function OrdersClient({ initialOrders }: OrdersClientProps) {
                     {items.map((item, index) => (
                       <div key={index} className="grid grid-cols-12 gap-3 items-center border-b border-slate-100 dark:border-slate-800/60 pb-3 last:border-0 last:pb-0 px-1">
                         {/* Product Name */}
-                        <div className="col-span-5">
+                        <div className="col-span-4">
                           <Input
                             placeholder="Product Name"
                             value={item.itemName}
@@ -1398,6 +1428,36 @@ export function OrdersClient({ initialOrders }: OrdersClientProps) {
                             required
                             className="h-11 text-sm rounded-lg"
                           />
+                        </div>
+
+                        {/* Classification */}
+                        <div className="col-span-2">
+                          <DropdownMenu>
+                            <DropdownMenuTrigger asChild>
+                              <Button
+                                type="button"
+                                variant="outline"
+                                className="h-11 w-full justify-between px-3 text-sm font-medium border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 text-slate-800 dark:text-slate-200 rounded-lg focus:ring-2 focus:ring-[#5c59e9]/20 cursor-pointer shadow-none"
+                              >
+                                <span className="truncate">{item.itemType === 'PRODUCT' ? 'Product' : 'Material'}</span>
+                                <ChevronDown size={12} className="text-slate-400 shrink-0 ml-1" />
+                              </Button>
+                            </DropdownMenuTrigger>
+                            <DropdownMenuContent className="w-[140px] bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-lg p-1 shadow-md z-50">
+                              <DropdownMenuItem
+                                onClick={() => handleItemChange(index, 'itemType', 'MATERIAL')}
+                                className="cursor-pointer text-sm text-slate-700 dark:text-slate-350 hover:bg-slate-50 dark:hover:bg-slate-900 rounded-md px-3 py-2"
+                              >
+                                Material
+                              </DropdownMenuItem>
+                              <DropdownMenuItem
+                                onClick={() => handleItemChange(index, 'itemType', 'PRODUCT')}
+                                className="cursor-pointer text-sm text-slate-700 dark:text-slate-350 hover:bg-slate-50 dark:hover:bg-slate-900 rounded-md px-3 py-2"
+                              >
+                                Product
+                              </DropdownMenuItem>
+                            </DropdownMenuContent>
+                          </DropdownMenu>
                         </div>
                         
                         {/* Quantity */}
@@ -1418,27 +1478,59 @@ export function OrdersClient({ initialOrders }: OrdersClientProps) {
                         </div>
 
                         {/* UOM Select */}
-                        <div className="col-span-2">
-                          <select
-                            value={item.uom || 'pcs'}
-                            onChange={(e) => handleItemChange(index, 'uom', e.target.value)}
-                            required
-                            className="h-11 w-full text-sm rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 px-3 text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-[#5c59e9]/20"
-                          >
-                            <optgroup label="Furniture Products" className="text-xs text-slate-450 dark:text-slate-550 font-semibold bg-white dark:bg-slate-950">
-                              <option value="pcs">pcs (Pieces)</option>
-                              <option value="sets">sets (Sets)</option>
-                            </optgroup>
-                            <optgroup label="Raw Materials" className="text-xs text-slate-455 dark:text-slate-555 font-semibold bg-white dark:bg-slate-950">
-                              <option value="m3">m³ (Cubic Meters)</option>
-                              <option value="m2">m² (Square Meters)</option>
-                              <option value="m">m (Meters)</option>
-                              <option value="yards">yards (Yards)</option>
-                              <option value="rolls">rolls (Rolls)</option>
-                              <option value="kg">kg (Kilograms)</option>
-                              <option value="liters">liters (Liters)</option>
-                            </optgroup>
-                          </select>
+                        <div className="col-span-1">
+                          <DropdownMenu>
+                            <DropdownMenuTrigger asChild>
+                              <Button
+                                type="button"
+                                variant="outline"
+                                className="h-11 w-full justify-between px-1.5 text-sm font-medium border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 text-slate-800 dark:text-slate-200 rounded-lg focus:ring-2 focus:ring-[#5c59e9]/20 cursor-pointer shadow-none"
+                              >
+                                <span className="truncate">{getUomLabel(item.uom || 'pcs')}</span>
+                                <ChevronDown size={11} className="text-slate-400 shrink-0 ml-0.5" />
+                              </Button>
+                            </DropdownMenuTrigger>
+                            <DropdownMenuContent className="w-[180px] bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-lg p-1 shadow-md z-50 max-h-60 overflow-y-auto">
+                              <DropdownMenuLabel className="text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider px-2.5 py-1">
+                                Furniture Products
+                              </DropdownMenuLabel>
+                              <DropdownMenuItem
+                                onClick={() => handleItemChange(index, 'uom', 'pcs')}
+                                className="cursor-pointer text-sm text-slate-700 dark:text-slate-350 hover:bg-slate-50 dark:hover:bg-slate-900 rounded-md px-4 py-2"
+                              >
+                                pcs
+                              </DropdownMenuItem>
+                              <DropdownMenuItem
+                                onClick={() => handleItemChange(index, 'uom', 'sets')}
+                                className="cursor-pointer text-sm text-slate-700 dark:text-slate-350 hover:bg-slate-50 dark:hover:bg-slate-900 rounded-md px-4 py-2"
+                              >
+                                sets
+                              </DropdownMenuItem>
+                              
+                              <DropdownMenuSeparator className="bg-slate-100 dark:bg-slate-800 my-1" />
+                              
+                              <DropdownMenuLabel className="text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider px-2.5 py-1">
+                                Raw Materials
+                              </DropdownMenuLabel>
+                              {[
+                                { val: 'm3', label: 'm³' },
+                                { val: 'm2', label: 'm²' },
+                                { val: 'm', label: 'm' },
+                                { val: 'yards', label: 'yds' },
+                                { val: 'rolls', label: 'rolls' },
+                                { val: 'kg', label: 'kg' },
+                                { val: 'liters', label: 'L' }
+                              ].map((u) => (
+                                <DropdownMenuItem
+                                  key={u.val}
+                                  onClick={() => handleItemChange(index, 'uom', u.val)}
+                                  className="cursor-pointer text-sm text-slate-700 dark:text-slate-350 hover:bg-slate-50 dark:hover:bg-slate-900 rounded-md px-4 py-2"
+                                >
+                                  {u.label}
+                                </DropdownMenuItem>
+                              ))}
+                            </DropdownMenuContent>
+                          </DropdownMenu>
                         </div>
 
                         {/* File spec */}
@@ -1690,9 +1782,10 @@ export function OrdersClient({ initialOrders }: OrdersClientProps) {
                 <div className="space-y-2 max-h-[240px] overflow-y-auto pr-1 border border-slate-100 dark:border-slate-800 rounded-lg p-3 bg-slate-50/50 dark:bg-slate-900/30">
                   {/* Grid Headers */}
                   <div className="grid grid-cols-12 gap-3 mb-2 text-xs font-bold uppercase tracking-wider text-slate-400 dark:text-slate-500 px-1">
-                    <div className="col-span-5">Product Name</div>
+                    <div className="col-span-4">Product Name</div>
+                    <div className="col-span-2">Classification</div>
                     <div className="col-span-2">Quantity</div>
-                    <div className="col-span-2">Unit</div>
+                    <div className="col-span-1 text-center">Unit</div>
                     <div className="col-span-2">Spec File</div>
                     <div className="col-span-1 text-center">Delete</div>
                   </div>
@@ -1701,7 +1794,7 @@ export function OrdersClient({ initialOrders }: OrdersClientProps) {
                     {editItems.map((item, index) => (
                       <div key={index} className="grid grid-cols-12 gap-3 items-center border-b border-slate-100 dark:border-slate-800/60 pb-3 last:border-0 last:pb-0 px-1">
                         {/* Product Name */}
-                        <div className="col-span-5">
+                        <div className="col-span-4">
                           <Input
                             placeholder="Product Name"
                             value={item.itemName}
@@ -1709,6 +1802,36 @@ export function OrdersClient({ initialOrders }: OrdersClientProps) {
                             required
                             className="h-11 text-sm rounded-lg"
                           />
+                        </div>
+
+                        {/* Classification */}
+                        <div className="col-span-2">
+                          <DropdownMenu>
+                            <DropdownMenuTrigger asChild>
+                              <Button
+                                type="button"
+                                variant="outline"
+                                className="h-11 w-full justify-between px-3 text-sm font-medium border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 text-slate-800 dark:text-slate-200 rounded-lg focus:ring-2 focus:ring-[#5c59e9]/20 cursor-pointer shadow-none"
+                              >
+                                <span className="truncate">{item.itemType === 'PRODUCT' ? 'Product' : 'Material'}</span>
+                                <ChevronDown size={12} className="text-slate-400 shrink-0 ml-1" />
+                              </Button>
+                            </DropdownMenuTrigger>
+                            <DropdownMenuContent className="w-[140px] bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-lg p-1 shadow-md z-50">
+                              <DropdownMenuItem
+                                onClick={() => handleEditItemChange(index, 'itemType', 'MATERIAL')}
+                                className="cursor-pointer text-sm text-slate-700 dark:text-slate-350 hover:bg-slate-50 dark:hover:bg-slate-900 rounded-md px-3 py-2"
+                              >
+                                Material
+                              </DropdownMenuItem>
+                              <DropdownMenuItem
+                                onClick={() => handleEditItemChange(index, 'itemType', 'PRODUCT')}
+                                className="cursor-pointer text-sm text-slate-700 dark:text-slate-350 hover:bg-slate-50 dark:hover:bg-slate-900 rounded-md px-3 py-2"
+                              >
+                                Product
+                              </DropdownMenuItem>
+                            </DropdownMenuContent>
+                          </DropdownMenu>
                         </div>
                         
                         {/* Quantity */}
@@ -1729,27 +1852,59 @@ export function OrdersClient({ initialOrders }: OrdersClientProps) {
                         </div>
 
                         {/* UOM Select */}
-                        <div className="col-span-2">
-                          <select
-                            value={item.uom || 'pcs'}
-                            onChange={(e) => handleEditItemChange(index, 'uom', e.target.value)}
-                            required
-                            className="h-11 w-full text-sm rounded-lg border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 px-3 text-slate-800 dark:text-slate-200 focus:outline-none focus:ring-2 focus:ring-[#5c59e9]/20"
-                          >
-                            <optgroup label="Furniture Products" className="text-xs text-slate-450 dark:text-slate-550 font-semibold bg-white dark:bg-slate-950">
-                              <option value="pcs">pcs (Pieces)</option>
-                              <option value="sets">sets (Sets)</option>
-                            </optgroup>
-                            <optgroup label="Raw Materials" className="text-xs text-slate-455 dark:text-slate-555 font-semibold bg-white dark:bg-slate-950">
-                              <option value="m3">m³ (Cubic Meters)</option>
-                              <option value="m2">m² (Square Meters)</option>
-                              <option value="m">m (Meters)</option>
-                              <option value="yards">yards (Yards)</option>
-                              <option value="rolls">rolls (Rolls)</option>
-                              <option value="kg">kg (Kilograms)</option>
-                              <option value="liters">liters (Liters)</option>
-                            </optgroup>
-                          </select>
+                        <div className="col-span-1">
+                          <DropdownMenu>
+                            <DropdownMenuTrigger asChild>
+                              <Button
+                                type="button"
+                                variant="outline"
+                                className="h-11 w-full justify-between px-1.5 text-sm font-medium border border-slate-200 dark:border-slate-800 bg-white dark:bg-slate-950 text-slate-800 dark:text-slate-200 rounded-lg focus:ring-2 focus:ring-[#5c59e9]/20 cursor-pointer shadow-none"
+                              >
+                                <span className="truncate">{getUomLabel(item.uom || 'pcs')}</span>
+                                <ChevronDown size={11} className="text-slate-400 shrink-0 ml-0.5" />
+                              </Button>
+                            </DropdownMenuTrigger>
+                            <DropdownMenuContent className="w-[180px] bg-white dark:bg-slate-950 border border-slate-200 dark:border-slate-800 rounded-lg p-1 shadow-md z-50 max-h-60 overflow-y-auto">
+                              <DropdownMenuLabel className="text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider px-2.5 py-1">
+                                Furniture Products
+                              </DropdownMenuLabel>
+                              <DropdownMenuItem
+                                onClick={() => handleEditItemChange(index, 'uom', 'pcs')}
+                                className="cursor-pointer text-sm text-slate-700 dark:text-slate-350 hover:bg-slate-50 dark:hover:bg-slate-900 rounded-md px-4 py-2"
+                              >
+                                pcs
+                              </DropdownMenuItem>
+                              <DropdownMenuItem
+                                onClick={() => handleEditItemChange(index, 'uom', 'sets')}
+                                className="cursor-pointer text-sm text-slate-700 dark:text-slate-350 hover:bg-slate-50 dark:hover:bg-slate-900 rounded-md px-4 py-2"
+                              >
+                                sets
+                              </DropdownMenuItem>
+                              
+                              <DropdownMenuSeparator className="bg-slate-100 dark:bg-slate-800 my-1" />
+                              
+                              <DropdownMenuLabel className="text-[10px] font-bold text-slate-400 dark:text-slate-500 uppercase tracking-wider px-2.5 py-1">
+                                Raw Materials
+                              </DropdownMenuLabel>
+                              {[
+                                { val: 'm3', label: 'm³' },
+                                { val: 'm2', label: 'm²' },
+                                { val: 'm', label: 'm' },
+                                { val: 'yards', label: 'yds' },
+                                { val: 'rolls', label: 'rolls' },
+                                { val: 'kg', label: 'kg' },
+                                { val: 'liters', label: 'L' }
+                              ].map((u) => (
+                                <DropdownMenuItem
+                                  key={u.val}
+                                  onClick={() => handleEditItemChange(index, 'uom', u.val)}
+                                  className="cursor-pointer text-sm text-slate-700 dark:text-slate-350 hover:bg-slate-50 dark:hover:bg-slate-900 rounded-md px-4 py-2"
+                                >
+                                  {u.label}
+                                </DropdownMenuItem>
+                              ))}
+                            </DropdownMenuContent>
+                          </DropdownMenu>
                         </div>
 
                         {/* File spec */}

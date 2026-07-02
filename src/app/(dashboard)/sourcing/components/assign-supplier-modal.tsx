@@ -103,7 +103,7 @@ export function AssignSupplierModal({
     website: '',
     contactPerson: '',
     taxId: '',
-    businessType: ''
+    mainProducts: ''
   })
 
   // Checklist of items: orderItemId -> { checked, price, leadTime, selectedCapId }
@@ -170,7 +170,7 @@ export function AssignSupplierModal({
         website: '',
         contactPerson: '',
         taxId: '',
-        businessType: ''
+        mainProducts: ''
       })
       setCapabilities([])
       setErrorMessage(null)
@@ -269,7 +269,7 @@ export function AssignSupplierModal({
   // Handle Form Submission
   const handleFormSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    const { supplierName, email, phone, address, orderId, website, contactPerson, taxId, businessType } = manualForm
+    const { supplierName, email, phone, address, orderId, website, contactPerson, taxId, mainProducts } = manualForm
 
     if (!supplierName) {
       setErrorMessage('Supplier Name is required.')
@@ -345,7 +345,7 @@ export function AssignSupplierModal({
         website,
         contactPerson,
         taxId,
-        businessType
+        mainProducts
       }, null, subtab === 'suppliers')
 
       if (result.success) {
@@ -706,7 +706,7 @@ export function AssignSupplierModal({
                                     website: '',
                                     contactPerson: '',
                                     taxId: '',
-                                    businessType: ''
+                                    mainProducts: ''
                                   }))
                                   setIsSupplierDropdownOpen(false)
                                 }}
@@ -744,7 +744,7 @@ export function AssignSupplierModal({
                                           website: sup.website || '',
                                           contactPerson: sup.contact_person || '',
                                           taxId: sup.tax_id || '',
-                                          businessType: sup.business_type || ''
+                                          mainProducts: sup.main_products ? sup.main_products.join(', ') : ''
                                         }))
                                         setIsSupplierDropdownOpen(false)
                                         setSupplierSearchQuery('')
@@ -879,12 +879,12 @@ export function AssignSupplierModal({
                     />
                   </div>
                   <div className="space-y-1.5">
-                    <Label htmlFor="supplier-type" className="text-xs font-semibold text-slate-700 dark:text-slate-300">Business Type</Label>
+                    <Label htmlFor="supplier-main-products" className="text-xs font-semibold text-slate-700 dark:text-slate-300">Main Product</Label>
                     <Input
-                      id="supplier-type"
+                      id="supplier-main-products"
                       type="text"
-                      value={manualForm.businessType}
-                      onChange={e => setManualForm(f => ({ ...f, businessType: e.target.value }))}
+                      value={manualForm.mainProducts}
+                      onChange={e => setManualForm(f => ({ ...f, mainProducts: e.target.value }))}
                       className="bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 text-xs rounded-xl"
                     />
                   </div>

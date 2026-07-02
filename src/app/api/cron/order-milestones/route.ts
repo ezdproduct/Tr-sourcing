@@ -1,18 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/supabase/server'
-import { Resend } from 'resend'
 import { generateToken } from '@/app/api/orders/update-progress/route'
+import { sendGmail } from '@/lib/gmail'
 
 export async function GET(req: NextRequest) {
   try {
     const supabase = await createClient()
-    const resendApiKey = process.env.RESEND_API_KEY
-
-    if (!resendApiKey) {
-      return NextResponse.json({ error: 'RESEND_API_KEY is not configured.' }, { status: 500 })
-    }
-
-    const resend = new Resend(resendApiKey)
+    const systemAgentId = process.env.GMAIL_SYSTEM_AGENT_ID ? parseInt(process.env.GMAIL_SYSTEM_AGENT_ID, 10) : 1
     const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'
     const now = new Date()
 
@@ -73,9 +67,9 @@ export async function GET(req: NextRequest) {
             </html>
           `
 
-          await resend.emails.send({
-            from: 'Sourcing Hub <onboarding@resend.dev>',
-            to: supplier.email,
+          await sendGmail({
+            agentId: systemAgentId,
+            toEmail: supplier.email,
             subject: `[Milestone Check] Deposit Confirmation Required - Order ID: ${order.id}`,
             html: emailHtml,
           })
@@ -157,9 +151,9 @@ export async function GET(req: NextRequest) {
             </html>
           `
 
-          await resend.emails.send({
-            from: 'Sourcing Hub <onboarding@resend.dev>',
-            to: supplier.email,
+          await sendGmail({
+            agentId: systemAgentId,
+            toEmail: supplier.email,
             subject: `[Progress Pulse] Production Status Check - Order ID: ${order.id}`,
             html: emailHtml,
           })

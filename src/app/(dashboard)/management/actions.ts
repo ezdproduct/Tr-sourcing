@@ -83,6 +83,7 @@ export async function createSupplierAction(input: {
   contactPerson?: string
   taxId?: string
   businessType?: string
+  mainProducts?: string
 }) {
   try {
     const supabase = await createClient()
@@ -96,12 +97,27 @@ export async function createSupplierAction(input: {
         website: input.website ? input.website.trim() : null,
         contact_person: input.contactPerson ? input.contactPerson.trim() : null,
         tax_id: input.taxId ? input.taxId.trim() : null,
-        business_type: input.businessType ? input.businessType.trim() : null
+        business_type: input.businessType ? input.businessType.trim() : null,
+        main_products: input.mainProducts ? input.mainProducts.split(',').map(p => p.trim()).filter(Boolean) : []
       })
       .select('*, order_suppliers(*, orders(order_code), order_items(item_name)), factory_audits(*)')
       .single()
 
     if (error) throw error
+
+    // Log the creation
+    try {
+      const { data: { user } } = await supabase.auth.getUser()
+      const userEmail = user?.email || null
+
+      await supabase
+        .from('order_activities')
+        .insert({
+          activity_text: `Supplier Profile Created: Supplier "${data.name}" (ID: ${data.id}) was created by ${userEmail || 'System'}.`
+        })
+    } catch (logErr: any) {
+      console.error('Error recording supplier creation log:', logErr.message || logErr)
+    }
 
     revalidatePath('/management')
     return { success: true, supplier: data }
@@ -115,7 +131,7 @@ export async function addSupplierCapabilityAction(
   supplierId: string,
   productName: string,
   targetPrice: number,
-  leadTimeDays: string,
+  leadTimeDays?: string,
   description?: string,
   moq?: number,
   sku?: string,
@@ -132,7 +148,7 @@ export async function addSupplierCapabilityAction(
         supplier_id: supplierId,
         product_name: productName.trim(),
         target_price: targetPrice,
-        lead_time_days: leadTimeDays.trim(),
+        lead_time_days: leadTimeDays?.trim() || null,
         description: description?.trim() || null,
         moq: moq || null,
         sku: sku?.trim() || null,
@@ -168,7 +184,7 @@ export async function updateSupplierCapabilityAction(
   capabilityId: string,
   productName: string,
   targetPrice: number,
-  leadTimeDays: string,
+  leadTimeDays?: string,
   description?: string,
   moq?: number,
   sku?: string,
@@ -184,7 +200,7 @@ export async function updateSupplierCapabilityAction(
       .update({
         product_name: productName.trim(),
         target_price: targetPrice,
-        lead_time_days: leadTimeDays.trim(),
+        lead_time_days: leadTimeDays?.trim() || null,
         description: description?.trim() || null,
         moq: moq || null,
         sku: sku?.trim() || null,

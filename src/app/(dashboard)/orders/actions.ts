@@ -44,14 +44,20 @@ export async function createOrderAction(input: CreateOrderInput) {
       item_name: item.itemName,
       quantity: item.quantity,
       spec_file_url: item.specFileUrl || '',
-      item_type: item.itemType || 'PENDING',
+      item_type: item.itemType || 'MATERIAL',
       uom: item.uom || 'pcs'
     }))
 
-    // order_type defaults to 'PENDING' — Sourcing team will classify in Phase 2
-    // stage defaults to 'Order Intake' — indicating it's not yet classified
+    const hasMaterial = input.items.some(item => item.itemType === 'MATERIAL')
+    const hasFinishedGoods = input.items.some(item => item.itemType === 'FINISHED_GOODS' || item.itemType === 'PRODUCT')
+    
+    let computedOrderType = 'PENDING'
+    if (hasMaterial && hasFinishedGoods) computedOrderType = 'MIXED'
+    else if (hasMaterial) computedOrderType = 'MATERIAL'
+    else if (hasFinishedGoods) computedOrderType = 'PRODUCT'
+
     const { data, error } = await supabase.rpc('create_order_with_items', {
-      p_order_type: 'PENDING',
+      p_order_type: computedOrderType,
       p_order_date: input.orderDate,
       p_estimated_delivery_date: input.estimatedDeliveryDate,
       p_items: formattedItems
@@ -233,7 +239,7 @@ export async function updateOrderAction(input: UpdateOrderInput) {
       item_name: item.itemName,
       quantity: item.quantity,
       spec_file_url: item.specFileUrl || '',
-      item_type: item.itemType || 'PENDING',
+      item_type: item.itemType || 'MATERIAL',
       uom: item.uom || 'pcs'
     }))
 

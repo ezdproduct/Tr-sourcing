@@ -23,7 +23,8 @@ import {
   sendShortlistToQcAction,
   fetchSupplierCapabilitiesAction,
   updateSupplierProfileAction,
-  confirmSupplierAndCreatePoAction
+  confirmSupplierAndCreatePoAction,
+  saveGmailAgentIdAction
 } from './actions'
 import { KanbanBoard } from '@/app/(dashboard)/orders/kanban-board'
 import { updateOrderStageAction } from '@/app/(dashboard)/orders/actions'
@@ -50,6 +51,7 @@ import {
   X,
   ArrowUpDown,
   AlertCircle,
+  AlertTriangle,
   ChevronRight,
   Package,
   ShoppingBag,
@@ -72,6 +74,7 @@ import {
   Clipboard,
   Download,
   Sparkles,
+  Edit,
 } from 'lucide-react'
 
 // ─── CSV Parser Helper ────────────────────────────────────────────────────────
@@ -317,6 +320,8 @@ export function SourcingClient({ initialOrders, initialSuppliers, initialAudits 
   const [poTargetDeliveryDate, setPoTargetDeliveryDate] = useState<string>('')
   const [poDeliveryAddress, setPoDeliveryAddress] = useState<string>('')
   const [poContractFile, setPoContractFile] = useState<File | null>(null)
+  const [gmailNotConnected, setGmailNotConnected] = useState(false)
+  const [gmailAuthUrl, setGmailAuthUrl] = useState('')
 
 
 
@@ -469,6 +474,30 @@ export function SourcingClient({ initialOrders, initialSuppliers, initialAudits 
       setToasts(prev => prev.filter(t => t.id !== id))
     }, 5000)
   }
+
+  // Handle Gmail API OAuth Redirect Callback to automatically link agent_id
+  useEffect(() => {
+    const agentIdParam = searchParams.get('agent_id')
+    if (agentIdParam) {
+      const agentId = parseInt(agentIdParam, 10)
+      if (!isNaN(agentId)) {
+        saveGmailAgentIdAction(agentId).then((res) => {
+          if (res.success) {
+            triggerToast('Gmail account successfully linked to your profile!')
+            // Clean query parameters from URL
+            const url = new URL(window.location.href)
+            url.searchParams.delete('agent_id')
+            url.searchParams.delete('email')
+            window.history.replaceState({}, '', url.pathname + url.search)
+            invalidateSourcingData()
+          } else {
+            console.error('Failed to link Gmail account:', res.error)
+          }
+        })
+      }
+    }
+  }, [searchParams])
+
   const [isProfileEditMode, setIsProfileEditMode] = useState(false)
   const [isSavingProfile, setIsSavingProfile] = useState(false)
   const [profileErrorMessage, setProfileErrorMessage] = useState<string | null>(null)
@@ -1791,6 +1820,7 @@ export function SourcingClient({ initialOrders, initialSuppliers, initialAudits 
                           <ArrowUpDown size={12} className={supplierSort.field === 'created_by' ? 'text-indigo-600 dark:text-indigo-400' : 'text-slate-400 dark:text-slate-600 opacity-50'} />
                         </div>
                       </th>
+                      <th className="px-6 py-4 w-[10%] min-w-[110px] text-center">Actions</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100 dark:divide-slate-800 text-xs">
@@ -1876,6 +1906,21 @@ export function SourcingClient({ initialOrders, initialSuppliers, initialAudits 
                             >
                               {supplier.created_by ? supplier.created_by.split('@')[0] : 'System'}
                             </span>
+                          </td>
+
+                          {/* Actions */}
+                          <td className="px-6 py-4 text-center w-[10%] min-w-[110px]">
+                            <Button
+                              type="button"
+                              onClick={() => {
+                                handleOpenProfile(supplier.rawRecord)
+                                setIsProfileEditMode(true)
+                              }}
+                              className="h-7 px-2.5 bg-[#5c59e9] hover:bg-[#4a47d2] text-white rounded-lg text-[10px] font-semibold cursor-pointer inline-flex items-center gap-1.5"
+                            >
+                              <Edit size={10} />
+                              <span>Update</span>
+                            </Button>
                           </td>
                         </tr>
                       )
@@ -3012,7 +3057,12 @@ export function SourcingClient({ initialOrders, initialSuppliers, initialAudits 
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 animate-fade-in">
           <div
             className="absolute inset-0 bg-black/40 backdrop-blur-sm"
-            onClick={() => setPoSupplier(null)}
+            onClick={() => {
+              setPoSupplier(null)
+              setGmailNotConnected(false)
+              setGmailAuthUrl('')
+              setErrorMessage(null)
+            }}
           />
           <div className="relative z-10 w-full max-w-md bg-white dark:bg-slate-900 rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-800 p-6">
             <div className="flex items-center gap-3 text-emerald-600 dark:text-emerald-400 mb-4">
@@ -3110,6 +3160,18 @@ export function SourcingClient({ initialOrders, initialSuppliers, initialAudits 
                 />
               </div>
 
+              {gmailNotConnected && (
+                <div className="p-4 bg-amber-50 text-amber-800 dark:bg-amber-950/20 dark:text-amber-400 rounded-xl text-xs border border-amber-200 dark:border-amber-900/50 space-y-3">
+                  <div className="flex items-start gap-2.5 font-bold">
+                    <AlertTriangle size={16} className="flex-shrink-0 mt-0.5 text-amber-600 dark:text-amber-500" />
+                    <span>Gmail Account Not Linked</span>
+                  </div>
+                  <p className="leading-relaxed">
+                    Your Gmail account is not linked to Sourcing Hub. Would you like to proceed and send this PO notification email using the system fallback Gmail account?
+                  </p>
+                </div>
+              )}
+
               {errorMessage && (
                 <div className="p-3 bg-red-50 text-red-600 dark:bg-red-950/20 dark:text-red-400 rounded-xl text-xs font-medium border border-red-200 dark:border-red-900/50 flex items-center gap-2">
                   <AlertCircle size={14} className="flex-shrink-0" />
@@ -3117,74 +3179,173 @@ export function SourcingClient({ initialOrders, initialSuppliers, initialAudits 
                 </div>
               )}
 
-              <div className="flex gap-3 pt-2">
-                <Button
-                  type="button"
-                  variant="outline"
-                  onClick={() => setPoSupplier(null)}
-                  className="flex-1 h-9 text-sm cursor-pointer"
-                >
-                  Cancel
-                </Button>
-                <Button
-                  type="button"
-                  disabled={
-                    isPoConfirming || 
-                    !poContractValue || poContractValue <= 0 || 
-                    !poTargetDeliveryDate || 
-                    !poDeliveryAddress ||
-                    !poSupplier.suppliers?.email
-                  }
-                  onClick={async () => {
-                    const activeOrderId = selectedOrderId || poSupplier.order_id
-                    if (!activeOrderId || !poSupplier.supplier_id || !poSupplier.order_item_id) return
-                    setIsPoConfirming(true)
-                    setErrorMessage(null)
-                    
-                    const fd = new FormData()
-                    fd.append('orderId', activeOrderId)
-                    fd.append('selectedSupplierId', poSupplier.supplier_id)
-                    fd.append('orderItemId', poSupplier.order_item_id)
-                    fd.append('contractValue', String(poContractValue))
-                    fd.append('targetDeliveryDate', poTargetDeliveryDate)
-                    fd.append('deliveryAddress', poDeliveryAddress)
-                    if (poContractFile) {
-                      fd.append('contractFile', poContractFile)
-                    }
-                    
-                    const res = await confirmSupplierAndCreatePoAction(fd)
-                    setIsPoConfirming(false)
-                    if (res.success) {
-                      setPoSupplier(null)
-                      await invalidateSourcingData()
-                      if (res.emailSent) {
-                        if (res.supplierEmail) {
-                          triggerToast(`Purchase Order created successfully. Notification email sent to ${res.supplierEmail}.`)
+              {gmailNotConnected ? (
+                <div className="flex flex-col gap-2 pt-2">
+                  <Button
+                    type="button"
+                    disabled={isPoConfirming}
+                    onClick={async () => {
+                      const activeOrderId = selectedOrderId || poSupplier.order_id
+                      if (!activeOrderId || !poSupplier.supplier_id || !poSupplier.order_item_id) return
+                      setIsPoConfirming(true)
+                      setErrorMessage(null)
+                      
+                      const fd = new FormData()
+                      fd.append('orderId', activeOrderId)
+                      fd.append('selectedSupplierId', poSupplier.supplier_id)
+                      fd.append('orderItemId', poSupplier.order_item_id)
+                      fd.append('contractValue', String(poContractValue))
+                      fd.append('targetDeliveryDate', poTargetDeliveryDate)
+                      fd.append('deliveryAddress', poDeliveryAddress)
+                      if (poContractFile) {
+                        fd.append('contractFile', poContractFile)
+                      }
+                      fd.append('useSystemGmail', 'true')
+                      
+                      const res = await confirmSupplierAndCreatePoAction(fd)
+                      setIsPoConfirming(false)
+                      if (res.success) {
+                        setPoSupplier(null)
+                        setGmailNotConnected(false)
+                        setGmailAuthUrl('')
+                        await invalidateSourcingData()
+                        if (res.emailSent) {
+                          if (res.supplierEmail) {
+                            triggerToast(`Purchase Order created successfully. Notification email sent via System Gmail to ${res.supplierEmail}.`)
+                          } else {
+                            triggerToast("Purchase Order created successfully. Email notification simulated.")
+                          }
                         } else {
-                          triggerToast("Purchase Order created successfully. Email notification simulated.")
+                          triggerToast("Purchase Order created, but email was skipped.")
                         }
                       } else {
-                        triggerToast("Purchase Order created, but email was skipped (supplier has no email address).")
+                        setErrorMessage(res.error || 'Failed to create PO')
+                        setGmailNotConnected(false)
                       }
-                    } else {
-                      setErrorMessage(res.error || 'Failed to create PO')
-                    }
-                  }}
-                  className="flex-1 h-9 text-sm bg-emerald-600 hover:bg-emerald-700 text-white cursor-pointer gap-2"
-                >
-                  {isPoConfirming ? (
-                    <>
-                      <Loader2 size={14} className="animate-spin" />
-                      Creating PO...
-                    </>
-                  ) : (
-                    <>
-                      <CheckCircle2 size={14} />
-                      Confirm &amp; Create PO
-                    </>
+                    }}
+                    className="w-full h-9 text-sm bg-amber-600 hover:bg-amber-700 text-white cursor-pointer gap-2"
+                  >
+                    {isPoConfirming ? (
+                      <>
+                        <Loader2 size={14} className="animate-spin" />
+                        Creating PO...
+                      </>
+                    ) : (
+                      <>
+                        <Send size={14} />
+                        Send via System Gmail
+                      </>
+                    )}
+                  </Button>
+                  
+                  {gmailAuthUrl && (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={() => {
+                        window.location.href = gmailAuthUrl
+                      }}
+                      className="w-full h-9 text-sm border-indigo-200 dark:border-indigo-900 text-indigo-600 dark:text-indigo-400 hover:bg-indigo-50 dark:hover:bg-indigo-950/20 cursor-pointer gap-2"
+                    >
+                      <Globe size={14} />
+                      Log in / Link your Gmail
+                    </Button>
                   )}
-                </Button>
-              </div>
+
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    onClick={() => {
+                      setGmailNotConnected(false)
+                      setErrorMessage(null)
+                    }}
+                    className="w-full h-9 text-xs text-slate-500 hover:bg-slate-50 dark:hover:bg-slate-800 cursor-pointer"
+                  >
+                    Go back to edit
+                  </Button>
+                </div>
+              ) : (
+                <div className="flex gap-3 pt-2">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={() => {
+                      setPoSupplier(null)
+                      setGmailNotConnected(false)
+                      setGmailAuthUrl('')
+                      setErrorMessage(null)
+                    }}
+                    className="flex-1 h-9 text-sm cursor-pointer"
+                  >
+                    Cancel
+                  </Button>
+                  <Button
+                    type="button"
+                    disabled={
+                      isPoConfirming || 
+                      !poContractValue || poContractValue <= 0 || 
+                      !poTargetDeliveryDate || 
+                      !poDeliveryAddress ||
+                      !poSupplier.suppliers?.email
+                    }
+                    onClick={async () => {
+                      const activeOrderId = selectedOrderId || poSupplier.order_id
+                      if (!activeOrderId || !poSupplier.supplier_id || !poSupplier.order_item_id) return
+                      setIsPoConfirming(true)
+                      setErrorMessage(null)
+                      
+                      const fd = new FormData()
+                      fd.append('orderId', activeOrderId)
+                      fd.append('selectedSupplierId', poSupplier.supplier_id)
+                      fd.append('orderItemId', poSupplier.order_item_id)
+                      fd.append('contractValue', String(poContractValue))
+                      fd.append('targetDeliveryDate', poTargetDeliveryDate)
+                      fd.append('deliveryAddress', poDeliveryAddress)
+                      if (poContractFile) {
+                        fd.append('contractFile', poContractFile)
+                      }
+                      
+                      const res = await confirmSupplierAndCreatePoAction(fd)
+                      setIsPoConfirming(false)
+                      if (res.success) {
+                        setPoSupplier(null)
+                        setGmailNotConnected(false)
+                        setGmailAuthUrl('')
+                        await invalidateSourcingData()
+                        if (res.emailSent) {
+                          if (res.supplierEmail) {
+                            triggerToast(`Purchase Order created successfully. Notification email sent to ${res.supplierEmail}.`)
+                          } else {
+                            triggerToast("Purchase Order created successfully. Email notification simulated.")
+                          }
+                        } else {
+                          triggerToast("Purchase Order created, but email was skipped (supplier has no email address).")
+                        }
+                      } else {
+                        if (res.errorType === 'GMAIL_NOT_CONNECTED') {
+                          setGmailNotConnected(true)
+                          setGmailAuthUrl(res.authUrl || '')
+                        } else {
+                          setErrorMessage(res.error || 'Failed to create PO')
+                        }
+                      }
+                    }}
+                    className="flex-1 h-9 text-sm bg-emerald-600 hover:bg-emerald-700 text-white cursor-pointer gap-2"
+                  >
+                    {isPoConfirming ? (
+                      <>
+                        <Loader2 size={14} className="animate-spin" />
+                        Creating PO...
+                      </>
+                    ) : (
+                      <>
+                        <CheckCircle2 size={14} />
+                        Confirm &amp; Create PO
+                      </>
+                    )}
+                  </Button>
+                </div>
+              )}
             </div>
           </div>
         </div>

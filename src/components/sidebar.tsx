@@ -346,7 +346,8 @@ export function Sidebar() {
                   <div className="pl-9 pr-2 py-1 space-y-1 animate-in slide-in-from-top-2 duration-200">
                     {(item.href === '/management'
                       ? [
-                          { label: 'System Profiles', subtabVal: 'system' }
+                          { label: 'System Profiles', subtabVal: 'system' },
+                          { label: 'Supplier Logs', subtabVal: 'supplier-logs' }
                         ]
                       : item.href === '/sourcing'
                       ? [

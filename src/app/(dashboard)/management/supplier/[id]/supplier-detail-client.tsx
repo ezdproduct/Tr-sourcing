@@ -776,8 +776,8 @@ export function SupplierDetailClient({ supplier }: SupplierDetailClientProps) {
 
   const handleAddProductSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    if (!productName.trim() || !defaultPrice || !leadTime) {
-      setProductError('Product Name, Default Price, and Lead Time are required.')
+    if (!productName.trim() || !defaultPrice) {
+      setProductError('Product Name and Default Price are required.')
       return
     }
 
@@ -817,8 +817,8 @@ export function SupplierDetailClient({ supplier }: SupplierDetailClientProps) {
   const handleEditProductSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     if (!editingCapability) return
-    if (!productName.trim() || !defaultPrice || !leadTime) {
-      setProductError('Product Name, Default Price, and Lead Time are required.')
+    if (!productName.trim() || !defaultPrice) {
+      setProductError('Product Name and Default Price are required.')
       return
     }
 
@@ -1971,7 +1971,7 @@ export function SupplierDetailClient({ supplier }: SupplierDetailClientProps) {
                 </div>
                 <div className="space-y-1.5">
                   <Label htmlFor="product-leadtime" className="text-xs font-semibold text-slate-700 dark:text-slate-300">
-                    Lead Time (days) <span className="text-red-500">*</span>
+                    Lead Time (days)
                   </Label>
                   <Input
                     id="product-leadtime"
@@ -1980,7 +1980,6 @@ export function SupplierDetailClient({ supplier }: SupplierDetailClientProps) {
                     value={leadTime}
                     onChange={e => setLeadTime(e.target.value)}
                     className="text-xs h-9 rounded-xl border-slate-200 bg-white/50 focus:bg-white dark:border-slate-800 dark:bg-slate-955/50"
-                    required
                   />
                 </div>
               </div>
@@ -2128,7 +2127,7 @@ export function SupplierDetailClient({ supplier }: SupplierDetailClientProps) {
                 </div>
                 <div className="space-y-1.5">
                   <Label htmlFor="edit-product-leadtime" className="text-xs font-semibold text-slate-700 dark:text-slate-300">
-                    Lead Time (days) <span className="text-red-500">*</span>
+                    Lead Time (days)
                   </Label>
                   <Input
                     id="edit-product-leadtime"
@@ -2137,7 +2136,6 @@ export function SupplierDetailClient({ supplier }: SupplierDetailClientProps) {
                     value={leadTime}
                     onChange={e => setLeadTime(e.target.value)}
                     className="text-xs h-9 rounded-xl border-slate-200 bg-white/50 focus:bg-white dark:border-slate-800 dark:bg-slate-955/50"
-                    required
                   />
                 </div>
               </div>

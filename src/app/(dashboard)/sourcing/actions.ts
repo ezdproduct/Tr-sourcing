@@ -1,8 +1,8 @@
 'use server'
 
 import { S3Client, PutObjectCommand } from '@aws-sdk/client-s3'
-import { Resend } from 'resend'
 import { generateToken } from '@/app/api/orders/update-progress/route'
+import { sendGmail } from '@/lib/gmail'
 export type OrderType = 'MATERIAL' | 'PRODUCT'
 
 import { createClient } from '@/supabase/server'
@@ -807,6 +807,7 @@ export interface ManualNormalizedInput {
   contactPerson?: string
   taxId?: string
   businessType?: string
+  mainProducts?: string
 }
 
 export async function addSupplierNormalizedAction(input: ManualNormalizedInput, resolution?: 'skip' | 'overwrite' | null, isProfilesTab: boolean = false) {
@@ -918,6 +919,7 @@ export async function addSupplierNormalizedAction(input: ManualNormalizedInput, 
           contact_person: input.contactPerson ? input.contactPerson.trim() : null,
           tax_id: input.taxId ? input.taxId.trim() : null,
           business_type: input.businessType ? input.businessType.trim() : null,
+          main_products: input.mainProducts ? input.mainProducts.split(',').map(p => p.trim()).filter(Boolean) : [],
           created_by: userEmail
         })
         .select('id')
@@ -928,6 +930,17 @@ export async function addSupplierNormalizedAction(input: ManualNormalizedInput, 
         return { success: false, error: supplierError.message }
       }
       supplierId = supplier.id
+
+      // Log the creation
+      try {
+        await supabase
+          .from('order_activities')
+          .insert({
+            activity_text: `Supplier Profile Created: Supplier "${input.supplierName.trim()}" (ID: ${supplier.id}) was created by ${userEmail || 'System'}.`
+          })
+      } catch (logErr: any) {
+        console.error('Error logging supplier creation:', logErr.message || logErr)
+      }
     } else {
       if (existingSupplier) {
         supplierId = existingSupplier.id
@@ -944,6 +957,7 @@ export async function addSupplierNormalizedAction(input: ManualNormalizedInput, 
             contact_person: input.contactPerson ? input.contactPerson.trim() : null,
             tax_id: input.taxId ? input.taxId.trim() : null,
             business_type: input.businessType ? input.businessType.trim() : null,
+            main_products: input.mainProducts ? input.mainProducts.split(',').map(p => p.trim()).filter(Boolean) : [],
             created_by: userEmail
           })
           .select('id')
@@ -954,6 +968,17 @@ export async function addSupplierNormalizedAction(input: ManualNormalizedInput, 
           return { success: false, error: supplierError.message }
         }
         supplierId = supplier.id
+
+        // Log the creation
+        try {
+          await supabase
+            .from('order_activities')
+            .insert({
+              activity_text: `Supplier Profile Created: Supplier "${input.supplierName.trim()}" (ID: ${supplier.id}) was created by ${userEmail || 'System'}.`
+            })
+        } catch (logErr: any) {
+          console.error('Error logging supplier creation:', logErr.message || logErr)
+        }
       }
     }
 
@@ -1048,6 +1073,26 @@ export async function addSupplierNormalizedAction(input: ManualNormalizedInput, 
       }
     }
 
+    // 4. Automatically transition order stage to 'Sourcing' if it's currently at 'Order' / 'Order Intake' / 'Pending Classification'
+    if (input.orderId) {
+      try {
+        const { data: order } = await supabase
+          .from('orders')
+          .select('stage')
+          .eq('id', input.orderId)
+          .single()
+
+        if (order && (order.stage === 'Order' || order.stage === 'Order Intake' || order.stage === 'Pending Classification')) {
+          await supabase
+            .from('orders')
+            .update({ stage: 'Sourcing' })
+            .eq('id', input.orderId)
+        }
+      } catch (stageErr: any) {
+        console.error('Error updating order stage to Sourcing:', stageErr.message || stageErr)
+      }
+    }
+
     revalidatePath('/sourcing')
     revalidatePath('/orders')
     return { success: true, supplierId }
@@ -1061,6 +1106,12 @@ export async function deleteSuppliersBatchAction(ids: string[], deleteProfile: b
     const supabase = await createClient()
 
     if (deleteProfile) {
+      // Fetch names before deleting
+      const { data: suppliersToDelete } = await supabase
+        .from('suppliers')
+        .select('id, name')
+        .in('id', ids)
+
       // Delete master supplier profiles from suppliers table
       const { error: sError } = await supabase
         .from('suppliers')
@@ -1070,6 +1121,21 @@ export async function deleteSuppliersBatchAction(ids: string[], deleteProfile: b
       if (sError) {
         console.error('Error batch deleting supplier profiles:', sError.message)
         return { success: false, error: sError.message }
+      }
+
+      // Log the deletion
+      try {
+        const { data: { user } } = await supabase.auth.getUser()
+        const userEmail = user?.email || null
+
+        if (suppliersToDelete && suppliersToDelete.length > 0) {
+          const logsToInsert = suppliersToDelete.map(s => ({
+            activity_text: `Supplier Profile Deleted: Supplier "${s.name}" (ID: ${s.id}) was deleted by ${userEmail || 'System'}.`
+          }))
+          await supabase.from('order_activities').insert(logsToInsert)
+        }
+      } catch (logErr: any) {
+        console.error('Error logging supplier deletion:', logErr.message || logErr)
       }
     } else {
       // Delete bids from order_suppliers table only
@@ -1086,6 +1152,7 @@ export async function deleteSuppliersBatchAction(ids: string[], deleteProfile: b
 
     revalidatePath('/sourcing')
     revalidatePath('/orders')
+    revalidatePath('/management')
     return { success: true }
   } catch (error: any) {
     console.error('Uncaught error in batch delete:', error)
@@ -1402,6 +1469,30 @@ export async function updateSupplierProfileAction(input: UpdateSupplierProfileIn
       return { success: false, error: supplierError.message }
     }
 
+    // Get current user email and write activity log
+    try {
+      const { data: { user } } = await supabase.auth.getUser()
+      const userEmail = user?.email || null
+
+      let supplierName = input.name?.trim() || ''
+      if (!supplierName) {
+        const { data: currentSupplier } = await supabase
+          .from('suppliers')
+          .select('name')
+          .eq('id', input.supplierId)
+          .single()
+        supplierName = currentSupplier?.name || 'Unknown'
+      }
+
+      await supabase
+        .from('order_activities')
+        .insert({
+          activity_text: `Supplier Profile Updated: Supplier "${supplierName}" (ID: ${input.supplierId}) was updated by ${userEmail || 'System'}.`
+        })
+    } catch (logErr: any) {
+      console.error('Error recording supplier update log:', logErr.message || logErr)
+    }
+
     // 2. Clear old capabilities and write new ones
     const { error: deleteError } = await supabase
       .from('supplier_capabilities')
@@ -1432,6 +1523,7 @@ export async function updateSupplierProfileAction(input: UpdateSupplierProfileIn
 
     revalidatePath('/sourcing')
     revalidatePath('/audit')
+    revalidatePath('/management')
     return { success: true }
   } catch (error: any) {
     console.error('Uncaught error updating supplier profile:', error)
@@ -1453,6 +1545,53 @@ export async function confirmSupplierAndCreatePoAction(formData: FormData) {
 
     if (!orderId || !selectedSupplierId || !targetDeliveryDate || !deliveryAddress || !orderItemId) {
       return { success: false, error: 'Missing required fields' }
+    }
+
+    // Check user's linked Gmail account
+    const { data: { user } } = await supabase.auth.getUser()
+    let gmailAgentId: number | null = null
+
+    if (user) {
+      const { data: profile } = await supabase
+        .from('profiles')
+        .select('gmail_agent_id')
+        .eq('id', user.id)
+        .single()
+      
+      if (profile && profile.gmail_agent_id !== null) {
+        gmailAgentId = profile.gmail_agent_id
+      }
+    }
+
+    const useSystemGmail = formData.get('useSystemGmail') === 'true'
+    if (gmailAgentId === null) {
+      if (useSystemGmail) {
+        gmailAgentId = process.env.GMAIL_SYSTEM_AGENT_ID ? parseInt(process.env.GMAIL_SYSTEM_AGENT_ID, 10) : 1
+      } else {
+        const email = user?.email || ''
+        const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'
+        const gmailBaseUrl = process.env.GMAIL_API_BASE_URL || 'http://5.223.95.33.nip.io:3009'
+        
+        let authUrl = ''
+        try {
+          const authRes = await fetch(
+            `${gmailBaseUrl}/api/v1/auth/google/url?tenant_id=1&email=${encodeURIComponent(email)}&redirect_url=${encodeURIComponent(appUrl + '/sourcing')}`
+          )
+          if (authRes.ok) {
+            const authData = await authRes.json()
+            authUrl = authData.url
+          }
+        } catch (e) {
+          console.error('Error generating Google OAuth URL:', e)
+        }
+
+        return {
+          success: false,
+          errorType: 'GMAIL_NOT_CONNECTED',
+          authUrl,
+          error: 'Your Gmail account is not linked to Sourcing Hub.'
+        }
+      }
     }
 
     // 1. Fetch supplier name and email
@@ -1587,12 +1726,10 @@ export async function confirmSupplierAndCreatePoAction(formData: FormData) {
       }
     }
 
-    // 7. Send automated email notification via Resend
+    // 7. Send automated email notification via Gmail API
     let emailSent = false
-    const resendApiKey = process.env.RESEND_API_KEY
-    if (resendApiKey && supplier.email) {
+    if (gmailAgentId && supplier.email) {
       try {
-        const resend = new Resend(resendApiKey)
         const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'
         const fullContractUrl = contractFileUrl ? `${appUrl}${contractFileUrl}` : ''
         
@@ -1722,25 +1859,20 @@ export async function confirmSupplierAndCreatePoAction(formData: FormData) {
           </html>
         `
 
-        await resend.emails.send({
-          from: 'Sourcing Hub <onboarding@resend.dev>',
-          to: supplier.email,
+        await sendGmail({
+          agentId: gmailAgentId,
+          toEmail: supplier.email,
           subject: `[TR Sourcing] Purchase Order Issued - Order ID: ${displayOrderId}`,
           html: emailHtml,
         })
         emailSent = true
-        console.log(`PO confirmation email successfully sent to ${supplier.email}`)
+        console.log(`PO confirmation email successfully sent to ${supplier.email} via Gmail Agent ID: ${gmailAgentId}`)
       } catch (emailErr) {
-        console.error('Failed to send PO confirmation email via Resend:', emailErr)
+        console.error('Failed to send PO confirmation email via Gmail API:', emailErr)
       }
     } else {
-      if (!resendApiKey) {
-        console.warn('RESEND_API_KEY is not configured. Simulating successful email send for local testing.')
-        emailSent = true
-      } else {
-        console.warn('Supplier has no contact email. Skipping email notification.')
-        emailSent = false
-      }
+      console.warn('Supplier has no contact email. Skipping email notification.')
+      emailSent = false
     }
 
     revalidatePath('/sourcing')
@@ -1749,6 +1881,32 @@ export async function confirmSupplierAndCreatePoAction(formData: FormData) {
     return { success: true, emailSent, supplierEmail: supplier.email }
   } catch (error: any) {
     console.error('Uncaught error confirming supplier & PO:', error)
+    return { success: false, error: error.message || 'An unexpected error occurred' }
+  }
+}
+
+export async function saveGmailAgentIdAction(agentId: number) {
+  try {
+    const supabase = await createClient()
+    const { data: { user } } = await supabase.auth.getUser()
+    if (!user) {
+      return { success: false, error: 'User not authenticated' }
+    }
+
+    const { error } = await supabase
+      .from('profiles')
+      .update({ gmail_agent_id: agentId })
+      .eq('id', user.id)
+
+    if (error) {
+      console.error('Error saving gmail_agent_id:', error.message)
+      return { success: false, error: error.message }
+    }
+
+    revalidatePath('/sourcing')
+    return { success: true }
+  } catch (error: any) {
+    console.error('Uncaught error saving Gmail Agent ID:', error)
     return { success: false, error: error.message || 'An unexpected error occurred' }
   }
 }

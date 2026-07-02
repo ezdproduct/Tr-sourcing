@@ -1,6 +1,7 @@
 'use client'
 
 import React, { useState, useTransition, useEffect } from 'react'
+import { createClient as createBrowserClient } from '@/supabase/client'
 import { useSearchParams, useRouter } from 'next/navigation'
 import { Tabs, TabsContent } from '@/components/ui/tabs'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
@@ -35,6 +36,7 @@ import {
   UserX,
   Shield,
   Briefcase,
+  Database,
   Trash2,
   AlertCircle,
   Plus,
@@ -107,6 +109,7 @@ interface DatabaseProfile {
 interface ManagementClientProps {
   initialProfiles: DatabaseProfile[]
   initialSuppliers: any[]
+  initialLogs?: any[]
 }
 
 const roleOptions = [
@@ -126,9 +129,22 @@ const departmentOptions = [
   { value: 'production', label: 'Production' }
 ]
 
-export function ManagementClient({ initialProfiles, initialSuppliers }: ManagementClientProps) {
+export function ManagementClient({ initialProfiles, initialSuppliers, initialLogs = [] }: ManagementClientProps) {
   const [profiles, setProfiles] = useState<DatabaseProfile[]>(initialProfiles)
   const [suppliers, setSuppliers] = useState<any[]>(initialSuppliers)
+  const [logs, setLogs] = useState<any[]>(initialLogs)
+
+  useEffect(() => {
+    setProfiles(initialProfiles)
+  }, [initialProfiles])
+
+  useEffect(() => {
+    setSuppliers(initialSuppliers)
+  }, [initialSuppliers])
+
+  useEffect(() => {
+    setLogs(initialLogs)
+  }, [initialLogs])
   const [isPending, startTransition] = useTransition()
   const [updatingId, setUpdatingId] = useState<string | null>(null)
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
@@ -136,14 +152,42 @@ export function ManagementClient({ initialProfiles, initialSuppliers }: Manageme
 
   // Subtab States
   const searchParams = useSearchParams()
-  const initialSubtab = 'system'
-  const [subtab, setSubtab] = useState<'system'>(initialSubtab)
+  const [subtab, setSubtab] = useState<'system' | 'supplier-logs'>('system')
   const subtabParam = searchParams.get('subtab')
 
   useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    setSubtab('system')
+    if (subtabParam === 'supplier-logs') {
+      setSubtab('supplier-logs')
+    } else {
+      setSubtab('system')
+    }
   }, [subtabParam])
+
+  useEffect(() => {
+    const supabase = createBrowserClient()
+    
+    const channel = supabase
+      .channel('supplier_profile_logs_realtime')
+      .on(
+        'postgres_changes',
+        {
+          event: 'INSERT',
+          schema: 'public',
+          table: 'order_activities'
+        },
+        (payload) => {
+          const newActivity = payload.new
+          if (newActivity.activity_text && newActivity.activity_text.startsWith('Supplier Profile')) {
+            setLogs((prev) => [newActivity, ...prev])
+          }
+        }
+      )
+      .subscribe()
+
+    return () => {
+      supabase.removeChannel(channel)
+    }
+  }, [])
 
   // Supplier Search & Modal States
   const [supplierSearch, setSupplierSearch] = useState('')
@@ -405,7 +449,7 @@ export function ManagementClient({ initialProfiles, initialSuppliers }: Manageme
   const [supplierWebsite, setSupplierWebsite] = useState('')
   const [supplierContactPerson, setSupplierContactPerson] = useState('')
   const [supplierTaxId, setSupplierTaxId] = useState('')
-  const [supplierBusinessType, setSupplierBusinessType] = useState('')
+  const [supplierMainProducts, setSupplierMainProducts] = useState('')
   const [isCreatingSupplier, setIsCreatingSupplier] = useState(false)
   const [supplierError, setSupplierError] = useState<string | null>(null)
 
@@ -427,7 +471,7 @@ export function ManagementClient({ initialProfiles, initialSuppliers }: Manageme
       website: supplierWebsite,
       contactPerson: supplierContactPerson,
       taxId: supplierTaxId,
-      businessType: supplierBusinessType
+      mainProducts: supplierMainProducts
     })
 
     setIsCreatingSupplier(false)
@@ -442,7 +486,7 @@ export function ManagementClient({ initialProfiles, initialSuppliers }: Manageme
       setSupplierWebsite('')
       setSupplierContactPerson('')
       setSupplierTaxId('')
-      setSupplierBusinessType('')
+      setSupplierMainProducts('')
       setMessage({ type: 'success', text: `Supplier "${res.supplier.name}" created successfully.` })
     } else {
       setSupplierError(res.error || 'Failed to create supplier.')
@@ -798,6 +842,101 @@ export function ManagementClient({ initialProfiles, initialSuppliers }: Manageme
             </CardContent>
           </Card>
         </TabsContent>
+
+        <TabsContent value="supplier-logs" className="space-y-6 mt-0 border-none p-0 focus-visible:ring-0 focus-visible:ring-offset-0">
+          <Card className="border-slate-200/60 dark:border-slate-800 shadow-sm">
+            <CardHeader className="pb-3 border-b border-slate-100 dark:border-slate-800">
+              <div>
+                <CardTitle className="text-base font-bold flex items-center gap-2 text-slate-900 dark:text-white">
+                  <Database size={18} className="text-[#5c59e9]" />
+                  <span>Supplier Profile Change Logs</span>
+                </CardTitle>
+                <CardDescription className="text-xs mt-0.5">
+                  Audit log trail of all modifications made to supplier profiles across the platform.
+                </CardDescription>
+              </div>
+            </CardHeader>
+            <CardContent className="p-0">
+              {logs.length === 0 ? (
+                <div className="p-12 flex flex-col items-center justify-center gap-3 text-center min-h-[300px]">
+                  <Database size={36} className="text-slate-200 dark:text-slate-700" />
+                  <span className="text-xs text-slate-400 font-medium">No supplier changes recorded yet.</span>
+                </div>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left border-collapse text-xs">
+                    <thead>
+                      <tr className="bg-slate-50 dark:bg-slate-950/40 border-b border-slate-100 dark:border-slate-800 text-slate-400 dark:text-slate-500 font-extrabold uppercase tracking-wider">
+                        <th className="px-5 py-3 w-[180px]">Date/Time</th>
+                        <th className="px-5 py-3 w-[200px]">Supplier Name</th>
+                        <th className="px-5 py-3">Details</th>
+                        <th className="px-5 py-3 w-[220px]">Updated By</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-100 dark:divide-slate-800/60">
+                      {logs.map((log) => {
+                        // Parse log details
+                        // E.g. Supplier Profile Updated: Supplier "Phú Quốc Wood" (ID: xyz) was updated by admin@vietmy.com.
+                        // E.g. Supplier Profile Created: Supplier "Phú Quốc Wood" (ID: xyz) was created by admin@vietmy.com.
+                        // E.g. Supplier Profile Deleted: Supplier "Phú Quốc Wood" (ID: xyz) was deleted by admin@vietmy.com.
+                        const match = log.activity_text.match(/Supplier Profile (Created|Updated|Deleted): Supplier "([^"]+)" \(ID: ([^)]+)\) was (created|updated|deleted) by ([^\s]+)/)
+                        
+                        let supplierName = 'Unknown'
+                        let actor = 'System'
+                        let details = log.activity_text
+
+                        if (match) {
+                          supplierName = match[2]
+                          actor = match[5].replace(/\.$/, '') // strip trailing period
+                          const eventType = match[1]
+                          if (eventType === 'Created') {
+                            details = 'New supplier profile was created'
+                          } else if (eventType === 'Updated') {
+                            details = 'Supplier profile fields were updated'
+                          } else if (eventType === 'Deleted') {
+                            details = 'Supplier profile was deleted'
+                          }
+                        }
+
+                        const dateStr = new Date(log.created_at).toLocaleString('en-US', {
+                          month: 'short',
+                          day: 'numeric',
+                          year: 'numeric',
+                          hour: '2-digit',
+                          minute: '2-digit',
+                          second: '2-digit'
+                        })
+
+                        return (
+                          <tr key={log.id} className="hover:bg-slate-50/50 dark:hover:bg-slate-850/10 transition-colors">
+                            <td className="px-5 py-3 font-medium text-slate-500 dark:text-slate-400">
+                              <span className="flex items-center gap-1.5">
+                                <Calendar size={12} className="text-slate-400" />
+                                {dateStr}
+                              </span>
+                            </td>
+                            <td className="px-5 py-3 font-bold text-slate-900 dark:text-white">
+                              {supplierName}
+                            </td>
+                            <td className="px-5 py-3 text-slate-600 dark:text-slate-300 font-medium">
+                              {details}
+                            </td>
+                            <td className="px-5 py-3 text-slate-550 dark:text-slate-400 font-semibold">
+                              <span className="flex items-center gap-1.5">
+                                <User size={12} className="text-slate-400" />
+                                {actor}
+                              </span>
+                            </td>
+                          </tr>
+                        )
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+        </TabsContent>
       </Tabs>
 
       {/* Delete User Confirmation Modal */}
@@ -1076,24 +1215,18 @@ export function ManagementClient({ initialProfiles, initialSuppliers }: Manageme
                 </div>
               </div>
 
-              {/* Business Type / Tax ID (Grid) */}
+              {/* Main Product / Tax ID (Grid) */}
               <div className="grid grid-cols-2 gap-3.5">
                 <div className="space-y-1.5">
-                  <Label htmlFor="supplier-business" className="text-xs font-semibold text-slate-700 dark:text-slate-300">
-                    Business Type
+                  <Label htmlFor="supplier-main-products" className="text-xs font-semibold text-slate-700 dark:text-slate-300">
+                    Main Product
                   </Label>
-                  <select
-                    id="supplier-business"
-                    value={supplierBusinessType}
-                    onChange={e => setSupplierBusinessType(e.target.value)}
-                    className="flex w-full h-9 rounded-xl border border-slate-200 bg-white/50 px-3 py-1 text-xs shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[#5c59e9] dark:border-slate-800 dark:bg-slate-950 cursor-pointer"
-                  >
-                    <option value="">Select Business Type</option>
-                    <option value="Manufacturer">Manufacturer</option>
-                    <option value="Distributor">Distributor</option>
-                    <option value="Wholesaler">Wholesaler</option>
-                    <option value="Agent / Trader">Agent / Trader</option>
-                  </select>
+                  <Input
+                    id="supplier-main-products"
+                    value={supplierMainProducts}
+                    onChange={e => setSupplierMainProducts(e.target.value)}
+                    className="text-xs h-9 rounded-xl border-slate-200/80 bg-white/50 focus:bg-white dark:border-slate-800 dark:bg-slate-955/50"
+                  />
                 </div>
                 <div className="space-y-1.5">
                   <Label htmlFor="supplier-tax" className="text-xs font-semibold text-slate-700 dark:text-slate-300">

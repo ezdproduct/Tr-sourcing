@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/supabase/server'
 import crypto from 'crypto'
-import { Resend } from 'resend'
+import { sendGmail } from '@/lib/gmail'
 
 const SECRET = process.env.NEXTAUTH_SECRET || process.env.R2_SECRET_ACCESS_KEY || 'sourcing-hub-secret-key-123'
 
@@ -329,9 +329,7 @@ export async function GET(req: NextRequest) {
             prodName = items?.[0]?.item_name || 'Goods'
           }
 
-          const resendApiKey = process.env.RESEND_API_KEY
-          if (resendApiKey) {
-            const resend = new Resend(resendApiKey)
+          const systemAgentId = process.env.GMAIL_SYSTEM_AGENT_ID ? parseInt(process.env.GMAIL_SYSTEM_AGENT_ID, 10) : 1
             const displayOrderId = order.order_code || `PO-${orderId.substring(0, 8).toUpperCase()}`
             const secureToken = generateToken(orderId)
             const confirmPoActionUrl = `${appUrl}/api/orders/update-progress?token=${secureToken}&action=confirm_po&orderItemId=${orderItemId || ''}`
@@ -437,13 +435,12 @@ export async function GET(req: NextRequest) {
               </html>
             `
 
-            await resend.emails.send({
-              from: 'Sourcing Hub <onboarding@resend.dev>',
-              to: supplier.email,
+            await sendGmail({
+              agentId: systemAgentId,
+              toEmail: supplier.email,
               subject: `[TR Sourcing] Production Started - Order ID: ${displayOrderId}`,
               html: emailHtml,
             })
-          }
         }
       }
     }
