@@ -121,7 +121,7 @@ export function OrderSidebar({
                     {(() => {
                       const timelines = order.order_stage_timelines
                       if (!timelines) return null
-                      const stages = ['Sourcing', 'Create PO']
+                      const stages = ['Sourcing', 'Create PO', 'Supplier Production']
                       const isPending = stages.some(stageName => {
                         const match = timelines.find((t: any) => t.stage_name.toLowerCase() === stageName.toLowerCase())
                         return !match || !match.estimated_start_date || !match.estimated_end_date

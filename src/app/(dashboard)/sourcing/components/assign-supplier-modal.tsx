@@ -280,13 +280,13 @@ export function AssignSupplierModal({
     setErrorMessage(null)
 
     // Construct bid array
-    const bids: Array<{ orderItemId: string; quotedPrice: number; leadTimeDays: number }> = []
+    const bids: Array<{ orderItemId: string; quotedPrice: number; leadTimeDays: string }> = []
     if (orderId) {
       const matchedSupplier = uniqueSuppliers.find(sup => sup.name === supplierName)
       for (const [itemId, bidVal] of Object.entries(itemBids)) {
         if (bidVal.checked) {
           let priceNum = parseFloat(bidVal.price)
-          let leadTimeNum = parseInt(bidVal.leadTime)
+          let leadTimeStr = bidVal.leadTime ? String(bidVal.leadTime) : ''
 
           // Lookup capability
           let cap: any = null
@@ -297,7 +297,7 @@ export function AssignSupplierModal({
           }
 
           // Auto lookup capability price & lead time if left empty and supplier match exists
-          if (!cap && (isNaN(priceNum) || isNaN(leadTimeNum)) && matchedSupplier) {
+          if (!cap && (isNaN(priceNum) || !leadTimeStr) && matchedSupplier) {
             const orderItem = selectedOrder?.order_items?.find(item => item.id === itemId)
             if (orderItem) {
               cap = (matchedSupplier.supplier_capabilities as any[])?.find((c: any) => 
@@ -308,13 +308,13 @@ export function AssignSupplierModal({
 
           if (cap) {
             if (isNaN(priceNum)) priceNum = parseFloat(cap.target_price || 0)
-            if (isNaN(leadTimeNum)) leadTimeNum = parseInt(cap.lead_time_days || 0)
+            if (!leadTimeStr) leadTimeStr = cap.lead_time_days || ''
           }
 
           bids.push({
             orderItemId: itemId,
             quotedPrice: isNaN(priceNum) ? 0 : priceNum,
-            leadTimeDays: isNaN(leadTimeNum) ? 0 : leadTimeNum
+            leadTimeDays: leadTimeStr
           })
         }
       }
@@ -800,7 +800,6 @@ export function AssignSupplierModal({
                 <Input
                   id="supplier-name"
                   type="text"
-                  placeholder="e.g. Binh Duong Woodworks Ltd"
                   required
                   value={manualForm.supplierName}
                   onChange={e => setManualForm(f => ({ ...f, supplierName: e.target.value }))}
@@ -817,7 +816,6 @@ export function AssignSupplierModal({
                     <Input
                       id="supplier-email"
                       type="email"
-                      placeholder="e.g. sales@binhduongwood.com"
                       value={manualForm.email}
                       onChange={e => setManualForm(f => ({ ...f, email: e.target.value }))}
                       className="bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 text-xs rounded-xl"
@@ -828,7 +826,6 @@ export function AssignSupplierModal({
                     <Input
                       id="supplier-phone"
                       type="text"
-                      placeholder="e.g. +84 908 123 456"
                       value={manualForm.phone}
                       onChange={e => setManualForm(f => ({ ...f, phone: e.target.value }))}
                       className="bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 text-xs rounded-xl"
@@ -841,7 +838,6 @@ export function AssignSupplierModal({
                   <Input
                     id="supplier-address"
                     type="text"
-                    placeholder="e.g. Lot 45, VSIP II Industrial Zone, Binh Duong"
                     value={manualForm.address}
                     onChange={e => setManualForm(f => ({ ...f, address: e.target.value }))}
                     className="bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 text-xs rounded-xl"
@@ -853,8 +849,7 @@ export function AssignSupplierModal({
                     <Label htmlFor="supplier-website" className="text-xs font-semibold text-slate-700 dark:text-slate-300">Website URL</Label>
                     <Input
                       id="supplier-website"
-                      type="url"
-                      placeholder="e.g. https://binhduongwood.com"
+                      type="text"
                       value={manualForm.website}
                       onChange={e => setManualForm(f => ({ ...f, website: e.target.value }))}
                       className="bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 text-xs rounded-xl"
@@ -865,7 +860,6 @@ export function AssignSupplierModal({
                     <Input
                       id="supplier-contact"
                       type="text"
-                      placeholder="e.g. Mr. Nguyen Van Hung (Sales Manager)"
                       value={manualForm.contactPerson}
                       onChange={e => setManualForm(f => ({ ...f, contactPerson: e.target.value }))}
                       className="bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 text-xs rounded-xl"
@@ -879,7 +873,6 @@ export function AssignSupplierModal({
                     <Input
                       id="supplier-taxid"
                       type="text"
-                      placeholder="e.g. 3701234567"
                       value={manualForm.taxId}
                       onChange={e => setManualForm(f => ({ ...f, taxId: e.target.value }))}
                       className="bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 text-xs rounded-xl"
@@ -890,7 +883,6 @@ export function AssignSupplierModal({
                     <Input
                       id="supplier-type"
                       type="text"
-                      placeholder="e.g. Joint Stock Co, Ltd, Manufacturer, Trader"
                       value={manualForm.businessType}
                       onChange={e => setManualForm(f => ({ ...f, businessType: e.target.value }))}
                       className="bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 text-xs rounded-xl"
@@ -1087,7 +1079,6 @@ export function AssignSupplierModal({
                           <Input
                             type="text"
                             required
-                            placeholder="e.g. Dining Chair"
                             value={cap.productName}
                             onChange={e => handleUpdateCapabilityRow(cap.id, 'productName', e.target.value)}
                             className="h-8 text-xs rounded-lg"
@@ -1099,7 +1090,6 @@ export function AssignSupplierModal({
                             type="number"
                             required
                             step="0.01"
-                            placeholder="e.g. 45.00"
                             value={cap.targetPrice}
                             onChange={e => handleUpdateCapabilityRow(cap.id, 'targetPrice', e.target.value)}
                             className="h-8 text-xs rounded-lg"
@@ -1111,7 +1101,6 @@ export function AssignSupplierModal({
                           <Label className="text-[10px] font-bold text-slate-400 uppercase">Lead Time (Days)</Label>
                           <Input
                             type="number"
-                            placeholder="e.g. 30"
                             value={cap.leadTimeDays || ''}
                             onChange={e => handleUpdateCapabilityRow(cap.id, 'leadTimeDays', e.target.value)}
                             className="h-8 text-xs rounded-lg"
@@ -1121,7 +1110,6 @@ export function AssignSupplierModal({
                           <Label className="text-[10px] font-bold text-slate-400 uppercase">MOQ</Label>
                           <Input
                             type="number"
-                            placeholder="e.g. 200"
                             value={cap.moq || ''}
                             onChange={e => handleUpdateCapabilityRow(cap.id, 'moq', e.target.value)}
                             className="h-8 text-xs rounded-lg"
@@ -1131,7 +1119,6 @@ export function AssignSupplierModal({
                           <Label className="text-[10px] font-bold text-slate-400 uppercase">SKU / Code</Label>
                           <Input
                             type="text"
-                            placeholder="e.g. WD-CH-01"
                             value={cap.sku || ''}
                             onChange={e => handleUpdateCapabilityRow(cap.id, 'sku', e.target.value)}
                             className="h-8 text-xs rounded-lg"
@@ -1143,7 +1130,6 @@ export function AssignSupplierModal({
                           <Label className="text-[10px] font-bold text-slate-400 uppercase">Monthly Capacity</Label>
                           <Input
                             type="text"
-                            placeholder="e.g. 5,000 units"
                             value={cap.monthlyCapacity || ''}
                             onChange={e => handleUpdateCapabilityRow(cap.id, 'monthlyCapacity', e.target.value)}
                             className="h-8 text-xs rounded-lg"
@@ -1153,7 +1139,6 @@ export function AssignSupplierModal({
                           <Label className="text-[10px] font-bold text-slate-400 uppercase">Description / Material specs</Label>
                           <Input
                             type="text"
-                            placeholder="e.g. Solid rubberwood, fabric seat cover"
                             value={cap.description || ''}
                             onChange={e => handleUpdateCapabilityRow(cap.id, 'description', e.target.value)}
                             className="h-8 text-xs rounded-lg"

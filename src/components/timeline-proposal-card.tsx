@@ -27,7 +27,7 @@ interface TimelineProposalCardProps {
 }
 
 const DEPT_STAGES_MAP: Record<string, string[]> = {
-  sourcing: ['Sourcing', 'Create PO'],
+  sourcing: ['Sourcing', 'Create PO', 'Supplier Production'],
   audit: ['QC'],
   inspection: ['Inspection'],
   logistics: ['Logistic'],
@@ -111,7 +111,7 @@ export function TimelineProposalCard({
           <span>Timeline Proposal Required</span>
         </CardTitle>
         <CardDescription className="text-xs text-slate-500">
-          Propose target timelines for your department's stages of order <span className="font-semibold text-slate-700 dark:text-slate-300">{orderCode}</span>. Projections must fall between the Order Date ({orderDate}) and Estimated Delivery Date ({estimatedDeliveryDate}).
+          Propose target timelines for your department&apos;s stages of order <span className="font-semibold text-slate-700 dark:text-slate-300">{orderCode}</span>. Projections must fall between the Order Date ({orderDate}) and Estimated Delivery Date ({estimatedDeliveryDate}).
         </CardDescription>
       </CardHeader>
       

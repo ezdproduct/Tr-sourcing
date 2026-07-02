@@ -112,7 +112,7 @@ export interface DatabaseOrder {
     supplier_id?: string | null
     suppliers?: SupplierDetails | null
     quoted_price?: string | null
-    lead_time_days?: number | null
+    lead_time_days?: string | number | null
     order_items?: {
       item_name: string
     } | null
@@ -295,9 +295,9 @@ export function OrdersClient({ initialOrders }: OrdersClientProps) {
     const end = new Date(endDateStr).getTime()
     if (isNaN(start) || isNaN(end) || end < start) return []
     
-    const stageNames = ['Order', 'Sourcing', 'QC', 'Create PO', 'Inspection', 'Logistic', 'Production', 'Order Done']
+    const stageNames = ['Order', 'Sourcing', 'QC', 'Create PO', 'Supplier Production', 'Inspection', 'Logistic', 'Production', 'Order Done']
     const totalMs = end - start
-    const chunkMs = totalMs / 8
+    const chunkMs = totalMs / 9
     
     return stageNames.map((name, idx) => {
       const sTime = start + chunkMs * idx
@@ -481,7 +481,7 @@ export function OrdersClient({ initialOrders }: OrdersClientProps) {
           estimatedEndDate: t.estimated_end_date ? new Date(t.estimated_end_date).toISOString().split('T')[0] : ''
         }
       })
-      const stageOrder = ['Order', 'Sourcing', 'QC', 'Create PO', 'Inspection', 'Logistic', 'Production', 'Order Done']
+      const stageOrder = ['Order', 'Sourcing', 'QC', 'Create PO', 'Supplier Production', 'Inspection', 'Logistic', 'Production', 'Order Done']
       formatted.sort((a, b) => stageOrder.indexOf(a.stageName) - stageOrder.indexOf(b.stageName))
       setEditStageTimelines(formatted)
     } else {
@@ -1032,6 +1032,7 @@ export function OrdersClient({ initialOrders }: OrdersClientProps) {
                         { name: 'Sourcing' },
                         { name: 'QC' },
                         { name: 'Create PO' },
+                        { name: 'Supplier Production' },
                         { name: 'Inspection' },
                         { name: 'Logistic' },
                         { name: 'Production' },
@@ -1044,11 +1045,12 @@ export function OrdersClient({ initialOrders }: OrdersClientProps) {
                         if (s.includes('sourcing')) return 1
                         if (s.includes('audit') || s.includes('qc')) return 2
                         if (s.includes('ready') || s.includes('po')) return 3
-                        if (s.includes('inspection passed') || s.includes('inspection_passed')) return 5
-                        if (s.includes('inspection') || s.includes('port')) return 4
-                        if (s.includes('logistics') || s.includes('inbound') || s.includes('logistic')) return 5
-                        if (s.includes('production') || s.includes('run') || s.includes('stock') || s.includes('assemble')) return 6
-                        if (s.includes('closed') || s.includes('completed') || s.includes('done')) return 7
+                        if (s.includes('supplier production') || s.includes('supplier_production')) return 4
+                        if (s.includes('inspection passed') || s.includes('inspection_passed')) return 6
+                        if (s.includes('inspection') || s.includes('port')) return 5
+                        if (s.includes('logistics') || s.includes('inbound') || s.includes('logistic')) return 6
+                        if (s.includes('production') || s.includes('run') || s.includes('stock') || s.includes('assemble')) return 7
+                        if (s.includes('closed') || s.includes('completed') || s.includes('done')) return 8
                         return 1
                       }
                       
@@ -1116,17 +1118,14 @@ export function OrdersClient({ initialOrders }: OrdersClientProps) {
                               const isActive = idx === activeIdx
                               
                               const timelines = selectedOrder.order_stage_timelines
-                              const showTimelineDates = timelines && 
-                                timelines.length === 8 &&
-                                timelines.every(t => t.estimated_start_date && t.estimated_end_date)
-
-                              const matchingTimeline = (showTimelineDates && timelines) ? timelines.find(
+                              
+                              const matchingTimeline = timelines ? timelines.find(
                                 t => t.stage_name.toLowerCase() === stage.name.toLowerCase()
                               ) : null
 
                               return (
                                 <div key={idx} className="relative flex flex-col items-center z-10 w-20 pt-2">
-                                  {matchingTimeline && (
+                                  {matchingTimeline && matchingTimeline.estimated_start_date && matchingTimeline.estimated_end_date && (
                                     <span className="absolute -top-4 text-[9px] font-extrabold text-indigo-600 dark:text-indigo-405 whitespace-nowrap bg-indigo-50/80 dark:bg-indigo-950/80 px-1 py-0.5 rounded border border-indigo-100/50 dark:border-indigo-900/50 scale-90">
                                       {formatDateShort(matchingTimeline.estimated_start_date)} - {formatDateShort(matchingTimeline.estimated_end_date)}
                                     </span>

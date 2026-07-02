@@ -77,8 +77,8 @@ export async function createOrderAction(input: CreateOrderInput) {
         .update({ stage: 'Order' })
         .eq('id', rpcResult.order_id)
 
-      // Automatically initialize 8 stage timelines
-      const stageNames = ['Order', 'Sourcing', 'QC', 'Create PO', 'Inspection', 'Logistic', 'Production', 'Order Done']
+      // Automatically initialize 9 stage timelines
+      const stageNames = ['Order', 'Sourcing', 'QC', 'Create PO', 'Supplier Production', 'Inspection', 'Logistic', 'Production', 'Order Done']
       const timelinesToInsert = stageNames.map((name) => {
         let estStart: string | null = null
         let estEnd: string | null = null
@@ -242,14 +242,14 @@ export async function deleteOrderAction(orderId: string) {
   try {
     const supabase = await createClient()
 
-    // Unassign related supplier bids first so they are preserved
-    const { error: unassignError } = await supabase
+    // Delete related supplier bids from order_suppliers
+    const { error: deleteBidsError } = await supabase
       .from('order_suppliers')
-      .update({ order_id: null, order_item_id: null })
+      .delete()
       .eq('order_id', orderId)
 
-    if (unassignError) {
-      console.warn('Could not unassign some supplier bids:', unassignError.message)
+    if (deleteBidsError) {
+      console.warn('Could not delete some supplier bids:', deleteBidsError.message)
     }
 
     const { error } = await supabase
@@ -277,14 +277,14 @@ export async function deleteOrdersBatchAction(orderIds: string[]) {
   try {
     const supabase = await createClient()
 
-    // Unassign related supplier bids first so they are preserved
-    const { error: unassignError } = await supabase
+    // Delete related supplier bids from order_suppliers
+    const { error: deleteBidsError } = await supabase
       .from('order_suppliers')
-      .update({ order_id: null, order_item_id: null })
+      .delete()
       .in('order_id', orderIds)
 
-    if (unassignError) {
-      console.warn('Could not unassign some supplier bids batch:', unassignError.message)
+    if (deleteBidsError) {
+      console.warn('Could not delete some supplier bids batch:', deleteBidsError.message)
     }
 
     const { error } = await supabase

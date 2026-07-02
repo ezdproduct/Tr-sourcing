@@ -35,7 +35,7 @@ import {
 interface SupplierBid {
   id: string
   quoted_price: number
-  lead_time_days: number
+  lead_time_days: string | number
   is_shortlisted: boolean
   created_at: string
   created_by: string | null
@@ -151,8 +151,11 @@ export function SourcingPerformance({ bids, masterSuppliers }: SourcingPerforman
       if (b.is_shortlisted) {
         agent.shortlistedBids += 1
       }
-      if (typeof b.lead_time_days === 'number' && b.lead_time_days > 0) {
-        agent.avgLeadTimeSum += b.lead_time_days
+      const parsedLeadTime = typeof b.lead_time_days === 'number' 
+        ? b.lead_time_days 
+        : parseInt(String(b.lead_time_days || '').match(/\d+/)?.[0] || '0', 10)
+      if (parsedLeadTime > 0) {
+        agent.avgLeadTimeSum += parsedLeadTime
         agent.avgLeadTimeCount += 1
       }
       if (typeof b.quoted_price === 'number' && b.quoted_price > 0) {

@@ -61,11 +61,12 @@ export function ProductionClient({ initialBatches, initialOrders }: ProductionCl
   const subtabParam = searchParams.get('subtab')
 
   useEffect(() => {
-    if (subtabParam === 'overview' || subtabParam === 'workplace') {
-      setSubtab(subtabParam)
-    } else {
-      setSubtab('overview')
-    }
+    const target = (subtabParam === 'overview' || subtabParam === 'workplace') ? subtabParam : 'overview'
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    setSubtab(prev => {
+      if (prev !== target) return target
+      return prev
+    })
   }, [subtabParam])
 
   const handleTabChange = (val: 'overview' | 'workplace') => {
@@ -85,8 +86,9 @@ export function ProductionClient({ initialBatches, initialOrders }: ProductionCl
   const [startModalOpen, setStartModalOpen] = useState(false)
   const [batchToStart, setBatchToStart] = useState<DatabaseProductionBatch | null>(null)
 
-  const [viewMode, setViewMode] = useState<'all' | 'batch'>('all')
+  const [viewMode, setViewMode] = useState<'all' | 'batch' | 'order'>('all')
   const [selectedBatchId, setSelectedBatchId] = useState('')
+  const [selectedOrderId, setSelectedOrderId] = useState('')
   const [sidebarBatchSearch, setSidebarBatchSearch] = useState('')
 
   const filteredBatches = initialBatches.filter(batch => {
@@ -95,6 +97,23 @@ export function ProductionClient({ initialBatches, initialOrders }: ProductionCl
     return code.includes(query)
   })
   const selectedBatch = initialBatches.find(b => b.id === selectedBatchId) || null
+
+  const ordersWithoutBatch = initialOrders.filter(order => {
+    const isCompleted = order.stage.toLowerCase() === 'order done' || order.stage.toLowerCase() === 'delivered / completed'
+    if (isCompleted) return false
+
+    // Only allow 'MATERIAL' or 'MIXED' type orders for production setup
+    const type = (order.order_type || '').toUpperCase()
+    const isMaterialOrMixed = type === 'MATERIAL' || type === 'MIXED'
+    if (!isMaterialOrMixed) return false
+
+    const hasBatch = initialBatches.some(b => b.order_id === order.id)
+    if (hasBatch) return false
+
+    const query = sidebarBatchSearch.toLowerCase()
+    const code = (order.order_code || '').toLowerCase()
+    return code.includes(query)
+  })
 
   const isWriteAllowed = userRole === 'admin' || userRole === 'boss' || userDepartment === 'production' || userDepartment === 'sourcing'
   const isStaffOrAdmin = userRole === 'staff' || userRole === 'admin'
@@ -416,9 +435,67 @@ export function ProductionClient({ initialBatches, initialOrders }: ProductionCl
                 </div>
               </div>
               <div className="flex-1 overflow-y-auto">
+                {/* 1. Timeline Setup Section */}
+                <div className="px-2.5 py-2 bg-slate-50/50 dark:bg-slate-900/10 border-b border-slate-100 dark:border-slate-800">
+                  <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Awaiting Timeline Setup</span>
+                </div>
+                {ordersWithoutBatch.length === 0 ? (
+                  <div className="p-3 text-center text-[11px] text-slate-400 italic">
+                    No orders awaiting setup.
+                  </div>
+                ) : (
+                  <ul className="divide-y divide-slate-100 dark:divide-slate-800 border-b border-slate-100 dark:border-slate-800">
+                    {ordersWithoutBatch.map(order => {
+                      const code = order.order_code || 'ORD'
+                      const isSelected = viewMode === 'order' && selectedOrderId === order.id
+                      return (
+                        <li key={order.id}>
+                          <button
+                            id={`order-select-${order.id}`}
+                            onClick={() => {
+                              if (isSelected) {
+                                setSelectedOrderId('')
+                                setViewMode('all')
+                              } else {
+                                setSelectedOrderId(order.id)
+                                setSelectedBatchId('')
+                                setViewMode('order')
+                              }
+                            }}
+                            className={`w-full text-left px-2.5 py-3 flex items-center justify-between gap-1 transition-colors cursor-pointer ${
+                              isSelected
+                                ? 'bg-indigo-50 dark:bg-indigo-950/30'
+                                : 'hover:bg-slate-50/80 dark:hover:bg-slate-900/20'
+                            }`}
+                          >
+                            <div className="flex items-center gap-2 min-w-0">
+                              <FileText size={13} className={isSelected ? 'text-indigo-600 dark:text-indigo-400' : 'text-slate-400 dark:text-slate-500'} />
+                              <span className={`text-xs font-bold truncate font-mono ${
+                                isSelected
+                                  ? 'text-indigo-700 dark:text-indigo-400'
+                                  : 'text-slate-800 dark:text-slate-200'
+                              }`}>
+                                {code}
+                              </span>
+                              <span className="ml-1 inline-flex items-center px-1.5 py-0.5 rounded text-[8px] font-extrabold uppercase bg-amber-50 text-amber-700 border border-amber-200 dark:bg-amber-955/20 dark:text-amber-400 shrink-0 select-none">
+                                Setup
+                              </span>
+                            </div>
+                            <ChevronRight size={12} className={isSelected ? 'text-indigo-500' : 'text-slate-300'} />
+                          </button>
+                        </li>
+                      )
+                    })}
+                  </ul>
+                )}
+
+                {/* 2. Production Batches Section */}
+                <div className="px-2.5 py-2 bg-slate-50/50 dark:bg-slate-900/10 border-b border-slate-100 dark:border-slate-800">
+                  <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">Active Production Runs</span>
+                </div>
                 {filteredBatches.length === 0 ? (
-                  <div className="p-3 text-center text-xs text-slate-400">
-                    No batches found.
+                  <div className="p-3 text-center text-[11px] text-slate-400 italic">
+                    No active runs logged.
                   </div>
                 ) : (
                   <ul className="divide-y divide-slate-100 dark:divide-slate-800">
@@ -435,6 +512,7 @@ export function ProductionClient({ initialBatches, initialOrders }: ProductionCl
                                 setViewMode('all')
                               } else {
                                 setSelectedBatchId(batch.id)
+                                setSelectedOrderId('')
                                 setViewMode('batch')
                               }
                             }}
@@ -484,19 +562,25 @@ export function ProductionClient({ initialBatches, initialOrders }: ProductionCl
             <div className="flex flex-col h-full overflow-y-auto p-3 space-y-6">
               {(() => {
                 if (viewMode === 'all') return null
-                const selectedBatch = initialBatches.find(b => b.id === selectedBatchId)
-                if (!selectedBatch) return null
-                const selectedOrderOfBatch = initialOrders.find(o => o.id === selectedBatch.order_id)
-                if (!selectedOrderOfBatch) return null
+                let orderToRender = null
+                if (viewMode === 'batch') {
+                  const selectedBatch = initialBatches.find(b => b.id === selectedBatchId)
+                  if (selectedBatch) {
+                    orderToRender = initialOrders.find(o => o.id === selectedBatch.order_id)
+                  }
+                } else if (viewMode === 'order') {
+                  orderToRender = initialOrders.find(o => o.id === selectedOrderId)
+                }
+                if (!orderToRender) return null
 
                 return (
                   <TimelineProposalCard
-                    orderId={selectedOrderOfBatch.id}
-                    orderCode={selectedOrderOfBatch.order_code}
-                    orderDate={selectedOrderOfBatch.order_date || ''}
-                    estimatedDeliveryDate={selectedOrderOfBatch.estimated_delivery_date || ''}
+                    orderId={orderToRender.id}
+                    orderCode={orderToRender.order_code}
+                    orderDate={orderToRender.order_date || ''}
+                    estimatedDeliveryDate={orderToRender.estimated_delivery_date || ''}
                     userDepartment="production"
-                    existingTimelines={selectedOrderOfBatch.order_stage_timelines || []}
+                    existingTimelines={orderToRender.order_stage_timelines || []}
                   />
                 )
               })()}

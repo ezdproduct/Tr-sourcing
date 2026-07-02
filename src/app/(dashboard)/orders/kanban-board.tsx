@@ -19,7 +19,8 @@ import {
   TrendingUp,
   FolderOpen,
   FileText,
-  CheckCircle2
+  CheckCircle2,
+  Factory
 } from 'lucide-react'
 
 // Define Kanban Columns
@@ -51,6 +52,13 @@ const COLUMNS = [
     colorClass: 'border-t-pink-500 bg-pink-50/50 dark:bg-pink-950/10 hover:bg-pink-100/30 dark:hover:bg-pink-950/20 text-pink-700 dark:text-pink-400 border-pink-100 dark:border-pink-900/40',
     badgeClass: 'bg-pink-100 text-pink-800 dark:bg-pink-950 dark:text-pink-300',
     icon: FileText
+  },
+  {
+    key: 'SupplierProduction',
+    label: 'Supplier Production',
+    colorClass: 'border-t-orange-500 bg-orange-50/50 dark:bg-orange-950/10 hover:bg-orange-100/30 dark:hover:bg-orange-950/20 text-orange-700 dark:text-orange-400 border-orange-100 dark:border-orange-900/40',
+    badgeClass: 'bg-orange-100 text-orange-800 dark:bg-orange-950 dark:text-orange-300',
+    icon: Factory
   },
   {
     key: 'Inspection',
@@ -92,6 +100,7 @@ export function getColumnKey(stage: string): string {
   if (s.includes('inspection passed') || s.includes('inspection_passed')) return 'Logistic'
   if (s.includes('inspection') || s.includes('port')) return 'Inspection'
   if (s.includes('logistics') || s.includes('inbound') || s.includes('logistic')) return 'Logistic'
+  if (s.includes('supplier production') || s.includes('supplier_production')) return 'SupplierProduction'
   if (s.includes('production') || s.includes('run') || s.includes('stock') || s.includes('assemble')) return 'Production'
   if (s.includes('closed') || s.includes('completed') || s.includes('done')) return 'Done'
   return 'Order' // default fallback
@@ -123,6 +132,7 @@ export function KanbanBoard({ orders, isStaffOrAdmin, onCardClick, onStageChange
     try {
       let dbStage = newStage
       if (newStage === 'CreatePO') dbStage = 'Ready for PO'
+      else if (newStage === 'SupplierProduction') dbStage = 'Supplier Production'
       else if (newStage === 'Done') dbStage = 'Closed'
       await onStageChange(orderId, dbStage)
     } finally {
@@ -179,6 +189,7 @@ export function KanbanBoard({ orders, isStaffOrAdmin, onCardClick, onStageChange
     Sourcing: [],
     QC: [],
     CreatePO: [],
+    SupplierProduction: [],
     Inspection: [],
     Logistic: [],
     Production: [],

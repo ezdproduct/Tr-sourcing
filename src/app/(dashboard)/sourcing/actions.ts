@@ -576,7 +576,8 @@ export async function bulkImportSuppliersAction(
             .insert({
               supplier_id: supplierId,
               product_name: row.productName.trim(),
-              target_price: row.quotedPrice || 0
+              target_price: row.quotedPrice || 0,
+              lead_time_days: row.leadTime ? String(row.leadTime) : null
             })
 
           if (!capError) {
@@ -781,7 +782,7 @@ export async function bulkImportSuppliersAction(
 export interface ManualNormalizedItemBid {
   orderItemId: string
   quotedPrice: number
-  leadTimeDays: number
+  leadTimeDays: string | number
 }
 
 export interface ManualNormalizedCapability {

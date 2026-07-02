@@ -71,13 +71,13 @@ export async function GET(req: NextRequest) {
     
     // 2. Perform DB mutations depending on action type
     if (action === 'confirm_deposit') {
-      actionDescription = 'Confirmed Deposit Received & Started Production'
+      actionDescription = 'Confirmed Deposit Received & Started Supplier Production'
       
-      // Update orders stage to 'Production' and log actual deposit date
+      // Update orders stage to 'Supplier Production' and log actual deposit date
       const { error: updateError } = await supabase
         .from('orders')
         .update({
-          stage: 'Production',
+          stage: 'Supplier Production',
           deposit_confirmed_at: new Date().toISOString()
         })
         .eq('id', orderId)
@@ -91,7 +91,7 @@ export async function GET(req: NextRequest) {
         .from('order_activities')
         .insert({
           order_id: orderId,
-          activity_text: 'Automated System: Supplier confirmed deposit received. Production stage started.'
+          activity_text: 'Automated System: Supplier confirmed deposit received. Supplier Production stage started.'
         })
 
       if (activityError) {

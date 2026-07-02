@@ -255,7 +255,9 @@ async function DashboardLoader({ searchParams }: { searchParams: SearchParams | 
     'Logistic',
     'Production',
     'PRODUCTION IN PROGRESS',
-    'MATERIALS IN STOCK'
+    'MATERIALS IN STOCK',
+    'Supplier Production',
+    'SUPPLIER PRODUCTION'
   ]
   
   const totalActiveOrders = filteredOrders.filter(o => !['closed', 'completed', 'done', 'Order Done'].includes(o.stage.toLowerCase())).length

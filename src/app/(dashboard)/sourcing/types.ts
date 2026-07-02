@@ -24,7 +24,7 @@ export interface DatabaseSupplier {
   order_item_id: string | null
   supplier_name: string
   quoted_price: number
-  lead_time_days: number
+  lead_time_days: string | number
   is_shortlisted: boolean
   created_at: string
   created_by?: string | null

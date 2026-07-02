@@ -143,7 +143,7 @@ export interface DatabaseSupplier {
   order_item_id: string | null
   supplier_name: string
   quoted_price: number
-  lead_time_days: number
+  lead_time_days: string | number
   is_shortlisted: boolean
   created_at: string
   created_by?: string | null
@@ -182,6 +182,14 @@ export function getOrderTypeFromItems(items?: DatabaseOrderItem[]): string {
   if (hasMaterial) return 'MATERIAL'
   if (hasFinishedGoods) return 'PRODUCT'
   return 'PENDING'
+}
+
+export function parseLeadTimeToNumber(lead: any): number {
+  if (lead == null) return Infinity
+  const num = Number(lead)
+  if (!isNaN(num)) return num
+  const match = String(lead).match(/\d+/)
+  return match ? parseInt(match[0], 10) : Infinity
 }
 
 export function SourcingClient({ initialOrders, initialSuppliers, initialAudits = [] }: SourcingClientProps) {
@@ -561,7 +569,7 @@ export function SourcingClient({ initialOrders, initialSuppliers, initialAudits 
   const [profileOrderDetails, setProfileOrderDetails] = useState<{
     orderCode: string
     quotedPrice: number
-    leadTimeDays: number
+    leadTimeDays: string | number
   } | null>(null)
   
   // List of capabilities: id, productName, targetPrice
@@ -845,16 +853,20 @@ export function SourcingClient({ initialOrders, initialSuppliers, initialAudits 
   const bestPrice = orderSuppliers.length > 0
     ? Math.min(...orderSuppliers.map(s => Number(s.quoted_price)))
     : null
-  const bestLeadTime = orderSuppliers.length > 0
-    ? Math.min(...orderSuppliers.map(s => s.lead_time_days))
-    : null
+  const bestLeadTimeVal = orderSuppliers.length > 0
+    ? Math.min(...orderSuppliers.map(s => parseLeadTimeToNumber(s.lead_time_days)).filter(n => n !== Infinity))
+    : Infinity
+  const bestLeadTime = bestLeadTimeVal === Infinity ? null : bestLeadTimeVal
 
   // ─── All Suppliers metrics ────────────────────────────────────────────────────
   const activeBids = suppliers.filter(s => s.is_bid)
   const totalEngaged = activeBids.length
   const totalShortlisted = activeBids.filter(s => s.is_shortlisted).length
-  const avgLeadTime = activeBids.length > 0
-    ? Math.round(activeBids.reduce((sum, s) => sum + s.lead_time_days, 0) / activeBids.length)
+  const parsedLeadTimes = activeBids
+    .map(s => parseLeadTimeToNumber(s.lead_time_days))
+    .filter(n => n !== Infinity)
+  const avgLeadTime = parsedLeadTimes.length > 0
+    ? Math.round(parsedLeadTimes.reduce((sum, val) => sum + val, 0) / parsedLeadTimes.length)
     : null
 
   // All suppliers with optional search/shortlist filter
@@ -2435,9 +2447,11 @@ export function SourcingClient({ initialOrders, initialSuppliers, initialAudits 
                           if (bestPricePerItem[s.order_item_id] === undefined || price < bestPricePerItem[s.order_item_id]) {
                             bestPricePerItem[s.order_item_id] = price
                           }
-                          const lead = s.lead_time_days
-                          if (bestLeadTimePerItem[s.order_item_id] === undefined || lead < bestLeadTimePerItem[s.order_item_id]) {
-                            bestLeadTimePerItem[s.order_item_id] = lead
+                          const lead = parseLeadTimeToNumber(s.lead_time_days)
+                          if (lead !== Infinity) {
+                            if (bestLeadTimePerItem[s.order_item_id] === undefined || lead < bestLeadTimePerItem[s.order_item_id]) {
+                              bestLeadTimePerItem[s.order_item_id] = lead
+                            }
                           }
                         }
                       })
@@ -2725,7 +2739,7 @@ export function SourcingClient({ initialOrders, initialSuppliers, initialAudits 
                                   <tbody className="divide-y divide-slate-100 dark:divide-slate-800 text-xs">
                                     {sortedOrderSuppliers.map(supplier => {
                                       const isLowestPrice = supplier.order_item_id && bestPricePerItem[supplier.order_item_id] !== undefined && Number(supplier.quoted_price) === bestPricePerItem[supplier.order_item_id]
-                                      const isFastestLead = supplier.order_item_id && bestLeadTimePerItem[supplier.order_item_id] !== undefined && supplier.lead_time_days === bestLeadTimePerItem[supplier.order_item_id]
+                                      const isFastestLead = supplier.order_item_id && bestLeadTimePerItem[supplier.order_item_id] !== undefined && parseLeadTimeToNumber(supplier.lead_time_days) === bestLeadTimePerItem[supplier.order_item_id]
                                       return (
                                         <tr key={supplier.id} className={`hover:bg-slate-50/50 dark:hover:bg-slate-900/20 ${selectedSupplierIds.includes(supplier.id) ? 'bg-indigo-50/30 dark:bg-indigo-950/10' : ''}`}>
                                            <td className="px-6 py-4 w-12 text-center">
