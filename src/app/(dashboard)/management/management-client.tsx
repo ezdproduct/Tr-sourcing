@@ -134,17 +134,24 @@ export function ManagementClient({ initialProfiles, initialSuppliers, initialLog
   const [suppliers, setSuppliers] = useState<any[]>(initialSuppliers)
   const [logs, setLogs] = useState<any[]>(initialLogs)
 
-  useEffect(() => {
+  const [prevInitialProfiles, setPrevInitialProfiles] = useState(initialProfiles)
+  if (initialProfiles !== prevInitialProfiles) {
+    setPrevInitialProfiles(initialProfiles)
     setProfiles(initialProfiles)
-  }, [initialProfiles])
+  }
 
-  useEffect(() => {
+  const [prevInitialSuppliers, setPrevInitialSuppliers] = useState(initialSuppliers)
+  if (initialSuppliers !== prevInitialSuppliers) {
+    setPrevInitialSuppliers(initialSuppliers)
     setSuppliers(initialSuppliers)
-  }, [initialSuppliers])
+  }
 
-  useEffect(() => {
+  const [prevInitialLogs, setPrevInitialLogs] = useState(initialLogs)
+  if (initialLogs !== prevInitialLogs) {
+    setPrevInitialLogs(initialLogs)
     setLogs(initialLogs)
-  }, [initialLogs])
+  }
+
   const [isPending, startTransition] = useTransition()
   const [updatingId, setUpdatingId] = useState<string | null>(null)
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
@@ -155,13 +162,11 @@ export function ManagementClient({ initialProfiles, initialSuppliers, initialLog
   const [subtab, setSubtab] = useState<'system' | 'supplier-logs'>('system')
   const subtabParam = searchParams.get('subtab')
 
-  useEffect(() => {
-    if (subtabParam === 'supplier-logs') {
-      setSubtab('supplier-logs')
-    } else {
-      setSubtab('system')
-    }
-  }, [subtabParam])
+  const [prevSubtabParam, setPrevSubtabParam] = useState(subtabParam)
+  if (subtabParam !== prevSubtabParam) {
+    setPrevSubtabParam(subtabParam)
+    setSubtab(subtabParam === 'supplier-logs' ? 'supplier-logs' : 'system')
+  }
 
   useEffect(() => {
     const supabase = createBrowserClient()
@@ -495,10 +500,7 @@ export function ManagementClient({ initialProfiles, initialSuppliers, initialLog
 
   const router = useRouter()
 
-  useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    setSuppliers(initialSuppliers)
-  }, [initialSuppliers])
+
 
   const handleConfirmBatchDelete = async () => {
     setIsDeletingBatch(true)
@@ -557,16 +559,15 @@ export function ManagementClient({ initialProfiles, initialSuppliers, initialLog
     }
   }
 
-  const handleToggleApproval = (id: string, currentStatus: boolean) => {
+  const handleToggleApproval = (id: string, targetStatus: boolean) => {
     setUpdatingId(id)
     setMessage(null)
     
     startTransition(async () => {
-      const newStatus = !currentStatus
-      const res = await toggleApprovalAction(id, newStatus)
+      const res = await toggleApprovalAction(id, targetStatus)
       if (res.success) {
         setProfiles(prev =>
-          prev.map(p => p.id === id ? { ...p, is_approved: newStatus } : p)
+          prev.map(p => p.id === id ? { ...p, is_approved: targetStatus } : p)
         )
         setMessage({ type: 'success', text: 'Approval status updated successfully.' })
       } else {

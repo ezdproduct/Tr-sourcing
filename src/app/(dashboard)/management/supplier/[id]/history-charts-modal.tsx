@@ -30,6 +30,9 @@ export function HistoryChartsModal({ supplierId, supplierName, productName, onCl
 
   useEffect(() => {
     setIsMounted(true)
+  }, [])
+
+  useEffect(() => {
     async function fetchHistory() {
       setIsLoading(true)
       try {

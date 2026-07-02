@@ -235,12 +235,35 @@ export async function updateSupplierCapabilityAction(
 export async function deleteSupplierCapabilityAction(supplierId: string, capabilityId: string) {
   try {
     const supabase = await createClient()
+
+    // Fetch capability details first to get the product name & price
+    const { data: capabilityData } = await supabase
+      .from('supplier_capabilities')
+      .select('product_name, target_price')
+      .eq('id', capabilityId)
+      .maybeSingle()
+
     const { error } = await supabase
       .from('supplier_capabilities')
       .delete()
       .eq('id', capabilityId)
 
     if (error) throw error
+
+    if (capabilityData) {
+      const { data: { user } } = await supabase.auth.getUser()
+      const userEmail = user?.email || null
+      await recordSupplierProductHistory(
+        supabase,
+        supplierId,
+        capabilityData.product_name,
+        capabilityData.target_price || 0,
+        'DELETED',
+        0,
+        'CAPABILITY_DELETE',
+        userEmail
+      )
+    }
 
     revalidatePath(`/management/supplier/${supplierId}`)
     return { success: true }

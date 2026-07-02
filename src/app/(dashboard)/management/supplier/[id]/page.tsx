@@ -21,7 +21,7 @@ async function SupplierLoader({ params }: { params: Promise<{ id: string }> }) {
   // 2. Fetch supplier details with associated bids, audits & capabilities
   const { data: supplier, error } = await supabase
     .from('suppliers')
-    .select('*, order_suppliers(*, orders(order_code), order_items(item_name)), factory_audits(*), supplier_capabilities(*)')
+    .select('*, order_suppliers(*, orders(order_code), order_items(item_name)), factory_audits(*), supplier_capabilities(*), supplier_product_history(*)')
     .eq('id', id)
     .single()
 

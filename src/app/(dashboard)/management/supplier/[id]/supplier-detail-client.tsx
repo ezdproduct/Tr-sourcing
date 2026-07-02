@@ -48,7 +48,7 @@ interface SupplierDetailClientProps {
 
 export function SupplierDetailClient({ supplier }: SupplierDetailClientProps) {
   const router = useRouter()
-  const [activeTab, setActiveTab] = useState<'overview' | 'sourcing' | 'financials' | 'documents' | 'product' | 'library'>('overview')
+  const [activeTab, setActiveTab] = useState<'overview' | 'sourcing' | 'financials' | 'documents' | 'product' | 'library' | 'logs'>('overview')
   const [isEditMode, setIsEditMode] = useState(false)
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
   const [isSaving, setIsSaving] = useState(false)
@@ -70,6 +70,7 @@ export function SupplierDetailClient({ supplier }: SupplierDetailClientProps) {
   const [isSavingProduct, setIsSavingProduct] = useState(false)
   const [isDeletingProduct, setIsDeletingProduct] = useState<string | null>(null)
   const [productError, setProductError] = useState<string | null>(null)
+  const [deleteConfirmProduct, setDeleteConfirmProduct] = useState<any | null>(null)
 
   // Library States & Helpers
   const [libraryFilter, setLibraryFilter] = useState<'all' | 'profile' | 'catalog' | 'contract' | 'nda' | 'certificate' | 'audit' | 'sample' | 'images'>('all')
@@ -857,9 +858,10 @@ export function SupplierDetailClient({ supplier }: SupplierDetailClientProps) {
     }
   }
 
-  const handleDeleteProduct = async (id: string) => {
-    if (!confirm('Are you sure you want to delete this product capability?')) return
-
+  const confirmDeleteProduct = async () => {
+    if (!deleteConfirmProduct) return
+    const id = deleteConfirmProduct.id
+    setDeleteConfirmProduct(null)
     setIsDeletingProduct(id)
     const res = await deleteSupplierCapabilityAction(supplier.id, id)
     setIsDeletingProduct(null)
@@ -1168,7 +1170,8 @@ export function SupplierDetailClient({ supplier }: SupplierDetailClientProps) {
             { id: 'financials', label: 'Financials & Systems' },
             { id: 'documents', label: 'Documents & ESG' },
             { id: 'product', label: 'Product Capabilities' },
-            { id: 'library', label: 'Library' }
+            { id: 'library', label: 'Library' },
+            { id: 'logs', label: 'Supplier Log' }
           ] as const
         ).map(t => (
           <button
@@ -1201,7 +1204,7 @@ export function SupplierDetailClient({ supplier }: SupplierDetailClientProps) {
         )}
 
         {/* Global profile tabs edit mode toggle */}
-        {activeTab !== 'product' && activeTab !== 'library' && (
+        {activeTab !== 'product' && activeTab !== 'library' && activeTab !== 'logs' && (
           <div className="flex justify-end mb-6">
             {isEditMode ? (
               <div className="flex gap-2">
@@ -1543,7 +1546,7 @@ export function SupplierDetailClient({ supplier }: SupplierDetailClientProps) {
                               <Edit size={14} />
                             </button>
                             <button
-                              onClick={() => handleDeleteProduct(cap.id)}
+                              onClick={() => setDeleteConfirmProduct(cap)}
                               disabled={isDeletingProduct === cap.id}
                               className="p-1.5 text-slate-400 hover:text-red-500 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg transition-colors cursor-pointer"
                               title="Delete product"
@@ -1877,6 +1880,75 @@ export function SupplierDetailClient({ supplier }: SupplierDetailClientProps) {
                 </div>
               </div>
             )}
+          </div>
+        )}
+
+        {activeTab === 'logs' && (
+          <div className="space-y-6 animate-in fade-in duration-200">
+            <div>
+              <h3 className="text-sm font-extrabold text-slate-400 uppercase tracking-wider">Supplier Activity &amp; Change Log</h3>
+              <p className="text-xs text-slate-500 mt-1">Audit trail of all edits made to the supplier profile and capabilities.</p>
+            </div>
+
+            <div className="border border-slate-200/60 dark:border-slate-800 rounded-2xl overflow-hidden bg-slate-50/10">
+              {!supplier.supplier_product_history || supplier.supplier_product_history.length === 0 ? (
+                <div className="p-12 text-center text-slate-400 text-sm italic">
+                  No activity log entries found for this supplier.
+                </div>
+              ) : (
+                <div className="divide-y divide-slate-100 dark:divide-slate-800">
+                  {[...supplier.supplier_product_history]
+                    .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
+                    .map((log: any) => {
+                      const dateStr = new Date(log.created_at).toLocaleString()
+                      let title = log.product_name
+                      let badgeColor = 'bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-350'
+                      
+                      if (log.event_type === 'PROFILE_UPDATE') {
+                        title = 'Profile Updated'
+                        badgeColor = 'bg-sky-50 text-sky-700 border-sky-200 dark:bg-sky-950/20 dark:text-sky-400'
+                      } else if (log.event_type === 'CAPABILITY_CREATE') {
+                        title = `Product Added: ${log.product_name}`
+                        badgeColor = 'bg-emerald-50 text-emerald-700 border-emerald-250 dark:bg-emerald-950/20 dark:text-emerald-400'
+                      } else if (log.event_type === 'CAPABILITY_UPDATE') {
+                        title = `Product Updated: ${log.product_name}`
+                        badgeColor = 'bg-amber-50 text-amber-700 border-amber-250 dark:bg-amber-955/20 dark:text-amber-400'
+                      } else if (log.event_type === 'CAPABILITY_DELETE') {
+                        title = `Product Deleted: ${log.product_name}`
+                        badgeColor = 'bg-rose-50 text-rose-700 border-rose-250 dark:bg-rose-950/20 dark:text-rose-455'
+                      }
+
+                      return (
+                        <div key={log.id} className="p-4 flex flex-col md:flex-row md:items-start gap-4 text-xs hover:bg-slate-50/50 dark:hover:bg-slate-900/10 transition-colors">
+                          <div className="min-w-[150px] shrink-0">
+                            <span className="font-semibold text-slate-400 block">{dateStr}</span>
+                            <span className="text-[10px] text-slate-400">By {log.created_by || 'System'}</span>
+                          </div>
+                          
+                          <div className="flex-1 space-y-1.5">
+                            <div className="flex items-center gap-2">
+                              <Badge className={`text-[10px] font-bold px-2 py-0.5 border ${badgeColor}`}>
+                                {title}
+                              </Badge>
+                              {log.price > 0 && (
+                                <span className="font-semibold text-slate-600 dark:text-slate-400">
+                                  Price: ${log.price}
+                                </span>
+                              )}
+                            </div>
+                            
+                            {log.capacity && (
+                              <div className="text-slate-600 dark:text-slate-350 bg-slate-50 dark:bg-slate-950/30 p-2.5 rounded-xl font-mono text-[11px] whitespace-pre-line border border-slate-100 dark:border-slate-850">
+                                {log.capacity}
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      )
+                    })}
+                </div>
+              )}
+            </div>
           </div>
         )}
       </div>
@@ -2229,6 +2301,46 @@ export function SupplierDetailClient({ supplier }: SupplierDetailClientProps) {
                 disabled={isSaving}
               >
                 {isSaving && <Loader2 size={12} className="animate-spin" />}
+                Confirm Delete
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Product Delete Confirmation Modal */}
+      {deleteConfirmProduct && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 animate-in fade-in duration-200">
+          <div
+            className="absolute inset-0 bg-black/60 backdrop-blur-sm"
+            onClick={() => setDeleteConfirmProduct(null)}
+          />
+          <div className="relative z-10 w-full max-w-md bg-white dark:bg-slate-900 rounded-3xl shadow-2xl border border-slate-200 dark:border-slate-800 p-6 animate-in zoom-in-95 duration-150 text-center">
+            {/* Warning icon */}
+            <div className="mx-auto w-12 h-12 rounded-2xl bg-rose-50 dark:bg-rose-950/20 text-rose-500 flex items-center justify-center mb-4">
+              <Trash2 size={20} />
+            </div>
+            
+            <h3 className="text-sm font-bold text-slate-900 dark:text-white mb-2">
+              Delete Product Capability
+            </h3>
+            
+            <p className="text-xs text-slate-500 dark:text-slate-400 leading-relaxed mb-6">
+              Are you sure you want to permanently delete the product capability <span className="text-slate-800 dark:text-slate-250 font-semibold break-all">&ldquo;{deleteConfirmProduct.product_name}&rdquo;</span>? This action cannot be undone.
+            </p>
+
+            <div className="flex gap-3">
+              <Button
+                variant="outline"
+                onClick={() => setDeleteConfirmProduct(null)}
+                className="flex-1 h-9.5 text-xs font-semibold cursor-pointer rounded-xl"
+              >
+                Cancel
+              </Button>
+              <Button
+                onClick={confirmDeleteProduct}
+                className="flex-1 h-9.5 text-xs font-semibold bg-rose-600 hover:bg-rose-700 text-white cursor-pointer rounded-xl border-none"
+              >
                 Confirm Delete
               </Button>
             </div>

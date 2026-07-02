@@ -1381,6 +1381,68 @@ export async function updateSupplierProfileAction(input: UpdateSupplierProfileIn
   try {
     const supabase = await createClient()
 
+    // Fetch old supplier details to compare changes
+    const { data: oldSupplier } = await supabase
+      .from('suppliers')
+      .select('*')
+      .eq('id', input.supplierId)
+      .single()
+
+    const changedFields: string[] = []
+    const compareField = (label: string, oldVal: any, newVal: any) => {
+      const cleanOld = oldVal === null || oldVal === undefined ? '' : String(oldVal).trim()
+      const cleanNew = newVal === null || newVal === undefined ? '' : String(newVal).trim()
+      if (cleanOld !== cleanNew) {
+        changedFields.push(`${label}: "${cleanOld || 'None'}" → "${cleanNew || 'None'}"`)
+      }
+    }
+
+    if (oldSupplier) {
+      compareField('Name', oldSupplier.name, input.name)
+      compareField('Email', oldSupplier.email, input.email)
+      compareField('Phone', oldSupplier.phone, input.phone)
+      compareField('Address', oldSupplier.address, input.address)
+      compareField('Website', oldSupplier.website, input.website)
+      compareField('Contact Person', oldSupplier.contact_person, input.contactPerson)
+      compareField('Tax ID', oldSupplier.tax_id, input.taxId)
+      compareField('Business Type', oldSupplier.business_type, input.businessType)
+      compareField('Supplier Code', oldSupplier.supplier_code, input.supplierCode)
+      compareField('Legal Name', oldSupplier.legal_name, input.legalName)
+      compareField('Year Founded', oldSupplier.year_founded, input.yearFounded)
+      compareField('Company Size', oldSupplier.company_size, input.companySize)
+      compareField('Industry', oldSupplier.industry, input.industry)
+      compareField('Short Description', oldSupplier.short_description, input.shortDescription)
+      compareField('Primary Contact Name', oldSupplier.primary_contact_name, input.primaryContactName)
+      compareField('Position', oldSupplier.position, input.position)
+      compareField('Alternative Contact', oldSupplier.alternative_contact, input.alternativeContact)
+      compareField('Street', oldSupplier.street, input.street)
+      compareField('District', oldSupplier.district, input.district)
+      compareField('City', oldSupplier.city, input.city)
+      compareField('Country', oldSupplier.country, input.country)
+      compareField('Postal Code', oldSupplier.postal_code, input.postalCode)
+      compareField('LinkedIn', oldSupplier.linkedin, input.linkedin)
+      compareField('Social Contact', oldSupplier.social_contact, input.socialContact)
+      compareField('Payment Terms', oldSupplier.payment_terms, input.paymentTerms)
+      compareField('Currency', oldSupplier.currency, input.currency)
+      compareField('Bank Info', oldSupplier.bank_info, input.bankInfo)
+      compareField('Credit Limit', oldSupplier.credit_limit, input.creditLimit)
+      compareField('Tax Status', oldSupplier.tax_status, input.taxStatus)
+      compareField('Business License', oldSupplier.business_license, input.businessLicense)
+      compareField('Sourcing Category', oldSupplier.sourcing_category, input.sourcingCategory)
+      compareField('Lead Time Average', oldSupplier.lead_time_average, input.leadTimeAverage)
+      compareField('MOQ', oldSupplier.moq, input.moq)
+      compareField('Pricing Tier', oldSupplier.pricing_tier, input.pricingTier)
+      compareField('Quality Rating', oldSupplier.quality_rating, input.qualityRating)
+      compareField('Reliability Score', oldSupplier.reliability_score, input.reliabilityScore)
+      compareField('On-Time Delivery Rate', oldSupplier.on_time_delivery_rate, input.onTimeDeliveryRate)
+      compareField('Defect Rate', oldSupplier.defect_rate, input.defectRate)
+      compareField('Status', oldSupplier.status, input.status)
+      compareField('Sourcing Stage', oldSupplier.sourcing_stage, input.sourcingStage)
+      compareField('Risk Level', oldSupplier.risk_level, input.riskLevel)
+      compareField('Risk Notes', oldSupplier.risk_notes, input.riskNotes)
+      compareField('Is Preferred', oldSupplier.is_preferred, input.isPreferred)
+    }
+
     // 1. Update basic contact info and extended columns in 'suppliers'
     const { error: supplierError } = await supabase
       .from('suppliers')
@@ -1489,6 +1551,20 @@ export async function updateSupplierProfileAction(input: UpdateSupplierProfileIn
         .insert({
           activity_text: `Supplier Profile Updated: Supplier "${supplierName}" (ID: ${input.supplierId}) was updated by ${userEmail || 'System'}.`
         })
+
+      if (changedFields.length > 0) {
+        await supabase
+          .from('supplier_product_history')
+          .insert({
+            supplier_id: input.supplierId,
+            product_name: 'PROFILE_UPDATE',
+            price: 0,
+            capacity: changedFields.join('\n'),
+            ordered_quantity: 0,
+            event_type: 'PROFILE_UPDATE',
+            created_by: userEmail
+          })
+      }
     } catch (logErr: any) {
       console.error('Error recording supplier update log:', logErr.message || logErr)
     }
