@@ -60,11 +60,34 @@ async function ManagementLoader() {
     console.error('Error loading supplier logs:', logsError.message)
   }
 
+  const { data: productLogs, error: productLogsError } = await supabase
+    .from('supplier_product_history')
+    .select('*, suppliers(name)')
+    .order('created_at', { ascending: false })
+
+  if (productLogsError) {
+    console.error('Error loading supplier product history logs:', productLogsError.message)
+  }
+
+  const combinedLogs = [
+    ...(logs || []).map(l => ({ ...l, type: 'activity' })),
+    ...(productLogs || []).map(pl => ({
+      id: pl.id,
+      type: 'product_history',
+      event_type: pl.event_type,
+      product_name: pl.product_name,
+      price: pl.price,
+      created_at: pl.created_at,
+      created_by: pl.created_by,
+      supplier_name: pl.suppliers?.name || 'Unknown'
+    }))
+  ].sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
+
   return (
     <ManagementClient 
       initialProfiles={profiles || []} 
       initialSuppliers={suppliers || []} 
-      initialLogs={logs || []} 
+      initialLogs={combinedLogs} 
     />
   )
 }

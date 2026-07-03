@@ -293,6 +293,7 @@ export function SourcingClient({ initialOrders, initialSuppliers, initialAudits 
   useEffect(() => {
     if (subtabParam === 'overview' || subtabParam === 'suppliers' || subtabParam === 'workplace') {
       setSubtab(subtabParam)
+      setIsInlineAdding(false)
     } else {
       setSubtab('overview')
     }
@@ -302,6 +303,19 @@ export function SourcingClient({ initialOrders, initialSuppliers, initialAudits 
     setSubtab(val)
     setSelectedSupplierIds([])
     setIsManageMode(false)
+    setIsInlineAdding(false)
+    setInlineSupplier({
+      name: '',
+      email: '',
+      phone: '',
+      contactPerson: '',
+      website: '',
+      address: '',
+      mainProducts: ''
+    })
+    setInlineCapabilities([
+      { id: Math.random().toString(), productName: '', targetPrice: '', leadTimeDays: '' }
+    ])
     if (typeof window !== 'undefined') {
       const newUrl = `${window.location.pathname}?subtab=${val}`
       window.history.pushState({ ...window.history.state, as: newUrl, url: newUrl }, '', newUrl)
@@ -310,6 +324,81 @@ export function SourcingClient({ initialOrders, initialSuppliers, initialAudits 
   const [isAddOpen, setIsAddOpen] = useState(false)
   const [isPending, startTransition] = useTransition()
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
+
+  const [isInlineAdding, setIsInlineAdding] = useState(false)
+  const [inlineSupplier, setInlineSupplier] = useState({
+    name: '',
+    email: '',
+    phone: '',
+    contactPerson: '',
+    website: '',
+    address: '',
+    mainProducts: ''
+  })
+  const [isSavingInline, setIsSavingInline] = useState(false)
+  const [isInlineProductsModalOpen, setIsInlineProductsModalOpen] = useState(false)
+  const [inlineCapabilities, setInlineCapabilities] = useState(() => [
+    { id: Math.random().toString(), productName: '', targetPrice: '', leadTimeDays: '' }
+  ])
+
+  const handleSaveInlineSupplier = async () => {
+    if (!inlineSupplier.name.trim()) {
+      setErrorMessage('Supplier Name is required.')
+      return
+    }
+
+    setIsSavingInline(true)
+    setErrorMessage(null)
+
+    try {
+      const result = await addSupplierNormalizedAction({
+        supplierName: inlineSupplier.name.trim(),
+        email: inlineSupplier.email.trim(),
+        phone: inlineSupplier.phone.trim(),
+        address: inlineSupplier.address.trim(),
+        orderId: null,
+        items: [],
+        capabilities: inlineCapabilities
+          .filter(c => c.productName.trim() !== '')
+          .map(c => ({
+            productName: c.productName.trim(),
+            targetPrice: parseFloat(c.targetPrice) || 0,
+            leadTimeDays: c.leadTimeDays.trim(),
+            description: '',
+            moq: undefined,
+            sku: '',
+            monthlyCapacity: ''
+          })),
+        website: inlineSupplier.website.trim(),
+        contactPerson: inlineSupplier.contactPerson.trim(),
+        taxId: '',
+        mainProducts: inlineSupplier.mainProducts.trim()
+      }, null, subtab === 'suppliers')
+
+      if (result.success) {
+        await invalidateSourcingData()
+        setIsInlineAdding(false)
+        setInlineSupplier({
+          name: '',
+          email: '',
+          phone: '',
+          contactPerson: '',
+          website: '',
+          address: '',
+          mainProducts: ''
+        })
+        setInlineCapabilities([
+          { id: Math.random().toString(), productName: '', targetPrice: '', leadTimeDays: '' }
+        ])
+      } else {
+        setErrorMessage(result.error || 'Failed to add supplier.')
+      }
+    } catch (err: any) {
+      setErrorMessage(err.message || 'An unexpected error occurred.')
+    } finally {
+      setIsSavingInline(false)
+    }
+  }
   const [deletingId, setDeletingId] = useState<string | null>(null)
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null)
   
@@ -1719,9 +1808,9 @@ export function SourcingClient({ initialOrders, initialSuppliers, initialAudits 
               <DropdownMenuContent align="end" className="w-56 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-1 shadow-md z-50">
                 <DropdownMenuItem
                   onClick={() => {
-                                      setIsAddOpen(true)
-                                      setErrorMessage(null)
-                                    }}
+                    setIsInlineAdding(true)
+                    setErrorMessage(null)
+                  }}
                   className="flex items-center gap-2 px-2.5 py-1.5 text-xs rounded-lg cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-800 font-semibold text-slate-700 dark:text-slate-300"
                 >
                   <Plus size={12} className="text-[#5c59e9]" />
@@ -1767,6 +1856,14 @@ export function SourcingClient({ initialOrders, initialSuppliers, initialAudits 
             </DropdownMenu>
           )}
         </div>
+
+        {errorMessage && (
+          <div className="bg-red-50 dark:bg-red-950/20 border border-red-200 dark:border-red-900/50 text-red-600 dark:text-red-400 p-3 rounded-lg text-xs font-semibold flex items-center gap-2 mb-4">
+            <AlertCircle size={14} className="flex-shrink-0" />
+            <span>{errorMessage}</span>
+            <button onClick={() => setErrorMessage(null)} className="ml-auto hover:opacity-85 text-red-500 font-bold">Close</button>
+          </div>
+        )}
 
         <Card className="border-slate-200/60 dark:border-slate-800 shadow-sm">
           <CardContent className="p-0">
@@ -1824,6 +1921,143 @@ export function SourcingClient({ initialOrders, initialSuppliers, initialAudits 
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100 dark:divide-slate-800 text-xs">
+                    {isInlineAdding && (
+                      <tr className="bg-indigo-50/10 dark:bg-indigo-950/5 border-b border-indigo-100 dark:border-indigo-900/40">
+                        {isManageMode && <td />}
+                        
+                        {/* Supplier Name */}
+                        <td className="px-6 py-3 w-[20%] min-w-[220px]">
+                          <Input
+                            type="text"
+                            placeholder="Supplier Name *"
+                            value={inlineSupplier.name}
+                            onChange={(e) => setInlineSupplier(prev => ({ ...prev, name: e.target.value }))}
+                            className="h-8 text-xs px-2 focus-visible:ring-[#5c59e9] border-slate-200 dark:border-slate-800"
+                            autoFocus
+                          />
+                        </td>
+                        
+                        {/* Email */}
+                        <td className="px-6 py-3 w-[15%] min-w-[180px]">
+                          <Input
+                            type="email"
+                            placeholder="Email"
+                            value={inlineSupplier.email}
+                            onChange={(e) => setInlineSupplier(prev => ({ ...prev, email: e.target.value }))}
+                            className="h-8 text-xs px-2 focus-visible:ring-[#5c59e9] border-slate-200 dark:border-slate-800"
+                          />
+                        </td>
+                        
+                        {/* Phone */}
+                        <td className="px-6 py-3 w-[10%] min-w-[130px]">
+                          <Input
+                            type="text"
+                            placeholder="Phone"
+                            value={inlineSupplier.phone}
+                            onChange={(e) => setInlineSupplier(prev => ({ ...prev, phone: e.target.value }))}
+                            className="h-8 text-xs px-2 focus-visible:ring-[#5c59e9] border-slate-200 dark:border-slate-800"
+                          />
+                        </td>
+                        
+                        {/* Contact Person */}
+                        <td className="px-6 py-3 w-[12%] min-w-[150px]">
+                          <Input
+                            type="text"
+                            placeholder="Contact Person"
+                            value={inlineSupplier.contactPerson}
+                            onChange={(e) => setInlineSupplier(prev => ({ ...prev, contactPerson: e.target.value }))}
+                            className="h-8 text-xs px-2 focus-visible:ring-[#5c59e9] border-slate-200 dark:border-slate-800"
+                          />
+                        </td>
+                        
+                        {/* Website */}
+                        <td className="px-6 py-3 w-[12%] min-w-[150px]">
+                          <Input
+                            type="text"
+                            placeholder="Website"
+                            value={inlineSupplier.website}
+                            onChange={(e) => setInlineSupplier(prev => ({ ...prev, website: e.target.value }))}
+                            className="h-8 text-xs px-2 focus-visible:ring-[#5c59e9] border-slate-200 dark:border-slate-800"
+                          />
+                        </td>
+                        
+                        {/* Address */}
+                        <td className="px-6 py-3 w-[15%] min-w-[200px]">
+                          <Input
+                            type="text"
+                            placeholder="Address"
+                            value={inlineSupplier.address}
+                            onChange={(e) => setInlineSupplier(prev => ({ ...prev, address: e.target.value }))}
+                            className="h-8 text-xs px-2 focus-visible:ring-[#5c59e9] border-slate-200 dark:border-slate-800"
+                          />
+                        </td>
+                        
+                        {/* Main Products */}
+                        <td className="px-6 py-3 w-[16%] min-w-[200px]">
+                          <div className="relative">
+                            <Input
+                              type="text"
+                              readOnly
+                              placeholder="Click to configure..."
+                              value={inlineSupplier.mainProducts || (inlineCapabilities.filter(c => c.productName.trim() !== '').map(c => c.productName.trim()).join(', '))}
+                              onClick={() => setIsInlineProductsModalOpen(true)}
+                              className="h-8 text-xs pl-2 pr-8 focus-visible:ring-[#5c59e9] border-slate-200 dark:border-slate-800 cursor-pointer bg-slate-50/50 hover:bg-slate-50 truncate"
+                            />
+                            <Edit 
+                              size={12} 
+                              className="absolute right-2.5 top-2.5 text-slate-400 pointer-events-none" 
+                            />
+                          </div>
+                        </td>
+                        
+                        {/* Uploaded By */}
+                        <td className="px-6 py-3 text-center w-[10%] min-w-[110px] text-slate-400 text-[10px]">
+                          You
+                        </td>
+                        
+                        {/* Actions */}
+                        <td className="px-6 py-3 text-center w-[10%] min-w-[110px]">
+                          <div className="flex items-center justify-center gap-1.5">
+                            <Button
+                              type="button"
+                              disabled={isSavingInline}
+                              onClick={handleSaveInlineSupplier}
+                              className="h-7 px-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-[10px] font-semibold cursor-pointer inline-flex items-center gap-1"
+                            >
+                              {isSavingInline ? (
+                                <Loader2 size={10} className="animate-spin" />
+                              ) : (
+                                <Check size={10} />
+                              )}
+                              <span>Save</span>
+                            </Button>
+                            <Button
+                              type="button"
+                              disabled={isSavingInline}
+                              onClick={() => {
+                                setIsInlineAdding(false)
+                                setInlineSupplier({
+                                  name: '',
+                                  email: '',
+                                  phone: '',
+                                  contactPerson: '',
+                                  website: '',
+                                  address: '',
+                                  mainProducts: ''
+                                })
+                                setInlineCapabilities([
+                                  { id: Math.random().toString(), productName: '', targetPrice: '', leadTimeDays: '' }
+                                ])
+                              }}
+                              className="h-7 px-2 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 rounded-lg text-[10px] font-semibold cursor-pointer inline-flex items-center gap-1"
+                            >
+                              <X size={10} />
+                              <span>Cancel</span>
+                            </Button>
+                          </div>
+                        </td>
+                      </tr>
+                    )}
                     {sortedUniqueSuppliers.map(supplier => {
                       const isSelected = selectedSupplierIds.includes(supplier.id)
                       return (
@@ -1850,7 +2084,7 @@ export function SourcingClient({ initialOrders, initialSuppliers, initialAudits 
                               href={`/management/supplier/${supplier.id}`}
                               target="_blank"
                               rel="noopener noreferrer"
-                              className="font-semibold hover:text-[#5c59e9] hover:underline text-left cursor-pointer"
+                              className="inline-flex items-center px-2.5 py-1 rounded bg-[#5c59e9]/10 text-[#5c59e9] hover:bg-[#5c59e9]/20 dark:bg-[#5c59e9]/20 dark:text-indigo-350 dark:hover:bg-[#5c59e9]/30 transition-colors font-semibold"
                             >
                               {supplier.name}
                             </a>
@@ -1878,7 +2112,7 @@ export function SourcingClient({ initialOrders, initialSuppliers, initialAudits 
                                 href={supplier.website.startsWith('http') ? supplier.website : `https://${supplier.website}`} 
                                 target="_blank" 
                                 rel="noopener noreferrer"
-                                className="text-[#5c59e9] hover:underline flex items-center gap-1 font-semibold"
+                                className="inline-flex items-center gap-1 px-2.5 py-1 rounded bg-slate-100 dark:bg-slate-800/80 text-[#5c59e9] dark:text-indigo-400 hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors font-semibold"
                               >
                                 <Globe size={12} className="text-slate-400" />
                                 <span>{supplier.website.replace(/^https?:\/\/(www\.)?/, '')}</span>
@@ -1895,7 +2129,18 @@ export function SourcingClient({ initialOrders, initialSuppliers, initialAudits 
 
                           {/* Main Products */}
                           <td className="px-6 py-4 text-slate-600 dark:text-slate-400 truncate max-w-xs font-medium w-[16%] min-w-[200px]" title={supplier.main_products ? supplier.main_products.join(', ') : ''}>
-                            {supplier.main_products && supplier.main_products.length > 0 ? supplier.main_products.join(', ') : '—'}
+                            {supplier.main_products && supplier.main_products.length > 0 ? (
+                              <a
+                                href={`/management/supplier/${supplier.id}?tab=product`}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="inline-flex items-center px-2.5 py-1 rounded bg-slate-100 dark:bg-slate-800/80 text-slate-700 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors font-semibold max-w-full truncate"
+                              >
+                                {supplier.main_products.join(', ')}
+                              </a>
+                            ) : (
+                              <span className="text-slate-400">—</span>
+                            )}
                           </td>
 
                           {/* Uploaded By */}
@@ -2190,7 +2435,7 @@ export function SourcingClient({ initialOrders, initialSuppliers, initialAudits 
                                   href={`/management/supplier/${supplier.supplier_id}`}
                                   target="_blank"
                                   rel="noopener noreferrer"
-                                  className="font-semibold text-slate-800 dark:text-slate-200 hover:text-[#5c59e9] dark:hover:text-[#818cf8] hover:underline cursor-pointer text-left focus:outline-none transition-colors"
+                                  className="inline-flex items-center px-2.5 py-1 rounded bg-[#5c59e9]/10 text-[#5c59e9] hover:bg-[#5c59e9]/20 dark:bg-[#5c59e9]/20 dark:text-indigo-350 dark:hover:bg-[#5c59e9]/30 transition-colors font-semibold"
                                 >
                                   {supplier.supplier_name}
                                 </a>
@@ -2224,9 +2469,10 @@ export function SourcingClient({ initialOrders, initialSuppliers, initialAudits 
                                     href={supplier.suppliers.website.startsWith('http') ? supplier.suppliers.website : `https://${supplier.suppliers.website}`}
                                     target="_blank"
                                     rel="noopener noreferrer"
-                                    className="text-indigo-600 dark:text-indigo-400 hover:underline font-medium"
+                                    className="inline-flex items-center gap-1 px-2.5 py-1 rounded bg-slate-100 dark:bg-slate-800/80 text-indigo-600 dark:text-indigo-400 hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors font-semibold"
                                   >
-                                    {supplier.suppliers.website}
+                                    <Globe size={12} className="text-slate-400 dark:text-slate-500" />
+                                    <span>{supplier.suppliers.website.replace(/^https?:\/\/(www\.)?/, '')}</span>
                                   </a>
                                 ) : '—'}
                               </td>
@@ -2842,13 +3088,14 @@ export function SourcingClient({ initialOrders, initialSuppliers, initialAudits 
                                             <td className="px-6 py-4">
                                               {supplier.suppliers?.website ? (
                                                 <a 
-                                                  href={supplier.suppliers.website.startsWith('http') ? supplier.suppliers.website : `https://${supplier.suppliers.website}`}
-                                                  target="_blank"
-                                                  rel="noopener noreferrer"
-                                                  className="text-indigo-600 dark:text-indigo-400 hover:underline font-medium"
-                                                >
-                                                  {supplier.suppliers.website}
-                                                </a>
+                                    href={supplier.suppliers.website.startsWith('http') ? supplier.suppliers.website : `https://${supplier.suppliers.website}`}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="inline-flex items-center gap-1 px-2.5 py-1 rounded bg-slate-100 dark:bg-slate-800/80 text-indigo-600 dark:text-indigo-400 hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors font-semibold"
+                                  >
+                                    <Globe size={12} className="text-slate-400 dark:text-slate-500" />
+                                    <span>{supplier.suppliers.website.replace(/^https?:\/\/(www\.)?/, '')}</span>
+                                  </a>
                                               ) : '—'}
                                             </td>
                                           )}
@@ -2993,6 +3240,155 @@ export function SourcingClient({ initialOrders, initialSuppliers, initialAudits 
       </div>
       </TabsContent>
       </Tabs>
+
+      {/* Inline products & capabilities configuration modal */}
+      {isInlineProductsModalOpen && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
+          <div
+            className="absolute inset-0 bg-black/40 backdrop-blur-sm"
+            onClick={() => setIsInlineProductsModalOpen(false)}
+          />
+          <div className="relative z-10 w-full max-w-2xl bg-white dark:bg-slate-900 rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-800 p-6 flex flex-col max-h-[85vh] animate-in fade-in zoom-in-95 duration-200">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-100 dark:border-slate-800/80 mb-4">
+              <h3 className="text-base font-bold text-slate-900 dark:text-white flex items-center gap-2">
+                <Sparkles size={16} className="text-[#5c59e9] animate-pulse" />
+                <span>Configure Products & Capabilities</span>
+              </h3>
+              <button
+                type="button"
+                onClick={() => setIsInlineProductsModalOpen(false)}
+                className="text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 p-0.5 rounded cursor-pointer transition-colors"
+              >
+                <X size={16} />
+              </button>
+            </div>
+
+            <div className="flex-1 overflow-y-auto space-y-4 pr-1">
+              {/* Main Products Input */}
+              <div className="space-y-1">
+                <Label className="text-xs font-bold text-slate-700 dark:text-slate-300">Main Products (Comma separated) *</Label>
+                <Input
+                  type="text"
+                  value={inlineSupplier.mainProducts}
+                  onChange={(e) => setInlineSupplier(prev => ({ ...prev, mainProducts: e.target.value }))}
+                  className="h-9 text-xs focus-visible:ring-[#5c59e9] rounded-lg"
+                />
+                <p className="text-[10px] text-slate-400">Specify general main products directory categories.</p>
+              </div>
+
+              <div className="border-t border-slate-100 dark:border-slate-800/80 pt-4">
+                <div className="flex items-center justify-between mb-3">
+                  <h4 className="text-xs font-bold text-slate-700 dark:text-slate-300 uppercase tracking-wider">Product Capabilities</h4>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setInlineCapabilities(prev => [...prev, { id: Math.random().toString(), productName: '', targetPrice: '', leadTimeDays: '' }])}
+                    className="h-7 text-[10px] px-2 gap-1 border-indigo-200 text-indigo-600 hover:bg-indigo-55 dark:border-indigo-900/50 cursor-pointer rounded-lg"
+                  >
+                    <Plus size={10} />
+                    <span>Add Product Capability</span>
+                  </Button>
+                </div>
+
+                {inlineCapabilities.length === 0 ? (
+                  <div className="text-center py-6 border border-dashed border-slate-200 dark:border-slate-800 rounded-xl">
+                    <p className="text-xs text-slate-400 font-medium">No capability items added yet.</p>
+                  </div>
+                ) : (
+                  <div className="space-y-3">
+                    {inlineCapabilities.map((cap, idx) => (
+                      <div key={cap.id} className="p-3 border border-slate-200 dark:border-slate-800 rounded-xl relative bg-slate-50/30 dark:bg-slate-950/20 space-y-2">
+                        <button
+                          type="button"
+                          onClick={() => setInlineCapabilities(prev => prev.filter(c => c.id !== cap.id))}
+                          className="absolute top-2 right-2 text-slate-400 hover:text-red-500 rounded p-0.5 cursor-pointer transition-colors"
+                        >
+                          <X size={12} />
+                        </button>
+                        <div className="grid gap-2.5 sm:grid-cols-2">
+                          <div className="space-y-1">
+                            <Label className="text-[10px] font-bold text-slate-450 uppercase">Product Name *</Label>
+                            <Input
+                              type="text"
+                              value={cap.productName}
+                              onChange={e => {
+                                const val = e.target.value
+                                setInlineCapabilities(prev => prev.map(c => c.id === cap.id ? { ...c, productName: val } : c))
+                              }}
+                              className="h-8 text-xs rounded-lg focus-visible:ring-[#5c59e9]"
+                            />
+                          </div>
+                          <div className="grid grid-cols-2 gap-2">
+                            <div className="space-y-1">
+                              <Label className="text-[10px] font-bold text-slate-455 uppercase">Target Price ($) *</Label>
+                              <Input
+                                type="number"
+                                step="0.01"
+                                value={cap.targetPrice}
+                                onChange={e => {
+                                  const val = e.target.value
+                                  setInlineCapabilities(prev => prev.map(c => c.id === cap.id ? { ...c, targetPrice: val } : c))
+                                }}
+                                className="h-8 text-xs rounded-lg focus-visible:ring-[#5c59e9]"
+                              />
+                            </div>
+                            <div className="space-y-1">
+                              <Label className="text-[10px] font-bold text-slate-455 uppercase">Lead Time (Days)</Label>
+                              <Input
+                                type="number"
+                                value={cap.leadTimeDays}
+                                onChange={e => {
+                                  const val = e.target.value
+                                  setInlineCapabilities(prev => prev.map(c => c.id === cap.id ? { ...c, leadTimeDays: val } : c))
+                                }}
+                                className="h-8 text-xs rounded-lg focus-visible:ring-[#5c59e9]"
+                              />
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+
+            <div className="pt-3 border-t border-slate-100 dark:border-slate-800/80 flex justify-end gap-2 mt-4 shrink-0">
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => setIsInlineProductsModalOpen(false)}
+                className="h-8 px-4 rounded-lg text-xs font-semibold cursor-pointer border-slate-200 dark:border-slate-800"
+              >
+                Cancel
+              </Button>
+              <Button
+                type="button"
+                onClick={() => {
+                  const invalid = inlineCapabilities.some(c => c.productName.trim() !== '' && (isNaN(parseFloat(c.targetPrice)) || parseFloat(c.targetPrice) <= 0))
+                  if (invalid) {
+                    alert('Please enter a valid positive Target Price for all configured capabilities.')
+                    return
+                  }
+                  
+                  if (!inlineSupplier.mainProducts.trim()) {
+                    const names = inlineCapabilities.map(c => c.productName.trim()).filter(Boolean)
+                    if (names.length > 0) {
+                      setInlineSupplier(prev => ({ ...prev, mainProducts: names.join(', ') }))
+                    }
+                  }
+                  
+                  setIsInlineProductsModalOpen(false)
+                }}
+                className="h-8 px-4 rounded-lg bg-[#5c59e9] hover:bg-[#4a47d2] text-white text-xs font-semibold cursor-pointer"
+              >
+                Apply
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Add Supplier Modal */}
       <AssignSupplierModal

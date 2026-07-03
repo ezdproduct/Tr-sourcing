@@ -1,7 +1,7 @@
 'use client'
 
-import { useState } from 'react'
-import { useRouter } from 'next/navigation'
+import { useState, useEffect } from 'react'
+import { useRouter, useSearchParams } from 'next/navigation'
 import { 
   X, Phone, Mail, MapPin, Globe, ArrowUpRight, ArrowLeft, Edit, Trash2, Plus, Loader2, Check, CheckCircle2, AlertCircle, Calendar, Shield,
   Upload, FileText, File, Copy, ExternalLink, TrendingUp
@@ -48,7 +48,20 @@ interface SupplierDetailClientProps {
 
 export function SupplierDetailClient({ supplier }: SupplierDetailClientProps) {
   const router = useRouter()
-  const [activeTab, setActiveTab] = useState<'overview' | 'sourcing' | 'financials' | 'documents' | 'product' | 'library' | 'logs'>('overview')
+  const searchParams = useSearchParams()
+  const tabParam = searchParams.get('tab')
+  const [activeTab, setActiveTab] = useState<'overview' | 'sourcing' | 'financials' | 'documents' | 'product' | 'library' | 'logs'>(() => {
+    if (tabParam && ['overview', 'sourcing', 'financials', 'documents', 'product', 'library', 'logs'].includes(tabParam)) {
+      return tabParam as any
+    }
+    return 'overview'
+  })
+
+  useEffect(() => {
+    if (tabParam && ['overview', 'sourcing', 'financials', 'documents', 'product', 'library', 'logs'].includes(tabParam)) {
+      setActiveTab(tabParam as any)
+    }
+  }, [tabParam])
   const [isEditMode, setIsEditMode] = useState(false)
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
   const [isSaving, setIsSaving] = useState(false)

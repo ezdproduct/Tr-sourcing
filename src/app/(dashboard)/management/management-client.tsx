@@ -185,8 +185,46 @@ export function ManagementClient({ initialProfiles, initialSuppliers, initialLog
         (payload) => {
           const newActivity = payload.new
           if (newActivity.activity_text && newActivity.activity_text.startsWith('Supplier Profile')) {
-            setLogs((prev) => [newActivity, ...prev])
+            setLogs((prev) => [{ ...newActivity, type: 'activity' }, ...prev])
           }
+        }
+      )
+      .on(
+        'postgres_changes',
+        {
+          event: 'INSERT',
+          schema: 'public',
+          table: 'supplier_product_history'
+        },
+        async (payload) => {
+          const newLog = payload.new
+          let supplierName = 'Unknown'
+          try {
+            const { data } = await supabase
+              .from('suppliers')
+              .select('name')
+              .eq('id', newLog.supplier_id)
+              .single()
+            if (data) {
+              supplierName = data.name
+            }
+          } catch (e) {
+            console.error('Error fetching supplier name for realtime log:', e)
+          }
+
+          setLogs((prev) => [
+            {
+              id: newLog.id,
+              type: 'product_history',
+              event_type: newLog.event_type,
+              product_name: newLog.product_name,
+              price: newLog.price,
+              created_at: newLog.created_at,
+              created_by: newLog.created_by,
+              supplier_name: supplierName
+            },
+            ...prev
+          ])
         }
       )
       .subscribe()
@@ -878,26 +916,41 @@ export function ManagementClient({ initialProfiles, initialSuppliers, initialLog
                     </thead>
                     <tbody className="divide-y divide-slate-100 dark:divide-slate-800/60">
                       {logs.map((log) => {
-                        // Parse log details
-                        // E.g. Supplier Profile Updated: Supplier "Phú Quốc Wood" (ID: xyz) was updated by admin@vietmy.com.
-                        // E.g. Supplier Profile Created: Supplier "Phú Quốc Wood" (ID: xyz) was created by admin@vietmy.com.
-                        // E.g. Supplier Profile Deleted: Supplier "Phú Quốc Wood" (ID: xyz) was deleted by admin@vietmy.com.
-                        const match = log.activity_text.match(/Supplier Profile (Created|Updated|Deleted): Supplier "([^"]+)" \(ID: ([^)]+)\) was (created|updated|deleted) by ([^\s]+)/)
-                        
                         let supplierName = 'Unknown'
                         let actor = 'System'
-                        let details = log.activity_text
+                        let details = ''
 
-                        if (match) {
-                          supplierName = match[2]
-                          actor = match[5].replace(/\.$/, '') // strip trailing period
-                          const eventType = match[1]
-                          if (eventType === 'Created') {
-                            details = 'New supplier profile was created'
-                          } else if (eventType === 'Updated') {
+                        if (log.type === 'product_history') {
+                          supplierName = log.supplier_name || 'Unknown'
+                          actor = log.created_by || 'System'
+                          if (log.event_type === 'PROFILE_UPDATE') {
                             details = 'Supplier profile fields were updated'
-                          } else if (eventType === 'Deleted') {
-                            details = 'Supplier profile was deleted'
+                          } else if (log.event_type === 'CAPABILITY_CREATE') {
+                            details = `Product Added: ${log.product_name}${log.price > 0 ? ` (Price: $${log.price})` : ''}`
+                          } else if (log.event_type === 'CAPABILITY_UPDATE') {
+                            details = `Product Updated: ${log.product_name}${log.price > 0 ? ` (Price: $${log.price})` : ''}`
+                          } else if (log.event_type === 'CAPABILITY_DELETE') {
+                            details = `Product Deleted: ${log.product_name}`
+                          } else {
+                            details = `${log.event_type}: ${log.product_name}`
+                          }
+                        } else {
+                          // Standard activity log
+                          const match = log.activity_text ? log.activity_text.match(/Supplier Profile (Created|Updated|Deleted): Supplier "([^"]+)" \(ID: ([^)]+)\) was (created|updated|deleted) by ([^\s]+)/) : null
+                          
+                          details = log.activity_text || ''
+
+                          if (match) {
+                            supplierName = match[2]
+                            actor = match[5].replace(/\.$/, '') // strip trailing period
+                            const eventType = match[1]
+                            if (eventType === 'Created') {
+                              details = 'New supplier profile was created'
+                            } else if (eventType === 'Updated') {
+                              details = 'Supplier profile fields were updated'
+                            } else if (eventType === 'Deleted') {
+                              details = 'Supplier profile was deleted'
+                            }
                           }
                         }
 
