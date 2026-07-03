@@ -1,0 +1,8 @@
+{
+  "crons": [
+    {
+      "path": "/api/cron/order-milestones",
+      "schedule": "0 1 * * *"
+    }
+  ]
+}

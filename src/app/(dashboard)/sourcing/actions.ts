@@ -1819,10 +1819,8 @@ export async function confirmSupplierAndCreatePoAction(formData: FormData) {
         const displayOrderId = orderData?.order_code || `PO-${orderId.substring(0, 8).toUpperCase()}`
         const secureToken = generateToken(orderId)
         const confirmPoActionUrl = `${appUrl}/api/orders/update-progress?token=${secureToken}&action=confirm_po&orderItemId=${orderItemId}`
-        const shipmentActionUrl = `${appUrl}/api/orders/update-progress?token=${secureToken}&action=shipped&orderItemId=${orderItemId}`
 
         const isPoIssued = true
-        const isPoConfirmed = false
 
         const emailHtml = `
           <!DOCTYPE html>
@@ -1905,20 +1903,6 @@ export async function confirmSupplierAndCreatePoAction(formData: FormData) {
                       <a href="${fullContractUrl}" class="btn-indigo" target="_blank">View Signed Contract</a>
                       ` : `
                       <div class="btn-disabled">View Signed Contract</div>
-                      `}
-                    </td>
-                  </tr>
-                  <!-- Spacer Row -->
-                  <tr>
-                    <td colspan="3" style="height: 16px; font-size: 16px; line-height: 16px;">&nbsp;</td>
-                  </tr>
-                  <!-- Row 2: Delayed Action Group -->
-                  <tr>
-                    <td colspan="3" valign="top">
-                      ${isPoConfirmed ? `
-                      <a href="${shipmentActionUrl}" class="btn-slate" target="_blank">Mark as Shipped</a>
-                      ` : `
-                      <div class="btn-disabled">Mark as Shipped</div>
                       `}
                     </td>
                   </tr>
