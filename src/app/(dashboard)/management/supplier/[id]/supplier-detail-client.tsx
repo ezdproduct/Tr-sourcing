@@ -810,6 +810,7 @@ export function SupplierDetailClient({ supplier }: SupplierDetailClientProps) {
       setProductMoq('')
       setProductSku('')
       setProductMonthlyCapacity('')
+      router.refresh()
     } else {
       setProductError(res.error || 'Failed to add product.')
     }
@@ -853,6 +854,7 @@ export function SupplierDetailClient({ supplier }: SupplierDetailClientProps) {
       setProductMoq('')
       setProductSku('')
       setProductMonthlyCapacity('')
+      router.refresh()
     } else {
       setProductError(res.error || 'Failed to update product.')
     }
@@ -868,6 +870,7 @@ export function SupplierDetailClient({ supplier }: SupplierDetailClientProps) {
 
     if (res.success) {
       setCapabilities(prev => prev.filter(c => c.id !== id))
+      router.refresh()
     } else {
       alert(res.error || 'Failed to delete product.')
     }

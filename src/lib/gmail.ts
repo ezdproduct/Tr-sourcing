@@ -6,7 +6,7 @@ export interface SendGmailPayload {
 }
 
 export async function sendGmail({ agentId, toEmail, subject, html }: SendGmailPayload) {
-  const baseUrl = process.env.GMAIL_API_BASE_URL || 'http://5.223.95.33.nip.io:3009';
+  const baseUrl = process.env.GMAIL_API_BASE_URL || 'https://sent-gmail-api.transformerrobotics.com';
   const apiKey = process.env.GMAIL_API_KEY || 'TransformerRobotics-api-key-2026';
 
   const res = await fetch(`${baseUrl}/api/v1/emails/send`, {

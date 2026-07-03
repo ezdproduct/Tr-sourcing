@@ -162,6 +162,44 @@ export async function proposeStageTimelineAction(
       }
     }
 
+    // Fetch all existing stage timelines for this order to check for overlaps
+    const { data: existingTimelines, error: timelinesError } = await supabase
+      .from('order_stage_timelines')
+      .select('stage_name, estimated_start_date, estimated_end_date')
+      .eq('order_id', orderId)
+
+    if (timelinesError) {
+      return { success: false, error: `Failed to fetch existing timelines: ${timelinesError.message}` }
+    }
+
+    // Check overlap with any other stage timeline (excluding current stage, Order, and Order Done)
+    const proposedStart = new Date(estimatedStartDate)
+    proposedStart.setHours(0, 0, 0, 0)
+    const proposedEnd = new Date(estimatedEndDate)
+    proposedEnd.setHours(0, 0, 0, 0)
+
+    if (existingTimelines) {
+      for (const t of existingTimelines) {
+        if (t.stage_name.toLowerCase() === stageName.toLowerCase()) continue
+        if (t.stage_name.toLowerCase() === 'order' || t.stage_name.toLowerCase() === 'order done') continue
+        if (!t.estimated_start_date || !t.estimated_end_date) continue
+
+        const tStart = new Date(t.estimated_start_date)
+        tStart.setHours(0, 0, 0, 0)
+        const tEnd = new Date(t.estimated_end_date)
+        tEnd.setHours(0, 0, 0, 0)
+
+        if (proposedStart <= tEnd && proposedEnd >= tStart) {
+          const formattedStart = t.estimated_start_date.split('T')[0]
+          const formattedEnd = t.estimated_end_date.split('T')[0]
+          return {
+            success: false,
+            error: `The proposed timeline overlaps with Stage: ${t.stage_name} (${formattedStart} to ${formattedEnd}).`
+          }
+        }
+      }
+    }
+
     const orderDate = order.order_date
     const estimatedDeliveryDate = order.estimated_delivery_date
 
@@ -278,6 +316,40 @@ export async function updateOrderAction(input: UpdateOrderInput) {
 
     // Update stage timelines
     if (input.stageTimelines && input.stageTimelines.length > 0) {
+      // Validate that stage timelines do not overlap with each other (excluding Order and Order Done)
+      const userStages = input.stageTimelines.filter(
+        st => st.stageName.toLowerCase() !== 'order' && st.stageName.toLowerCase() !== 'order done'
+      )
+      
+      for (let i = 0; i < userStages.length; i++) {
+        const a = userStages[i]
+        if (!a.estimatedStartDate || !a.estimatedEndDate) continue
+        const aStart = new Date(a.estimatedStartDate)
+        aStart.setHours(0, 0, 0, 0)
+        const aEnd = new Date(a.estimatedEndDate)
+        aEnd.setHours(0, 0, 0, 0)
+
+        for (let j = i + 1; j < userStages.length; j++) {
+          const b = userStages[j]
+          if (!b.estimatedStartDate || !b.estimatedEndDate) continue
+          const bStart = new Date(b.estimatedStartDate)
+          bStart.setHours(0, 0, 0, 0)
+          const bEnd = new Date(b.estimatedEndDate)
+          bEnd.setHours(0, 0, 0, 0)
+
+          if (aStart <= bEnd && aEnd >= bStart) {
+            const formattedAStart = a.estimatedStartDate.split('T')[0]
+            const formattedAEnd = a.estimatedEndDate.split('T')[0]
+            const formattedBStart = b.estimatedStartDate.split('T')[0]
+            const formattedBEnd = b.estimatedEndDate.split('T')[0]
+            return {
+              success: false,
+              error: `Timeline overlap detected between Stage: ${a.stageName} (${formattedAStart} to ${formattedAEnd}) and Stage: ${b.stageName} (${formattedBStart} to ${formattedBEnd}).`
+            }
+          }
+        }
+      }
+
       // Delete existing timelines
       await supabase
         .from('order_stage_timelines')

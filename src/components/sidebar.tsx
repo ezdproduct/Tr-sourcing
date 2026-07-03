@@ -295,7 +295,7 @@ export function Sidebar() {
           {/* Brand Logo Image */}
           <div className="flex h-10 w-10 flex-shrink-0 items-center justify-center overflow-hidden bg-transparent">
             <img 
-              src="/logo.jpg" 
+              src="/logo.svg" 
               alt="Transformer Robotics Logo" 
               className="w-full h-full object-contain" 
             />

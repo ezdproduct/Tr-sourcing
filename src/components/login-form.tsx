@@ -168,14 +168,25 @@ export function LoginForm({
             <span>{isLoading ? 'Signing in...' : 'Sign In'}</span>
           </Button>
 
-          <div className="pt-2 text-center text-xs text-slate-500">
-            Don&apos;t have an account?{' '}
-            <Link
-              href="/auth/sign-up"
-              className="font-bold text-[#5c59e9] hover:underline"
-            >
-              Sign up
-            </Link>
+          <div className="pt-2 text-center text-xs text-slate-500 space-y-3">
+            <div>
+              Don&apos;t have an account?{' '}
+              <Link
+                href="/auth/sign-up"
+                className="font-bold text-[#5c59e9] hover:underline"
+              >
+                Sign up
+              </Link>
+            </div>
+            <div className="pt-2 border-t border-slate-100 dark:border-slate-800/80 text-[10px] text-slate-400 dark:text-slate-500 flex justify-center gap-3">
+              <Link href="/privacy-policy" className="hover:underline hover:text-[#5c59e9] dark:hover:text-indigo-400 font-medium">
+                Privacy Policy
+              </Link>
+              <span>&bull;</span>
+              <Link href="/terms-of-service" className="hover:underline hover:text-[#5c59e9] dark:hover:text-indigo-400 font-medium">
+                Terms of Service
+              </Link>
+            </div>
           </div>
         </form>
       </div>

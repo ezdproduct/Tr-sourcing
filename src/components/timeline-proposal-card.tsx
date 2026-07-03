@@ -103,6 +103,30 @@ export function TimelineProposalCard({
       return
     }
 
+    // Validate overlap with existing timelines
+    const proposedStart = new Date(input.start)
+    proposedStart.setHours(0, 0, 0, 0)
+    const proposedEnd = new Date(input.end)
+    proposedEnd.setHours(0, 0, 0, 0)
+
+    for (const t of existingTimelines) {
+      if (t.stage_name.toLowerCase() === stage.toLowerCase()) continue
+      if (t.stage_name.toLowerCase() === 'order' || t.stage_name.toLowerCase() === 'order done') continue
+      if (!t.estimated_start_date || !t.estimated_end_date) continue
+
+      const tStart = new Date(t.estimated_start_date)
+      tStart.setHours(0, 0, 0, 0)
+      const tEnd = new Date(t.estimated_end_date)
+      tEnd.setHours(0, 0, 0, 0)
+
+      if (proposedStart <= tEnd && proposedEnd >= tStart) {
+        const formattedStart = t.estimated_start_date.split('T')[0]
+        const formattedEnd = t.estimated_end_date.split('T')[0]
+        setErrorMessage(`The proposed timeline overlaps with Stage: ${t.stage_name} (${formattedStart} to ${formattedEnd})`)
+        return
+      }
+    }
+
     if (orderDate && estimatedDeliveryDate) {
       const getDateTimestamp = (d: string | Date) => {
         const date = new Date(d)

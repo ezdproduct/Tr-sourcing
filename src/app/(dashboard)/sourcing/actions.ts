@@ -1646,7 +1646,7 @@ export async function confirmSupplierAndCreatePoAction(formData: FormData) {
       } else {
         const email = user?.email || ''
         const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'
-        const gmailBaseUrl = process.env.GMAIL_API_BASE_URL || 'http://5.223.95.33.nip.io:3009'
+        const gmailBaseUrl = process.env.GMAIL_API_BASE_URL || 'https://sent-gmail-api.transformerrobotics.com'
         
         let authUrl = ''
         try {

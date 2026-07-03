@@ -171,6 +171,23 @@ export async function addSupplierCapabilityAction(
       userEmail
     )
 
+    // Log to order_activities
+    try {
+      const { data: supplier } = await supabase
+        .from('suppliers')
+        .select('name')
+        .eq('id', supplierId)
+        .single()
+      const supplierName = supplier?.name || 'Unknown'
+      await supabase
+        .from('order_activities')
+        .insert({
+          activity_text: `Supplier Profile Updated: Product "${productName.trim()}" added to Supplier "${supplierName}" (ID: ${supplierId}) by ${userEmail || 'System'}.`
+        })
+    } catch (logErr) {
+      console.error('Error logging capability add to order_activities:', logErr)
+    }
+
     revalidatePath(`/management/supplier/${supplierId}`)
     return { success: true, capability: data }
   } catch (error: any) {
@@ -224,6 +241,23 @@ export async function updateSupplierCapabilityAction(
       userEmail
     )
 
+    // Log to order_activities
+    try {
+      const { data: supplier } = await supabase
+        .from('suppliers')
+        .select('name')
+        .eq('id', supplierId)
+        .single()
+      const supplierName = supplier?.name || 'Unknown'
+      await supabase
+        .from('order_activities')
+        .insert({
+          activity_text: `Supplier Profile Updated: Product "${productName.trim()}" updated for Supplier "${supplierName}" (ID: ${supplierId}) by ${userEmail || 'System'}.`
+        })
+    } catch (logErr) {
+      console.error('Error logging capability update to order_activities:', logErr)
+    }
+
     revalidatePath(`/management/supplier/${supplierId}`)
     return { success: true, capability: data }
   } catch (error: any) {
@@ -263,6 +297,23 @@ export async function deleteSupplierCapabilityAction(supplierId: string, capabil
         'CAPABILITY_DELETE',
         userEmail
       )
+
+      // Log to order_activities
+      try {
+        const { data: supplier } = await supabase
+          .from('suppliers')
+          .select('name')
+          .eq('id', supplierId)
+          .single()
+        const supplierName = supplier?.name || 'Unknown'
+        await supabase
+          .from('order_activities')
+          .insert({
+            activity_text: `Supplier Profile Updated: Product "${capabilityData.product_name}" deleted from Supplier "${supplierName}" (ID: ${supplierId}) by ${userEmail || 'System'}.`
+          })
+      } catch (logErr) {
+        console.error('Error logging capability delete to order_activities:', logErr)
+      }
     }
 
     revalidatePath(`/management/supplier/${supplierId}`)

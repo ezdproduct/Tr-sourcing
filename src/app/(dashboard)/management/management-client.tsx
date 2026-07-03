@@ -159,8 +159,10 @@ export function ManagementClient({ initialProfiles, initialSuppliers, initialLog
 
   // Subtab States
   const searchParams = useSearchParams()
-  const [subtab, setSubtab] = useState<'system' | 'supplier-logs'>('system')
   const subtabParam = searchParams.get('subtab')
+  const [subtab, setSubtab] = useState<'system' | 'supplier-logs'>(() => {
+    return subtabParam === 'supplier-logs' ? 'supplier-logs' : 'system'
+  })
 
   const [prevSubtabParam, setPrevSubtabParam] = useState(subtabParam)
   if (subtabParam !== prevSubtabParam) {
