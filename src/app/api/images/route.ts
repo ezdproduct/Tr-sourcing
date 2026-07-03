@@ -11,10 +11,10 @@ const s3 = new S3Client({
 })
 
 export async function GET(req: NextRequest) {
-  try {
-    const { searchParams } = new URL(req.url)
-    const key = searchParams.get('key')
+  const { searchParams } = new URL(req.url)
+  const key = searchParams.get('key')
 
+  try {
     if (!key) {
       return NextResponse.json({ error: 'Missing key parameter' }, { status: 400 })
     }

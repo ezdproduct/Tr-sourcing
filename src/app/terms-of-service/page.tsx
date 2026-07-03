@@ -224,9 +224,8 @@ export default function TermsOfServicePage() {
         </div>
       </main>
 
-      {/* Simple Footer */}
-      <footer className="border-t border-slate-255/10 dark:border-slate-900 py-6 text-center text-xs text-slate-400 dark:text-slate-500">
-        <p>&copy; {new Date().getFullYear()} Transformer Robotics. All rights reserved.</p>
+      <footer className="border-t border-slate-255/10 dark:border-slate-900 py-6 text-center text-xs text-slate-440 dark:text-slate-500">
+        <p>&copy; 2026 Transformer Robotics. All rights reserved.</p>
       </footer>
     </div>
   )

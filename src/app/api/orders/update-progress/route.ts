@@ -29,12 +29,12 @@ function verifyToken(token: string): string | null {
 }
 
 export async function GET(req: NextRequest) {
-  try {
-    const { searchParams } = new URL(req.url)
-    const token = searchParams.get('token')
-    const action = searchParams.get('action')
-    const orderItemId = searchParams.get('orderItemId')
+  const { searchParams } = new URL(req.url)
+  const token = searchParams.get('token')
+  const action = searchParams.get('action')
+  const orderItemId = searchParams.get('orderItemId')
 
+  try {
     if (!token || !action) {
       return new NextResponse(renderHtmlError('Missing required parameters.'), {
         headers: { 'Content-Type': 'text/html' },

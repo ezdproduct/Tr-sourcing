@@ -2,8 +2,10 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/supabase/server'
 import { generateToken } from '@/app/api/orders/update-progress/route'
 import { sendGmail } from '@/lib/gmail'
+import { headers } from 'next/headers'
 
 export async function GET(req: NextRequest) {
+  await headers()
   try {
     const supabase = await createClient()
     const systemAgentId = process.env.GMAIL_SYSTEM_AGENT_ID ? parseInt(process.env.GMAIL_SYSTEM_AGENT_ID, 10) : 1
