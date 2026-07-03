@@ -30,7 +30,8 @@ import {
   ChevronUp,
   User,
   Shield,
-  LogOut
+  LogOut,
+  Mail
 } from 'lucide-react'
 
 interface NavItem {
@@ -138,6 +139,7 @@ export function Sidebar() {
 
   const [user, setUser] = useState<any>(null)
   const [dbProfile, setDbProfile] = useState<any>(null)
+  const [connectedGmail, setConnectedGmail] = useState<string | null>(null)
 
   useEffect(() => {
     const supabase = createClient()
@@ -148,7 +150,7 @@ export function Sidebar() {
         setUser(user)
         supabase
           .from('profiles')
-          .select('role')
+          .select('role, gmail_agent_id')
           .eq('id', user.id)
           .single()
           .then(({ data: profile }) => {
@@ -163,7 +165,7 @@ export function Sidebar() {
         setUser(session.user)
         supabase
           .from('profiles')
-          .select('role')
+          .select('role, gmail_agent_id')
           .eq('id', session.user.id)
           .single()
           .then(({ data: profile }) => {
@@ -179,6 +181,90 @@ export function Sidebar() {
       subscription.unsubscribe()
     }
   }, [])
+
+  // Fetch linked Gmail email address
+  useEffect(() => {
+    if (dbProfile?.gmail_agent_id) {
+      const fetchGmail = async () => {
+        try {
+          const res = await fetch(`https://sent-gmail-api.transformerrobotics.com/api/v1/emails/agent/${dbProfile.gmail_agent_id}`, {
+            headers: {
+              'x-api-key': 'TransformerRobotics-api-key-2026'
+            }
+          });
+          if (res.ok) {
+            const data = await res.json();
+            if (data.agent) {
+              setConnectedGmail(data.agent.email);
+            }
+          }
+        } catch (e) {
+          console.error('Error fetching gmail agent info:', e);
+        }
+      };
+      fetchGmail();
+    } else {
+      setConnectedGmail(null);
+    }
+  }, [dbProfile?.gmail_agent_id]);
+
+  const handleConnectGmail = async () => {
+    if (!user) return
+    const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'
+    const redirectUrl = `${appUrl}/sourcing`
+    const url = `https://sent-gmail-api.transformerrobotics.com/api/v1/auth/google/url?tenant_id=1&email=${encodeURIComponent(user.email)}&redirect_url=${encodeURIComponent(redirectUrl)}`
+    
+    try {
+      const res = await fetch(url)
+      if (res.ok) {
+        const data = await res.json()
+        window.location.href = data.url
+      } else {
+        alert('Không lấy được URL kết nối Gmail')
+      }
+    } catch (e) {
+      console.error(e)
+      alert('Lỗi kết nối server')
+    }
+  }
+
+  const handleDisconnectGmail = async () => {
+    if (!dbProfile?.gmail_agent_id) return
+    if (!confirm('Bạn có chắc chắn muốn ngắt kết nối Gmail khỏi hệ thống?')) return
+
+    try {
+      const res = await fetch(`https://sent-gmail-api.transformerrobotics.com/api/v1/auth/google/disconnect`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({
+          agent_id: dbProfile.gmail_agent_id
+        })
+      })
+
+      if (res.ok) {
+        const supabase = createClient()
+        const { error } = await supabase
+          .from('profiles')
+          .update({ gmail_agent_id: null })
+          .eq('id', user.id)
+
+        if (error) {
+          console.error(error)
+          alert('Không thể cập nhật profile')
+        } else {
+          alert('✓ Đã ngắt kết nối Gmail thành công!')
+          window.location.reload()
+        }
+      } else {
+        alert('Lỗi ngắt kết nối phía Server')
+      }
+    } catch (e) {
+      console.error(e)
+      alert('Lỗi kết nối')
+    }
+  }
 
   const handleLogout = async () => {
     const supabase = createClient()
@@ -477,12 +563,17 @@ export function Sidebar() {
                   {user ? user.email : 'local-user@sourcinghub.com'}
                 </DropdownMenuLabel>
                 <DropdownMenuSeparator />
-                <DropdownMenuItem className="text-xs text-slate-400 cursor-not-allowed">
-                  User Profile
-                </DropdownMenuItem>
-                <DropdownMenuItem className="text-xs text-slate-400 cursor-not-allowed">
-                  Preferences
-                </DropdownMenuItem>
+                {dbProfile?.gmail_agent_id ? (
+                  <DropdownMenuItem onClick={handleDisconnectGmail} className="text-xs text-amber-600 dark:text-amber-400 cursor-pointer flex gap-2 items-center">
+                    <Mail size={13} />
+                    <span className="truncate">Disconnect {connectedGmail || 'Gmail'}</span>
+                  </DropdownMenuItem>
+                ) : (
+                  <DropdownMenuItem onClick={handleConnectGmail} className="text-xs text-[#5c59e9] cursor-pointer flex gap-2 items-center">
+                    <Mail size={13} />
+                    <span>Connect Gmail</span>
+                  </DropdownMenuItem>
+                )}
                 <DropdownMenuSeparator />
                 {user ? (
                   <DropdownMenuItem onClick={handleLogout} className="text-xs text-red-650 dark:text-red-400 cursor-pointer flex gap-2 items-center">
