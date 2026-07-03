@@ -21,7 +21,7 @@ export async function GET(req: NextRequest) {
     const { data: poIssuedOrders, error: poIssuedError } = await supabase
       .from('orders')
       .select('id, created_at, selected_supplier_id, suppliers(name, email)')
-      .eq('stage', 'PO ISSUED')
+      .in('stage', ['PO ISSUED', 'PO CONFIRMED'])
       .eq('deposit_email_sent', false)
       .lte('created_at', threshold48h.toISOString())
 

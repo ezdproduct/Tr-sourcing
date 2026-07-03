@@ -435,12 +435,16 @@ export async function GET(req: NextRequest) {
               </html>
             `
 
-            await sendGmail({
-              agentId: systemAgentId,
-              toEmail: supplier.email,
-              subject: `[TR Sourcing] Production Started - Order ID: ${displayOrderId}`,
-              html: emailHtml,
-            })
+            try {
+              await sendGmail({
+                agentId: systemAgentId,
+                toEmail: supplier.email,
+                subject: `[TR Sourcing] Production Started - Order ID: ${displayOrderId}`,
+                html: emailHtml,
+              })
+            } catch (gmailErr: any) {
+              console.error('Failed to send confirmation email to supplier:', gmailErr)
+            }
         }
       }
     }
@@ -451,7 +455,8 @@ export async function GET(req: NextRequest) {
       })
     }
 
-    return new NextResponse(renderHtmlSuccess(orderId, actionDescription), {
+    const orderCode = order.order_code || `PO-${orderId.substring(0, 8).toUpperCase()}`
+    return new NextResponse(renderHtmlSuccess(orderId, actionDescription, orderCode), {
       headers: { 'Content-Type': 'text/html' },
       status: 200,
     })
@@ -464,68 +469,53 @@ export async function GET(req: NextRequest) {
   }
 }
 
-function renderHtmlSuccess(orderId: string, actionDescription: string) {
+function renderHtmlSuccess(orderId: string, actionDescription: string, orderCode: string) {
   const secureToken = generateToken(orderId)
   const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'
   const shipmentActionUrl = `${appUrl}/api/orders/update-progress?token=${secureToken}&action=shipped`
   const showShipButton = actionDescription === 'Confirmed & Accepted Purchase Order'
 
-  let boxTitle = 'Update Confirmed'
-  let boxDesc = 'Your supply chain update feedback has been recorded successfully.'
-  let statusThemeClass = 'theme-blue'
-  let boxIcon = `
-    <svg width="20" height="20" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24">
-      <path stroke-linecap="round" stroke-linejoin="round" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"></path>
-    </svg>
-  `
-  let stepItems = [
-    'Our operations team has been notified of the update.',
-    'The master order stage was updated in the secure tracking database.',
-    'Subsequent milestones and weekly reports will automatically pulse.'
-  ]
+  let displayTitle = 'Your feedback has been successfully recorded'
+  let stepItems: string[] = []
 
   if (actionDescription === 'Confirmed & Accepted Purchase Order') {
-    boxTitle = 'Purchase Order Confirmed'
-    boxDesc = 'The Purchase Order is now officially confirmed. Production is active.'
-    boxIcon = `
-      <svg width="20" height="20" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24">
-        <path stroke-linecap="round" stroke-linejoin="round" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"></path>
-      </svg>
-    `
+    displayTitle = 'The Purchase Order has been successfully confirmed'
     stepItems = [
       'The supplier reviews specifications and initiates production.',
       'Sourcing team tracks weekly production metrics and delays.',
       'Once ready, supplier uses the "Mark as Shipped" action to register cargo.'
     ]
   } else if (actionDescription === 'Confirmed Shipped / Dispatched') {
-    boxTitle = 'Cargo Marked as Shipped'
-    boxDesc = 'The order has been marked as shipped and is routing to the port.'
-    statusThemeClass = 'theme-emerald'
-    boxIcon = `
-      <svg width="20" height="20" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24">
-        <path stroke-linecap="round" stroke-linejoin="round" d="M5 8h14M5 8a2 2 0 110-4h14a2 2 0 110 4M5 8v10a2 2 0 002 2h10a2 2 0 002-2V8m-9 4h4"></path>
-      </svg>
-    `
+    displayTitle = 'Your Cargo has been successfully marked as shipped'
     stepItems = [
       'Cargo arrives at port container depot for logistics processing.',
       'QC officers perform physical port inspections and sealing check.',
       'Approved items are transferred directly to digital inventory.'
     ]
   } else if (actionDescription === 'Confirmed Deposit Received') {
-    boxTitle = 'Deposit Confirmed'
-    boxDesc = 'The deposit receipt is confirmed. Order moves to active production.'
-    statusThemeClass = 'theme-indigo'
-    boxIcon = `
-      <svg width="20" height="20" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24">
-        <path stroke-linecap="round" stroke-linejoin="round" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M12 16V5"></path>
-      </svg>
-    `
+    displayTitle = 'Your Deposit receipt has been successfully confirmed'
     stepItems = [
       'Production run starts on factory assembly lines.',
       'Weekly progress check is tracked by procurement coordinators.',
       'Materials will be dispatched based on target completion date.'
     ]
+  } else {
+    stepItems = [
+      'Our operations team has been notified of the update.',
+      'The master order stage was updated in the secure tracking database.',
+      'Subsequent milestones and weekly reports will automatically pulse.'
+    ]
   }
+
+  // Format the current timestamp like: 03/07/26 13:40
+  const formattedDate = new Date().toLocaleString('en-US', {
+    year: '2-digit',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false
+  }).replace(',', '')
 
   return `
     <!DOCTYPE html>
@@ -551,185 +541,154 @@ function renderHtmlSuccess(orderId: string, actionDescription: string) {
           background: #ffffff;
           border: 1px solid #e2e8f0;
           border-radius: 32px;
-          padding: 40px;
+          padding: 40px 32px;
           text-align: center;
-          max-width: 480px;
+          max-width: 440px;
           width: 100%;
-          box-shadow: 0 20px 40px -15px rgba(0, 0, 0, 0.05);
+          box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.03), 0 8px 10px -6px rgba(0, 0, 0, 0.03);
           animation: scaleUp 0.35s cubic-bezier(0.16, 1, 0.3, 1);
         }
         @keyframes scaleUp {
           from { transform: scale(0.96); opacity: 0; }
           to { transform: scale(1); opacity: 1; }
         }
-        .icon-circle {
-          width: 64px;
-          height: 64px;
-          background: #d1fae5;
-          border-radius: 20px;
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          margin: 0 auto 24px;
-          color: #10b981;
-        }
-        .icon-circle svg {
-          width: 32px;
-          height: 32px;
-          stroke-width: 2.5;
-        }
-        h1 {
-          font-size: 26px;
-          font-weight: 800;
-          margin: 0 0 8px;
-          color: #0f172a;
-          letter-spacing: -0.02em;
-        }
-        .subtitle {
-          color: #64748b;
-          font-size: 14.5px;
-          line-height: 1.5;
-          margin: 0 0 28px;
-        }
-        .status-box {
-          border-radius: 20px;
-          padding: 24px 20px;
-          margin-bottom: 28px;
-          text-align: center;
-        }
-        .status-box.theme-blue {
-          background: #f0f9ff;
-          border: 1px solid #e0f2fe;
-        }
-        .status-box.theme-blue .status-icon {
-          background: #ffffff;
-          color: #0284c7;
-          border: 1px solid #e0f2fe;
-        }
-        .status-box.theme-blue .status-title {
-          color: #0369a1;
-        }
-        .status-box.theme-blue .status-desc {
-          color: #0284c7;
-        }
-        .status-box.theme-emerald {
-          background: #f0fdf4;
-          border: 1px solid #dcfce7;
-        }
-        .status-box.theme-emerald .status-icon {
-          background: #ffffff;
-          color: #16a34a;
-          border: 1px solid #dcfce7;
-        }
-        .status-box.theme-emerald .status-title {
-          color: #15803d;
-        }
-        .status-box.theme-emerald .status-desc {
-          color: #16a34a;
-        }
-        .status-box.theme-indigo {
-          background: #eef2ff;
-          border: 1px solid #e0e7ff;
-        }
-        .status-box.theme-indigo .status-icon {
-          background: #ffffff;
-          color: #4f46e5;
-          border: 1px solid #e0e7ff;
-        }
-        .status-box.theme-indigo .status-title {
-          color: #4338ca;
-        }
-        .status-box.theme-indigo .status-desc {
-          color: #4f46e5;
-        }
-        .status-icon {
-          width: 44px;
-          height: 44px;
-          border-radius: 12px;
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          margin: 0 auto 14px;
-          box-shadow: 0 4px 10px rgba(0, 0, 0, 0.02);
-        }
-        .status-title {
-          font-size: 16px;
-          font-weight: 700;
-          margin: 0 0 6px;
-        }
-        .status-desc {
-          font-size: 13px;
-          line-height: 1.5;
-          margin: 0;
-        }
-        .action-btn {
-          display: inline-block;
-          background: #4f46e5;
-          color: #ffffff !important;
-          text-decoration: none;
-          font-size: 14px;
-          font-weight: 700;
-          padding: 12px 24px;
-          border-radius: 10px;
-          margin-top: 14px;
-          box-shadow: 0 4px 12px rgba(79, 70, 229, 0.2);
-          transition: background 0.2s;
-        }
-        .action-btn:hover {
-          background: #4338ca;
-        }
-        .order-info {
-          background: #f8fafc;
-          border: 1px solid #f1f5f9;
-          border-radius: 16px;
-          padding: 16px;
-          margin-bottom: 28px;
-          font-size: 13px;
-        }
-        .info-row {
+        .header-container {
           display: flex;
           justify-content: space-between;
-          margin-bottom: 10px;
+          align-items: center;
+          width: 100%;
+          margin-bottom: 28px;
         }
-        .info-row:last-child {
-          margin-bottom: 0;
+        .logo-container {
+          width: 72px;
+          display: flex;
+          justify-content: flex-start;
+          animation: fadeIn 0.4s ease-out;
         }
-        .info-label {
+        @keyframes fadeIn {
+          from { opacity: 0; transform: translateY(-4px); }
+          to { opacity: 1; transform: translateY(0); }
+        }
+        .logo-container svg {
+          height: 72px;
+          width: 72px;
+          border-radius: 16px;
+          box-shadow: 0 8px 24px rgba(207, 69, 69, 0.1);
+        }
+        .success-badge {
+          width: 64px;
+          height: 64px;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          animation: popIn 0.5s cubic-bezier(0.34, 1.56, 0.64, 1);
+        }
+        @keyframes popIn {
+          0% { transform: scale(0); opacity: 0; }
+          100% { transform: scale(1); opacity: 1; }
+        }
+        .success-badge svg {
+          width: 100%;
+          height: 100%;
+        }
+        .header-spacer {
+          width: 72px;
+        }
+        h1 {
+          font-size: 22px;
+          font-weight: 700;
+          margin: 0 0 24px;
+          color: #0f172a;
+          line-height: 1.35;
+          letter-spacing: -0.015em;
+        }
+        .details-card {
+          background: #fafafa;
+          border: 1px solid #f1f5f9;
+          border-radius: 20px;
+          padding: 16px 20px;
+          margin-bottom: 24px;
+        }
+        .detail-row {
+          display: flex;
+          justify-content: space-between;
+          align-items: center;
+          padding: 12px 0;
+          border-bottom: 1px solid #f1f5f9;
+          font-size: 13.5px;
+        }
+        .detail-row:last-child {
+          border-bottom: none;
+          padding-bottom: 0;
+        }
+        .detail-row:first-child {
+          padding-top: 0;
+        }
+        .detail-label {
           color: #64748b;
           font-weight: 500;
         }
-        .info-value {
-          color: #1e293b;
+        .detail-value {
+          color: #0f172a;
           font-weight: 600;
+          text-align: right;
+        }
+        .detail-value.success {
+          color: #10b981;
+        }
+        .action-btn {
+          display: block;
+          width: 100%;
+          background: #0f172a;
+          color: #ffffff !important;
+          text-decoration: none;
+          font-size: 14.5px;
+          font-weight: 600;
+          padding: 14px 24px;
+          border-radius: 14px;
+          margin-top: 8px;
+          text-align: center;
+          box-sizing: border-box;
+          transition: background 0.15s ease, transform 0.1s ease;
+        }
+        .action-btn:hover {
+          background: #1e293b;
+        }
+        .action-btn:active {
+          transform: scale(0.985);
+        }
+        .next-steps-container {
+          margin-top: 28px;
+          padding-top: 24px;
+          border-top: 1px solid #f1f5f9;
+          text-align: left;
         }
         .section-title {
           font-size: 11px;
-          font-weight: 800;
+          font-weight: 700;
           color: #94a3b8;
           text-transform: uppercase;
           letter-spacing: 0.05em;
           margin: 0 0 16px;
-          text-align: left;
         }
         .step-row {
           display: flex;
           gap: 12px;
-          margin-bottom: 14px;
-          text-align: left;
-          font-size: 13.5px;
-          line-height: 1.5;
-          color: #475569;
+          margin-bottom: 12px;
+          font-size: 13px;
+          line-height: 1.45;
+          color: #64748b;
         }
         .step-row:last-child {
           margin-bottom: 0;
         }
         .step-num {
-          width: 22px;
-          height: 22px;
+          width: 20px;
+          height: 20px;
           background: #eff6ff;
-          color: #3b82f6;
-          font-size: 11px;
-          font-weight: 800;
+          color: #2563eb;
+          font-size: 10px;
+          font-weight: 700;
           border-radius: 50%;
           display: flex;
           align-items: center;
@@ -737,50 +696,71 @@ function renderHtmlSuccess(orderId: string, actionDescription: string) {
           flex-shrink: 0;
           margin-top: 1px;
         }
-
       </style>
     </head>
     <body>
       <div class="card">
-        <div class="icon-circle">
-          <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7"></path>
+        <div class="header-container">
+          <div class="logo-container">
+          <svg id="Layer_1" data-name="Layer 1" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 2048 2048">
+            <rect fill="#cf4545" width="2048" height="2048"/>
+            <path fill="#fff8f8" d="M623.1,839.06v370.67H252.43v-370.67h370.67ZM586.35,875.81h-297.17v297.17h297.17v-297.17Z"/>
+            <path fill="#fff8f8" d="M1453.9,908.56l29.55.81.4,6.38c13.43-12.04,35.91-11.49,49.52.02,1.79,1.52,5.83,7.19,7.2,7.18,11.63-20.69,43.91-20.8,58.7-3.58,4.39,5.11,9.61,16.42,9.61,23.14v63.51h-30.36v-58.72c0-3.2-4.14-8.93-6.92-10.65-4.16-2.57-12.5-2.49-16.8-.3-1.76.9-8.23,6.9-8.23,8.55v61.11h-30.36v-57.92c0-.27-1.17-4.36-1.42-4.97-3.93-9.64-16.79-10.78-24.54-5.01-1.08.8-5.99,5.88-5.99,6.79v61.11h-30.36v-97.46Z"/>
+            <path fill="#fff8f8" d="M960.21,1041.97v46.33c29.2-21.71,68.3-.39,72.6,34.04,5.3,42.44-36.59,75.22-73.39,49.04v7.19h-29.57v-136.6h30.36ZM974.38,1107.67c-4.43.75-12.48,5.68-13.81,10.16-.78,2.62-.83,21.41-.2,24.23,1.39,6.14,11.97,10.6,17.77,10.98,33.66,2.2,32.55-51.5-3.77-45.37Z"/>
+            <path fill="#fff8f8" d="M963.01,1006.02c-.39-.12-.94-.87-1.08-1.33-.68-2.1,1.56-5.07-.5-5.05-33.07,24.31-75.69-7.19-73.01-45.84,2.42-34.79,43.3-61.47,72.99-38.06l.39-6.38c10.02-.89,20.38-1.55,30.36,0v95.46l-1.2,1.2h-27.96ZM936.04,935.11c-20.13,3.4-22.98,35.88-4.02,43.58,9.57,3.89,23.96,1.64,29.26-7.97l-.18-26.63c-4.86-8.08-16.27-10.47-25.06-8.98Z"/>
+            <path fill="#fff8f8" d="M889.11,1179.37l.8-6.38c-4.12.91-6.94,4.34-11.19,5.97-29.48,11.3-61.41-14.85-63.13-44.69-2.04-35.36,34.35-66.57,67.67-49.29,2.09,1.08,4.1,3.43,5.47,4.12,1.67.84.75-.9.78-1.19.14-1.69.19-3.54-.39-5.18l28.55-.65,1.73,1.15-.73,96.16h-29.56ZM868.74,1107.93c-30.6.3-29.51,47.37,1.62,45.92,4.33-.2,15.6-4.16,17.36-8.23.97-2.25,1.1-23.99.64-27.4-.9-6.73-13.77-10.34-19.61-10.29Z"/>
+            <path fill="#fff8f8" d="M1717.53,966.08h-68.7c9.11,20.1,38.04,19.24,51.92,4.8l11.77,23.57c-23.92,22.14-71.56,17.45-88.06-11.58-16.06-28.27-1.48-65.28,29.98-73.9,37.67-10.32,69.53,19.13,63.1,57.11ZM1648.82,944.51h39.94c-4.46-19.42-34.07-17.99-39.94,0Z"/>
+            <path fill="#fff8f8" d="M1186.29,1138.63h-69.5c9.45,19.51,36.98,19.44,51.44,5.63l12.35,22.61c-29.1,27.38-90.45,13.33-94.17-30.21-5.33-62.3,78.16-77.61,96.7-26.4.75,2.08,3.18,9.55,3.18,11.19v17.18ZM1156.73,1117.06c-3.57-19.43-34.66-18.29-39.14,0h39.14Z"/>
+            <path fill="#fff8f8" d="M1313.94,907.2c74.82-6.75,78.22,101.87,5.29,101.08-68.18-.74-70.88-95.16-5.29-101.08ZM1314.71,935.13c-8.46,1.24-16.24,9.33-17.3,17.86-4.17,33.86,39.45,35.41,43.78,10.23,3.01-17.45-8.54-30.71-26.49-28.09Z"/>
+            <polygon fill="#fff8f8" points="836.39 871.02 836.39 899.77 792.45 899.77 792.45 1006.02 760.5 1006.02 760.5 899.77 716.56 899.77 716.56 871.02 836.39 871.02"/>
+            <polygon fill="#fff8f8" points="836.39 1043.57 836.39 1072.33 792.45 1072.33 792.45 1178.57 760.5 1178.57 760.5 1072.33 716.56 1072.33 716.56 1043.57 836.39 1043.57"/>
+            <path fill="#fff8f8" d="M1097.61,1006.02h-30.36v-60.31c0-1.44-3.49-6.79-4.84-7.94-5.26-4.5-14.57-3.9-20.19-.32-1.51.97-6.92,6.97-6.92,8.26v60.31h-30.36v-97.46h29.55s.02,7.99.02,7.99c18.68-17.22,50.27-10.64,60.05,13.04.75,1.83,3.05,8.23,3.05,9.73v66.7Z"/>
+            <path fill="#fff8f8" d="M1188.68,909.36c6.32-1.9,12.98.19,19.18-.81-2.28-30.11,23.42-45.21,51.16-39.58,3.18.65,18.54,6,18.21,9.48l-11.07,22.12c-9.13-9.29-29.26-8.41-27.86,7.91l28.67.88v24.37l-1.2,1.2h-27.56v71.1h-30.36l-1.2-71.1h-16.78l-1.2-1.2v-24.37Z"/>
+            <path fill="#fff8f8" d="M1181.39,916.67l-11.09,23.85c-4.9-6.08-26.69-13.52-31.19-6.05-5.41,8.98,15.67,10.77,20.65,12.21,11.16,3.22,22.92,10.65,24.73,23.2,5.64,39.04-41.12,44.39-67.98,32.83-2.11-.91-11.75-5.56-11.36-7.91l12.05-22.32c8,7.31,22.26,13.62,33.17,10.79,3.36-.87,5.96-4.11,4.37-7.59-2.17-4.74-19.1-7.55-24.57-9.8-16.14-6.62-26.37-20.65-19.66-38.45,9.57-25.36,51.98-24.83,70.89-10.77Z"/>
+            <rect fill="#fff8f8" x="1045.69" y="1041.97" width="30.36" height="136.6"/>
+            <path fill="#fff8f8" d="M1728.71,909.76c.18-.58,1.27-1.27,2-1.2l29.07.89.09,7.9c11.43-5.04,23.57-3.73,35.15.01l-11.22,27.15c-9.56-4.21-18.74.11-23.17,9.16l-1.56,52.36h-30.36v-96.26Z"/>
+            <path fill="#fff8f8" d="M1411.56,908.56v8.78c11.22-4.18,25.3-5.3,35.88,1.19l-11.12,25.98c-6.88-3.12-15.91-1.51-20.78,4.38-.75.91-3.98,7.29-3.98,8v49.13h-30.36v-96.66c.78.26,1.73-.8,2-.8h28.36Z"/>
+            <path fill="#fff8f8" d="M857.16,908.56v8.78c11.22-4.18,25.3-5.3,35.88,1.19l-11.88,25.63c-6.86-2.74-15.89-.88-20.35,5.19-.66.9-3.65,6.93-3.65,7.54v49.13h-30.36v-97.46h30.36Z"/>
+            <polygon fill="#fff8f8" points="548.8 950.9 548.8 987.65 512.05 987.65 512.05 1098.69 475.31 1098.69 475.31 987.65 400.21 987.65 400.21 1098.69 364.27 1098.69 364.27 987.65 326.72 987.65 326.72 950.9 548.8 950.9"/>
           </svg>
         </div>
-        <h1>Thank You!</h1>
-        <div class="subtitle">Your confirmation has been received.</div>
+        
+        <div class="success-badge">
+          <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <path d="M12 2C11.3 2 10.6 2.4 10.3 3.1L9.7 4.5C9.5 4.9 9.1 5.2 8.7 5.3L7.2 5.6C6.5 5.7 5.9 6.2 5.7 6.9L5.3 8.4C5.2 8.8 4.9 9.2 4.5 9.4L3.1 10C2.4 10.3 2 11 2 11.7V12.3C2 13 2.4 13.7 3.1 14L4.5 14.6C4.9 14.8 5.2 15.2 5.3 15.6L5.7 17.1C5.9 17.8 6.5 18.3 7.2 18.4L8.7 18.7C9.1 18.8 9.5 19.1 9.7 19.5L10.3 20.9C10.6 21.6 11.3 22 12 22C12.7 22 13.4 21.6 13.7 20.9L14.3 19.5C14.5 19.1 14.9 18.8 15.3 18.7L16.8 18.4C17.5 18.3 18.1 17.8 18.3 17.1L18.7 15.6C18.8 15.2 19.1 14.8 19.5 14.6L20.9 14C21.6 13.7 22 13 22 12.3V11.7C22 11 21.6 10.3 20.9 10L19.5 9.4C19.1 9.2 18.8 8.8 18.7 8.4L18.3 6.9C18.1 6.2 17.5 5.7 16.8 5.6L15.3 5.3C14.9 5.2 14.5 4.9 14.3 4.5L13.7 3.1C13.4 2.4 12.7 2 12 2Z" fill="#d1fae5"/>
+            <path d="M9 12L11 14L15 10" stroke="#10b981" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
+          </svg>
+        </div>
+        <div class="header-spacer"></div>
+      </div>
 
-        <div class="status-box ${statusThemeClass}">
-          <div class="status-icon">
-            ${boxIcon}
+        <h1>${displayTitle}</h1>
+
+        <div class="details-card">
+          <div class="detail-row">
+            <span class="detail-label">Order Code</span>
+            <span class="detail-value">${orderCode}</span>
           </div>
-          <div class="status-title">${boxTitle}</div>
-          <div class="status-desc">${boxDesc}</div>
-          ${showShipButton ? `
-            <a href="${shipmentActionUrl}" class="action-btn">Mark as Shipped</a>
-          ` : ''}
-        </div>
- 
-        <div class="order-info">
-          <div class="info-row">
-            <span class="info-label">Order Code</span>
-            <span class="info-value">ORD-${orderId.substring(0, 8).toUpperCase()}</span>
+          <div class="detail-row">
+            <span class="detail-label">Action</span>
+            <span class="detail-value">${actionDescription}</span>
           </div>
-          <div class="info-row">
-            <span class="info-label">Source</span>
-            <span class="info-value">Interactive Email Pulse</span>
+          <div class="detail-row">
+            <span class="detail-label">Date & Time</span>
+            <span class="detail-value">${formattedDate}</span>
           </div>
-          <div class="info-row">
-            <span class="info-label">Status</span>
-            <span class="info-value" style="color: #10b981;">Success</span>
+          <div class="detail-row">
+            <span class="detail-label">Status</span>
+            <span class="detail-value success">Success</span>
           </div>
         </div>
+
 
 
 
 
       </div>
-    </body>
+  </body>
     </html>
   `
 }
