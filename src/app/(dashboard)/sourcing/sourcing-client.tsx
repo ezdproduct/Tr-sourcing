@@ -821,6 +821,29 @@ export function SourcingClient({ initialOrders, initialSuppliers, initialAudits 
     setIsManageMode(false)
   }, [allSuppliersSearch, shortlistFilterOnly, orderShortlistFilterOnly, viewMode])
 
+  // Column Visibility State for Supplier Profiles tab
+  const [supplierColumnVisibility, setSupplierColumnVisibility] = useState<Record<string, boolean>>({
+    supplierName: true,
+    email: true,
+    phone: true,
+    contactPerson: true,
+    website: true,
+    address: true,
+    mainProducts: true,
+    uploadedBy: true
+  })
+
+  const supplierToggleableColumns = [
+    { key: 'supplierName', label: 'Supplier Name' },
+    { key: 'email', label: 'Email' },
+    { key: 'phone', label: 'Phone' },
+    { key: 'contactPerson', label: 'Contact Person' },
+    { key: 'website', label: 'Website' },
+    { key: 'address', label: 'Address' },
+    { key: 'mainProducts', label: 'Main Products' },
+    { key: 'uploadedBy', label: 'Uploaded By' }
+  ]
+
   // Column Visibility State following TanStack Table model (All Suppliers)
   const [columnVisibility, setColumnVisibility] = useState<Record<string, boolean>>({
     supplierName: true,
@@ -1795,16 +1818,47 @@ export function SourcingClient({ initialOrders, initialSuppliers, initialAudits 
               </Button>
             </div>
           ) : (
-            <DropdownMenu>
-              <DropdownMenuTrigger asChild>
-                <Button
-                  variant="outline"
-                  className="flex items-center gap-1.5 h-9 px-4 rounded-lg border border-slate-200 text-slate-700 hover:bg-slate-50 dark:border-slate-800 dark:text-slate-400 dark:hover:text-slate-200 transition-colors cursor-pointer text-xs font-semibold"
-                >
-                  <span>Add / Manage</span>
-                  <ChevronDown size={12} />
-                </Button>
-              </DropdownMenuTrigger>
+            <div className="flex items-center gap-2">
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button
+                    variant="outline"
+                    className="flex items-center gap-1.5 h-9 px-4 rounded-lg border border-slate-200 text-slate-700 hover:bg-slate-50 dark:border-slate-800 dark:text-slate-400 dark:hover:text-slate-200 transition-colors cursor-pointer text-xs font-semibold"
+                  >
+                    <SlidersHorizontal size={12} />
+                    <span>Manage Columns</span>
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end" className="w-48 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-1 shadow-md z-50">
+                  <div className="px-2.5 py-1 text-[10px] font-bold text-slate-400 uppercase tracking-wider">
+                    Toggle Columns
+                  </div>
+                  {supplierToggleableColumns.map(col => (
+                    <DropdownMenuCheckboxItem
+                      key={col.key}
+                      checked={supplierColumnVisibility[col.key]}
+                      onCheckedChange={(checked) => {
+                        setSupplierColumnVisibility(prev => ({ ...prev, [col.key]: !!checked }))
+                      }}
+                      onSelect={(e) => e.preventDefault()}
+                      className="text-xs rounded-lg cursor-pointer py-1.5 hover:bg-slate-50 dark:hover:bg-slate-800"
+                    >
+                      {col.label}
+                    </DropdownMenuCheckboxItem>
+                  ))}
+                </DropdownMenuContent>
+              </DropdownMenu>
+
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button
+                    variant="outline"
+                    className="flex items-center gap-1.5 h-9 px-4 rounded-lg border border-slate-200 text-slate-700 hover:bg-slate-50 dark:border-slate-800 dark:text-slate-400 dark:hover:text-slate-200 transition-colors cursor-pointer text-xs font-semibold"
+                  >
+                    <span>Add</span>
+                    <ChevronDown size={12} />
+                  </Button>
+                </DropdownMenuTrigger>
               <DropdownMenuContent align="end" className="w-56 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-1 shadow-md z-50">
                 <DropdownMenuItem
                   onClick={() => {
@@ -1854,6 +1908,7 @@ export function SourcingClient({ initialOrders, initialSuppliers, initialAudits 
                 </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>
+            </div>
           )}
         </div>
 
@@ -1893,30 +1948,34 @@ export function SourcingClient({ initialOrders, initialSuppliers, initialAudits 
                           />
                         </th>
                       )}
-                      <th 
-                        className="px-6 py-4 w-[20%] min-w-[220px] cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors select-none"
-                        onClick={() => handleSort('name')}
-                      >
-                        <div className="flex items-center gap-1">
-                          <span>Supplier Name</span>
-                          <ArrowUpDown size={12} className={supplierSort.field === 'name' ? 'text-indigo-600 dark:text-indigo-400' : 'text-slate-400 dark:text-slate-600 opacity-50'} />
-                        </div>
-                      </th>
-                      <th className="px-6 py-4 w-[15%] min-w-[180px]">Email</th>
-                      <th className="px-6 py-4 w-[10%] min-w-[130px]">Phone</th>
-                      <th className="px-6 py-4 w-[12%] min-w-[150px]">Contact Person</th>
-                      <th className="px-6 py-4 w-[12%] min-w-[150px]">Website</th>
-                      <th className="px-6 py-4 w-[15%] min-w-[200px]">Address</th>
-                      <th className="px-6 py-4 w-[16%] min-w-[200px]">Main Products</th>
-                      <th 
-                        className="px-6 py-4 w-[10%] min-w-[110px] text-center cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors select-none"
-                        onClick={() => handleSort('created_by')}
-                      >
-                        <div className="flex items-center justify-center gap-1 w-full">
-                          <span>Upload By</span>
-                          <ArrowUpDown size={12} className={supplierSort.field === 'created_by' ? 'text-indigo-600 dark:text-indigo-400' : 'text-slate-400 dark:text-slate-600 opacity-50'} />
-                        </div>
-                      </th>
+                      {supplierColumnVisibility.supplierName && (
+                        <th 
+                          className="px-6 py-4 w-[20%] min-w-[220px] cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors select-none"
+                          onClick={() => handleSort('name')}
+                        >
+                          <div className="flex items-center gap-1">
+                            <span>Supplier Name</span>
+                            <ArrowUpDown size={12} className={supplierSort.field === 'name' ? 'text-indigo-600 dark:text-indigo-400' : 'text-slate-400 dark:text-slate-600 opacity-50'} />
+                          </div>
+                        </th>
+                      )}
+                      {supplierColumnVisibility.email && <th className="px-6 py-4 w-[15%] min-w-[180px]">Email</th>}
+                      {supplierColumnVisibility.phone && <th className="px-6 py-4 w-[10%] min-w-[130px]">Phone</th>}
+                      {supplierColumnVisibility.contactPerson && <th className="px-6 py-4 w-[12%] min-w-[150px]">Contact Person</th>}
+                      {supplierColumnVisibility.website && <th className="px-6 py-4 w-[12%] min-w-[150px]">Website</th>}
+                      {supplierColumnVisibility.address && <th className="px-6 py-4 w-[15%] min-w-[200px]">Address</th>}
+                      {supplierColumnVisibility.mainProducts && <th className="px-6 py-4 w-[16%] min-w-[200px]">Main Products</th>}
+                      {supplierColumnVisibility.uploadedBy && (
+                        <th 
+                          className="px-6 py-4 w-[10%] min-w-[110px] text-center cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors select-none"
+                          onClick={() => handleSort('created_by')}
+                        >
+                          <div className="flex items-center justify-center gap-1 w-full">
+                            <span>Upload By</span>
+                            <ArrowUpDown size={12} className={supplierSort.field === 'created_by' ? 'text-indigo-600 dark:text-indigo-400' : 'text-slate-400 dark:text-slate-600 opacity-50'} />
+                          </div>
+                        </th>
+                      )}
                       <th className="px-6 py-4 w-[10%] min-w-[110px] text-center">Actions</th>
                     </tr>
                   </thead>
@@ -1926,94 +1985,110 @@ export function SourcingClient({ initialOrders, initialSuppliers, initialAudits 
                         {isManageMode && <td />}
                         
                         {/* Supplier Name */}
-                        <td className="px-6 py-3 w-[20%] min-w-[220px]">
-                          <Input
-                            type="text"
-                            placeholder="Supplier Name *"
-                            value={inlineSupplier.name}
-                            onChange={(e) => setInlineSupplier(prev => ({ ...prev, name: e.target.value }))}
-                            className="h-8 text-xs px-2 focus-visible:ring-[#5c59e9] border-slate-200 dark:border-slate-800"
-                            autoFocus
-                          />
-                        </td>
-                        
-                        {/* Email */}
-                        <td className="px-6 py-3 w-[15%] min-w-[180px]">
-                          <Input
-                            type="email"
-                            placeholder="Email"
-                            value={inlineSupplier.email}
-                            onChange={(e) => setInlineSupplier(prev => ({ ...prev, email: e.target.value }))}
-                            className="h-8 text-xs px-2 focus-visible:ring-[#5c59e9] border-slate-200 dark:border-slate-800"
-                          />
-                        </td>
-                        
-                        {/* Phone */}
-                        <td className="px-6 py-3 w-[10%] min-w-[130px]">
-                          <Input
-                            type="text"
-                            placeholder="Phone"
-                            value={inlineSupplier.phone}
-                            onChange={(e) => setInlineSupplier(prev => ({ ...prev, phone: e.target.value }))}
-                            className="h-8 text-xs px-2 focus-visible:ring-[#5c59e9] border-slate-200 dark:border-slate-800"
-                          />
-                        </td>
-                        
-                        {/* Contact Person */}
-                        <td className="px-6 py-3 w-[12%] min-w-[150px]">
-                          <Input
-                            type="text"
-                            placeholder="Contact Person"
-                            value={inlineSupplier.contactPerson}
-                            onChange={(e) => setInlineSupplier(prev => ({ ...prev, contactPerson: e.target.value }))}
-                            className="h-8 text-xs px-2 focus-visible:ring-[#5c59e9] border-slate-200 dark:border-slate-800"
-                          />
-                        </td>
-                        
-                        {/* Website */}
-                        <td className="px-6 py-3 w-[12%] min-w-[150px]">
-                          <Input
-                            type="text"
-                            placeholder="Website"
-                            value={inlineSupplier.website}
-                            onChange={(e) => setInlineSupplier(prev => ({ ...prev, website: e.target.value }))}
-                            className="h-8 text-xs px-2 focus-visible:ring-[#5c59e9] border-slate-200 dark:border-slate-800"
-                          />
-                        </td>
-                        
-                        {/* Address */}
-                        <td className="px-6 py-3 w-[15%] min-w-[200px]">
-                          <Input
-                            type="text"
-                            placeholder="Address"
-                            value={inlineSupplier.address}
-                            onChange={(e) => setInlineSupplier(prev => ({ ...prev, address: e.target.value }))}
-                            className="h-8 text-xs px-2 focus-visible:ring-[#5c59e9] border-slate-200 dark:border-slate-800"
-                          />
-                        </td>
-                        
-                        {/* Main Products */}
-                        <td className="px-6 py-3 w-[16%] min-w-[200px]">
-                          <div className="relative">
+                        {supplierColumnVisibility.supplierName && (
+                          <td className="px-6 py-3 w-[20%] min-w-[220px]">
                             <Input
                               type="text"
-                              readOnly
-                              placeholder="Click to configure..."
-                              value={inlineSupplier.mainProducts || (inlineCapabilities.filter(c => c.productName.trim() !== '').map(c => c.productName.trim()).join(', '))}
-                              onClick={() => setIsInlineProductsModalOpen(true)}
-                              className="h-8 text-xs pl-2 pr-8 focus-visible:ring-[#5c59e9] border-slate-200 dark:border-slate-800 cursor-pointer bg-slate-50/50 hover:bg-slate-50 truncate"
+                              placeholder="Supplier Name *"
+                              value={inlineSupplier.name}
+                              onChange={(e) => setInlineSupplier(prev => ({ ...prev, name: e.target.value }))}
+                              className="h-8 text-xs px-2 focus-visible:ring-[#5c59e9] border-slate-200 dark:border-slate-800"
+                              autoFocus
                             />
-                            <Edit 
-                              size={12} 
-                              className="absolute right-2.5 top-2.5 text-slate-400 pointer-events-none" 
+                          </td>
+                        )}
+                        
+                        {/* Email */}
+                        {supplierColumnVisibility.email && (
+                          <td className="px-6 py-3 w-[15%] min-w-[180px]">
+                            <Input
+                              type="email"
+                              placeholder="Email"
+                              value={inlineSupplier.email}
+                              onChange={(e) => setInlineSupplier(prev => ({ ...prev, email: e.target.value }))}
+                              className="h-8 text-xs px-2 focus-visible:ring-[#5c59e9] border-slate-200 dark:border-slate-800"
                             />
-                          </div>
-                        </td>
+                          </td>
+                        )}
+                        
+                        {/* Phone */}
+                        {supplierColumnVisibility.phone && (
+                          <td className="px-6 py-3 w-[10%] min-w-[130px]">
+                            <Input
+                              type="text"
+                              placeholder="Phone"
+                              value={inlineSupplier.phone}
+                              onChange={(e) => setInlineSupplier(prev => ({ ...prev, phone: e.target.value }))}
+                              className="h-8 text-xs px-2 focus-visible:ring-[#5c59e9] border-slate-200 dark:border-slate-800"
+                            />
+                          </td>
+                        )}
+                        
+                        {/* Contact Person */}
+                        {supplierColumnVisibility.contactPerson && (
+                          <td className="px-6 py-3 w-[12%] min-w-[150px]">
+                            <Input
+                              type="text"
+                              placeholder="Contact Person"
+                              value={inlineSupplier.contactPerson}
+                              onChange={(e) => setInlineSupplier(prev => ({ ...prev, contactPerson: e.target.value }))}
+                              className="h-8 text-xs px-2 focus-visible:ring-[#5c59e9] border-slate-200 dark:border-slate-800"
+                            />
+                          </td>
+                        )}
+                        
+                        {/* Website */}
+                        {supplierColumnVisibility.website && (
+                          <td className="px-6 py-3 w-[12%] min-w-[150px]">
+                            <Input
+                              type="text"
+                              placeholder="Website"
+                              value={inlineSupplier.website}
+                              onChange={(e) => setInlineSupplier(prev => ({ ...prev, website: e.target.value }))}
+                              className="h-8 text-xs px-2 focus-visible:ring-[#5c59e9] border-slate-200 dark:border-slate-800"
+                            />
+                          </td>
+                        )}
+                        
+                        {/* Address */}
+                        {supplierColumnVisibility.address && (
+                          <td className="px-6 py-3 w-[15%] min-w-[200px]">
+                            <Input
+                              type="text"
+                              placeholder="Address"
+                              value={inlineSupplier.address}
+                              onChange={(e) => setInlineSupplier(prev => ({ ...prev, address: e.target.value }))}
+                              className="h-8 text-xs px-2 focus-visible:ring-[#5c59e9] border-slate-200 dark:border-slate-800"
+                            />
+                          </td>
+                        )}
+                        
+                        {/* Main Products */}
+                        {supplierColumnVisibility.mainProducts && (
+                          <td className="px-6 py-3 w-[16%] min-w-[200px]">
+                            <div className="relative">
+                              <Input
+                                type="text"
+                                readOnly
+                                placeholder="Click to configure..."
+                                value={inlineSupplier.mainProducts || (inlineCapabilities.filter(c => c.productName.trim() !== '').map(c => c.productName.trim()).join(', '))}
+                                onClick={() => setIsInlineProductsModalOpen(true)}
+                                className="h-8 text-xs pl-2 pr-8 focus-visible:ring-[#5c59e9] border-slate-200 dark:border-slate-800 cursor-pointer bg-slate-50/50 hover:bg-slate-50 truncate"
+                              />
+                              <Edit 
+                                size={12} 
+                                className="absolute right-2.5 top-2.5 text-slate-400 pointer-events-none" 
+                              />
+                            </div>
+                          </td>
+                        )}
                         
                         {/* Uploaded By */}
-                        <td className="px-6 py-3 text-center w-[10%] min-w-[110px] text-slate-400 text-[10px]">
-                          You
-                        </td>
+                        {supplierColumnVisibility.uploadedBy && (
+                          <td className="px-6 py-3 text-center w-[10%] min-w-[110px] text-slate-400 text-[10px]">
+                            You
+                          </td>
+                        )}
                         
                         {/* Actions */}
                         <td className="px-6 py-3 text-center w-[10%] min-w-[110px]">
@@ -2079,79 +2154,95 @@ export function SourcingClient({ initialOrders, initialSuppliers, initialAudits 
                             </td>
                           )}
                           {/* Supplier Name */}
-                          <td className="px-6 py-4 font-semibold text-slate-800 dark:text-slate-200 w-[20%] min-w-[220px]">
-                            <a
-                              href={`/management/supplier/${supplier.id}`}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="inline-flex items-center px-2.5 py-1 rounded bg-[#5c59e9]/10 text-[#5c59e9] hover:bg-[#5c59e9]/20 dark:bg-[#5c59e9]/20 dark:text-indigo-350 dark:hover:bg-[#5c59e9]/30 transition-colors font-semibold"
-                            >
-                              {supplier.name}
-                            </a>
-                          </td>
-
-                          {/* Email */}
-                          <td className="px-6 py-4 text-slate-600 dark:text-slate-450 w-[15%] min-w-[180px]">
-                            {supplier.email || '—'}
-                          </td>
-
-                          {/* Phone */}
-                          <td className="px-6 py-4 text-slate-600 dark:text-slate-450 w-[10%] min-w-[130px]">
-                            {supplier.phone || '—'}
-                          </td>
-
-                          {/* Contact Person */}
-                          <td className="px-6 py-4 text-slate-700 dark:text-slate-355 font-semibold w-[12%] min-w-[150px]">
-                            {supplier.contact_person || '—'}
-                          </td>
-
-                          {/* Website Link */}
-                          <td className="px-6 py-4 w-[12%] min-w-[150px]">
-                            {supplier.website ? (
-                              <a 
-                                href={supplier.website.startsWith('http') ? supplier.website : `https://${supplier.website}`} 
-                                target="_blank" 
-                                rel="noopener noreferrer"
-                                className="inline-flex items-center gap-1 px-2.5 py-1 rounded bg-slate-100 dark:bg-slate-800/80 text-[#5c59e9] dark:text-indigo-400 hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors font-semibold"
-                              >
-                                <Globe size={12} className="text-slate-400" />
-                                <span>{supplier.website.replace(/^https?:\/\/(www\.)?/, '')}</span>
-                              </a>
-                            ) : (
-                              <span className="text-slate-400">—</span>
-                            )}
-                          </td>
-
-                          {/* Address */}
-                          <td className="px-6 py-4 text-slate-500 dark:text-slate-400 truncate max-w-xs w-[15%] min-w-[200px]" title={supplier.address || ''}>
-                            {supplier.address || '—'}
-                          </td>
-
-                          {/* Main Products */}
-                          <td className="px-6 py-4 text-slate-600 dark:text-slate-400 truncate max-w-xs font-medium w-[16%] min-w-[200px]" title={supplier.main_products ? supplier.main_products.join(', ') : ''}>
-                            {supplier.main_products && supplier.main_products.length > 0 ? (
+                          {supplierColumnVisibility.supplierName && (
+                            <td className="px-6 py-4 font-semibold text-slate-800 dark:text-slate-200 w-[20%] min-w-[220px]">
                               <a
-                                href={`/management/supplier/${supplier.id}?tab=product`}
+                                href={`/management/supplier/${supplier.id}`}
                                 target="_blank"
                                 rel="noopener noreferrer"
-                                className="inline-flex items-center px-2.5 py-1 rounded bg-slate-100 dark:bg-slate-800/80 text-slate-700 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors font-semibold max-w-full truncate"
+                                className="inline-flex items-center px-2.5 py-1 rounded bg-[#5c59e9]/10 text-[#5c59e9] hover:bg-[#5c59e9]/20 dark:bg-[#5c59e9]/20 dark:text-indigo-350 dark:hover:bg-[#5c59e9]/30 transition-colors font-semibold"
                               >
-                                {supplier.main_products.join(', ')}
+                                {supplier.name}
                               </a>
-                            ) : (
-                              <span className="text-slate-400">—</span>
-                            )}
-                          </td>
+                            </td>
+                          )}
+
+                          {/* Email */}
+                          {supplierColumnVisibility.email && (
+                            <td className="px-6 py-4 text-slate-600 dark:text-slate-450 w-[15%] min-w-[180px]">
+                              {supplier.email || '—'}
+                            </td>
+                          )}
+
+                          {/* Phone */}
+                          {supplierColumnVisibility.phone && (
+                            <td className="px-6 py-4 text-slate-600 dark:text-slate-450 w-[10%] min-w-[130px]">
+                              {supplier.phone || '—'}
+                            </td>
+                          )}
+
+                          {/* Contact Person */}
+                          {supplierColumnVisibility.contactPerson && (
+                            <td className="px-6 py-4 text-slate-700 dark:text-slate-355 font-semibold w-[12%] min-w-[150px]">
+                              {supplier.contact_person || '—'}
+                            </td>
+                          )}
+
+                          {/* Website Link */}
+                          {supplierColumnVisibility.website && (
+                            <td className="px-6 py-4 w-[12%] min-w-[150px]">
+                              {supplier.website ? (
+                                <a 
+                                  href={supplier.website.startsWith('http') ? supplier.website : `https://${supplier.website}`}
+                                  target="_blank" 
+                                  rel="noopener noreferrer"
+                                  className="inline-flex items-center gap-1 px-2.5 py-1 rounded bg-slate-100 dark:bg-slate-800/80 text-[#5c59e9] dark:text-indigo-400 hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors font-semibold"
+                                >
+                                  <Globe size={12} className="text-slate-400" />
+                                  <span>{supplier.website.replace(/^https?:\/\/(www\.)?/, '')}</span>
+                                </a>
+                              ) : (
+                                <span className="text-slate-400">—</span>
+                              )}
+                            </td>
+                          )}
+
+                          {/* Address */}
+                          {supplierColumnVisibility.address && (
+                            <td className="px-6 py-4 text-slate-500 dark:text-slate-400 truncate max-w-xs w-[15%] min-w-[200px]" title={supplier.address || ''}>
+                              {supplier.address || '—'}
+                            </td>
+                          )}
+
+                          {/* Main Products */}
+                          {supplierColumnVisibility.mainProducts && (
+                            <td className="px-6 py-4 text-slate-650 dark:text-slate-400 truncate max-w-xs font-medium w-[16%] min-w-[200px]" title={supplier.main_products ? supplier.main_products.join(', ') : ''}>
+                              {supplier.main_products && supplier.main_products.length > 0 ? (
+                                <a
+                                  href={`/management/supplier/${supplier.id}?tab=product`}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="inline-flex items-center px-2.5 py-1 rounded bg-slate-100 dark:bg-slate-800/80 text-slate-700 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors font-semibold max-w-full truncate"
+                                >
+                                  {supplier.main_products.join(', ')}
+                                </a>
+                              ) : (
+                                <span className="text-slate-400">—</span>
+                              )}
+                            </td>
+                          )}
 
                           {/* Uploaded By */}
-                          <td className="px-6 py-4 text-center w-[10%] min-w-[110px]">
-                            <span 
-                              className="text-slate-600 dark:text-slate-400 font-semibold text-[11px] bg-slate-50 dark:bg-slate-800/40 px-2.5 py-1 rounded-md border border-slate-100 dark:border-slate-800/60"
-                              title={supplier.created_by || 'System'}
-                            >
-                              {supplier.created_by ? supplier.created_by.split('@')[0] : 'System'}
-                            </span>
-                          </td>
+                          {supplierColumnVisibility.uploadedBy && (
+                            <td className="px-6 py-4 text-center w-[10%] min-w-[110px]">
+                              <span 
+                                className="text-slate-600 dark:text-slate-400 font-semibold text-[11px] bg-slate-50 dark:bg-slate-800/40 px-2.5 py-1 rounded-md border border-slate-100 dark:border-slate-800/60"
+                                title={supplier.created_by || 'System'}
+                              >
+                                {supplier.created_by ? supplier.created_by.split('@')[0] : 'System'}
+                              </span>
+                            </td>
+                          )}
 
                           {/* Actions */}
                           <td className="px-6 py-4 text-center w-[10%] min-w-[110px]">
