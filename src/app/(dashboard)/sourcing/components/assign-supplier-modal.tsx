@@ -107,7 +107,12 @@ export function AssignSupplierModal({
   })
 
   // Checklist of items: orderItemId -> { checked, price, leadTime, selectedCapId }
-  const [itemBids, setItemBids] = useState<Record<string, { checked: boolean; price: string; leadTime: string; selectedCapId?: string }>>({})
+  const [itemBids, setItemBids] = useState<Record<string, { 
+    checked: boolean; 
+    price: string; 
+    leadTime: string; 
+    selectedCapId?: string;
+  }>>({})
 
   // Check if a capability is already assigned to a specific item
   const isAlreadyAssigned = React.useCallback((supplierId: string, itemId: string, targetPrice?: number) => {
@@ -143,13 +148,22 @@ export function AssignSupplierModal({
   // Derive checked items and suggested suppliers
   const selectedOrder = orders.find(o => o.id === manualForm.orderId) || null
 
-  // Initialize bids checklist helper
   const initializeChecklist = React.useCallback((orderId: string) => {
     const selectedOrd = orders.find(o => o.id === orderId)
     if (selectedOrd?.order_items) {
-      const initialBids: Record<string, { checked: boolean; price: string; leadTime: string; selectedCapId?: string }> = {}
+      const initialBids: Record<string, { 
+        price: string; 
+        leadTime: string; 
+        selectedCapId?: string;
+        checked: boolean;
+      }> = {}
       selectedOrd.order_items.forEach(item => {
-        initialBids[item.id] = { checked: false, price: '', leadTime: '', selectedCapId: '' }
+        initialBids[item.id] = { 
+          checked: false, 
+          price: '', 
+          leadTime: '', 
+          selectedCapId: ''
+        }
       })
       setItemBids(initialBids)
     } else {
@@ -280,7 +294,16 @@ export function AssignSupplierModal({
     setErrorMessage(null)
 
     // Construct bid array
-    const bids: Array<{ orderItemId: string; quotedPrice: number; leadTimeDays: string }> = []
+    const bids: Array<{ 
+      orderItemId: string; 
+      quotedPrice: number; 
+      leadTimeDays: string;
+      materialCostPercent?: number;
+      laborCostPercent?: number;
+      overheadCostPercent?: number;
+      profitMarginPercent?: number;
+      selectedCapId?: string;
+    }> = []
     if (orderId) {
       const matchedSupplier = uniqueSuppliers.find(sup => sup.name === supplierName)
       for (const [itemId, bidVal] of Object.entries(itemBids)) {
@@ -314,7 +337,8 @@ export function AssignSupplierModal({
           bids.push({
             orderItemId: itemId,
             quotedPrice: isNaN(priceNum) ? 0 : priceNum,
-            leadTimeDays: leadTimeStr
+            leadTimeDays: leadTimeStr,
+            selectedCapId: bidVal.selectedCapId
           })
         }
       }
@@ -531,7 +555,12 @@ export function AssignSupplierModal({
                   </Label>
                   <div className="grid gap-2 sm:grid-cols-2">
                     {orders.find(o => o.id === manualForm.orderId)?.order_items?.map(item => {
-                      const bid = itemBids[item.id] || { checked: false, price: '', leadTime: '', selectedCapId: '' }
+                      const bid = itemBids[item.id] || { 
+                        checked: false, 
+                        price: '', 
+                        leadTime: '', 
+                        selectedCapId: ''
+                      }
                       
                       // Find matching capabilities for this specific item
                       const matchedSupplier = uniqueSuppliers.find(sup => sup.name === manualForm.supplierName)
@@ -597,32 +626,34 @@ export function AssignSupplierModal({
                           )}
 
                           {bid.checked && itemCaps.length > 1 && (
-                            <div className="mt-2.5 space-y-1 pl-6">
-                              <Label className="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">
-                                Select Matching Capability
-                              </Label>
-                              <select
-                                value={bid.selectedCapId || ''}
-                                onChange={e => setItemBids(prev => ({
-                                  ...prev,
-                                  [item.id]: { ...bid, selectedCapId: e.target.value }
-                                }))}
-                                className="h-8 w-full rounded-lg border border-slate-200 bg-white px-2 py-1 text-xs text-slate-850 dark:border-slate-800 dark:bg-slate-900 focus:outline-none focus:ring-1 focus:ring-indigo-500 cursor-pointer"
-                              >
-                                <option value="">-- Choose matching product --</option>
-                                {itemCaps.map((cap: any) => {
-                                  const isCapAssigned = isAlreadyAssigned(matchedSupplier?.id || '', item.id, Number(cap.target_price))
-                                  return (
-                                    <option 
-                                      key={cap.id || cap.product_name} 
-                                      value={cap.id || cap.product_name}
-                                      disabled={isCapAssigned}
-                                    >
-                                      {cap.product_name} (${Number(cap.target_price).toFixed(2)}){isCapAssigned ? ' (Already Assigned)' : ''}
-                                    </option>
-                                  )
-                                })}
-                              </select>
+                            <div className="mt-3.5 space-y-2.5 pl-6 border-t border-slate-100 dark:border-slate-800/60 pt-2.5">
+                              <div className="space-y-1">
+                                <Label className="text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">
+                                  Select Matching Capability
+                                </Label>
+                                <select
+                                  value={bid.selectedCapId || ''}
+                                  onChange={e => setItemBids(prev => ({
+                                    ...prev,
+                                    [item.id]: { ...bid, selectedCapId: e.target.value }
+                                  }))}
+                                  className="h-8 w-full rounded-lg border border-slate-200 bg-white px-2 py-1 text-xs text-slate-850 dark:border-slate-800 dark:bg-slate-900 focus:outline-none focus:ring-1 focus:ring-indigo-500 cursor-pointer"
+                                >
+                                  <option value="">-- Choose matching product --</option>
+                                  {itemCaps.map((cap: any) => {
+                                    const isCapAssigned = isAlreadyAssigned(matchedSupplier?.id || '', item.id, Number(cap.target_price))
+                                    return (
+                                      <option 
+                                        key={cap.id || cap.product_name} 
+                                        value={cap.id || cap.product_name}
+                                        disabled={isCapAssigned}
+                                      >
+                                        {cap.product_name} (${Number(cap.target_price).toFixed(2)}){isCapAssigned ? ' (Already Assigned)' : ''}
+                                      </option>
+                                    )
+                                  })}
+                                </select>
+                              </div>
                             </div>
                           )}
                         </div>

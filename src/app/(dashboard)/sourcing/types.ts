@@ -30,6 +30,10 @@ export interface DatabaseSupplier {
   created_by?: string | null
   supplier_id?: string | null
   is_bid?: boolean
+  material_cost_percent?: number | null
+  labor_cost_percent?: number | null
+  overhead_cost_percent?: number | null
+  profit_margin_percent?: number | null
   // Joined from orders table
   orders?: { order_code: string } | null
   order_items?: { item_name: string } | null

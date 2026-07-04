@@ -439,7 +439,8 @@ export function Sidebar() {
                       ? [
                           { label: 'Overview', subtabVal: 'overview' },
                           { label: 'Supplier Profiles', subtabVal: 'suppliers' },
-                          { label: 'Workplace', subtabVal: 'workplace' }
+                          { label: 'Workplace', subtabVal: 'workplace' },
+                          { label: 'Email Templates', subtabVal: 'email-templates' }
                         ]
                       : [
                           { label: 'Overview', subtabVal: 'overview' },

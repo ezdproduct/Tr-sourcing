@@ -15,6 +15,7 @@ interface SourcingContextType {
   setUserDepartment: (dept: UserDepartment) => void
   searchQuery: string
   setSearchQuery: (query: string) => void
+  currentUserEmail: string | null
 }
 
 const SourcingContext = createContext<SourcingContextType | undefined>(undefined)
@@ -23,6 +24,7 @@ export function SourcingProvider({ children }: { children: React.ReactNode }) {
   const [userRole, setUserRole] = useState<UserRole>('admin')
   const [userDepartment, setUserDepartment] = useState<UserDepartment>('all')
   const [searchQuery, setSearchQuery] = useState('')
+  const [currentUserEmail, setCurrentUserEmail] = useState<string | null>(null)
 
   // Load initial role and department from Supabase user session or localStorage
   useEffect(() => {
@@ -30,6 +32,7 @@ export function SourcingProvider({ children }: { children: React.ReactNode }) {
 
     supabase.auth.getUser().then(({ data }) => {
       if (data?.user) {
+        setCurrentUserEmail(data.user.email || null)
         supabase
           .from('profiles')
           .select('role, department, is_approved')
@@ -61,6 +64,7 @@ export function SourcingProvider({ children }: { children: React.ReactNode }) {
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
       if (session?.user) {
+        setCurrentUserEmail(session.user.email || null)
         supabase
           .from('profiles')
           .select('role, department, is_approved')
@@ -82,6 +86,7 @@ export function SourcingProvider({ children }: { children: React.ReactNode }) {
         // BUG 19 FIX: was setting userRole='admin' on sign-out which granted admin
         // access to whoever viewed the page next until the component unmounted.
         // Instead redirect to login so no privileged state is ever left behind.
+        setCurrentUserEmail(null)
         window.location.href = '/auth/login'
       }
     })
@@ -110,6 +115,7 @@ export function SourcingProvider({ children }: { children: React.ReactNode }) {
         setUserDepartment: handleSetDepartment,
         searchQuery,
         setSearchQuery,
+        currentUserEmail,
       }}
     >
       {children}

@@ -58,6 +58,10 @@ export async function fetchSuppliersAction(): Promise<DatabaseSupplier[]> {
             created_by: bid.created_by || s.created_by,
             orders: bid.orders,
             order_items: bid.order_items,
+            material_cost_percent: bid.material_cost_percent,
+            labor_cost_percent: bid.labor_cost_percent,
+            overhead_cost_percent: bid.overhead_cost_percent,
+            profit_margin_percent: bid.profit_margin_percent,
             suppliers: { ...s, order_suppliers: undefined },
           })
         })
@@ -178,6 +182,13 @@ export async function deleteSupplierAction(id: string, deleteProfile: boolean = 
     const supabase = await createClient()
 
     if (deleteProfile) {
+      // Enforce Ownership Verification
+      const { data: { user } } = await supabase.auth.getUser()
+      const checkResult = await verifySupplierOwnership(supabase, id, user)
+      if (!checkResult.success) {
+        return { success: false, error: checkResult.error }
+      }
+
       // 1. Delete the master supplier profile from suppliers table (will cascade delete order_suppliers bids)
       const { error: deleteError } = await supabase
         .from('suppliers')
@@ -368,6 +379,10 @@ export interface BulkSupplierRow {
   contactPerson?: string
   taxId?: string
   businessType?: string
+  materialCostPercent?: number
+  laborCostPercent?: number
+  overheadCostPercent?: number
+  profitMarginPercent?: number
 }
 
 function normalizeEmail(email: string | null | undefined): string {
@@ -497,7 +512,11 @@ export async function bulkImportSuppliersAction(
           .from('order_suppliers')
           .update({
             quoted_price: row.quotedPrice,
-            lead_time_days: row.leadTime
+            lead_time_days: row.leadTime,
+            material_cost_percent: row.materialCostPercent ?? null,
+            labor_cost_percent: row.laborCostPercent ?? null,
+            overhead_cost_percent: row.overheadCostPercent ?? null,
+            profit_margin_percent: row.profitMarginPercent ?? null
           })
           .eq('id', dup.id)
         if (updateErr) {
@@ -667,7 +686,11 @@ export async function bulkImportSuppliersAction(
             quoted_price: row.quotedPrice,
             lead_time_days: row.leadTime,
             is_shortlisted: false,
-            created_by: userEmail
+            created_by: userEmail,
+            material_cost_percent: row.materialCostPercent ?? null,
+            labor_cost_percent: row.laborCostPercent ?? null,
+            overhead_cost_percent: row.overheadCostPercent ?? null,
+            profit_margin_percent: row.profitMarginPercent ?? null
           })
 
         if (!bidError) {
@@ -727,7 +750,11 @@ export async function bulkImportSuppliersAction(
             quoted_price: row.quotedPrice,
             lead_time_days: row.leadTime,
             is_shortlisted: false,
-            created_by: userEmail
+            created_by: userEmail,
+            material_cost_percent: row.materialCostPercent ?? null,
+            labor_cost_percent: row.laborCostPercent ?? null,
+            overhead_cost_percent: row.overheadCostPercent ?? null,
+            profit_margin_percent: row.profitMarginPercent ?? null
           })
 
         if (!bidError) {
@@ -783,6 +810,11 @@ export interface ManualNormalizedItemBid {
   orderItemId: string
   quotedPrice: number
   leadTimeDays: string | number
+  materialCostPercent?: number
+  laborCostPercent?: number
+  overheadCostPercent?: number
+  profitMarginPercent?: number
+  selectedCapId?: string;
 }
 
 export interface ManualNormalizedCapability {
@@ -877,7 +909,11 @@ export async function addSupplierNormalizedAction(input: ManualNormalizedInput, 
           .from('order_suppliers')
           .update({
             quoted_price: item.quotedPrice,
-            lead_time_days: item.leadTimeDays
+            lead_time_days: item.leadTimeDays,
+            material_cost_percent: item.materialCostPercent ?? null,
+            labor_cost_percent: item.laborCostPercent ?? null,
+            overhead_cost_percent: item.overheadCostPercent ?? null,
+            profit_margin_percent: item.profitMarginPercent ?? null
           })
           .eq('id', dup.id)
         if (updateErr) {
@@ -1013,18 +1049,40 @@ export async function addSupplierNormalizedAction(input: ManualNormalizedInput, 
       }
     }
 
+    // Fetch supplier capabilities to copy cost breakdowns
+    let supplierCaps: any[] = []
+    if (supplierId) {
+      const { data } = await supabase
+        .from('supplier_capabilities')
+        .select('*')
+        .eq('supplier_id', supplierId)
+      supplierCaps = data || []
+    }
+
     // 2. Insert order items bids
     if (input.orderId && itemsToProcess.length > 0) {
-      const bidsToInsert = itemsToProcess.map(item => ({
-        order_id: input.orderId,
-        order_item_id: item.orderItemId,
-        supplier_id: supplierId,
-        supplier_name: input.supplierName.trim(),
-        quoted_price: item.quotedPrice,
-        lead_time_days: item.leadTimeDays,
-        is_shortlisted: false,
-        created_by: userEmail
-      }))
+      const bidsToInsert = itemsToProcess.map(item => {
+        // Find matching capability by selectedCapId or by product name matching order item name
+        const matchedCap = supplierCaps.find(c => 
+          (item.selectedCapId && (c.id === item.selectedCapId || c.product_name === item.selectedCapId)) ||
+          (!item.selectedCapId && c.product_name.toLowerCase().trim() === (itemNames[item.orderItemId] || '').toLowerCase().trim())
+        )
+
+        return {
+          order_id: input.orderId,
+          order_item_id: item.orderItemId,
+          supplier_id: supplierId,
+          supplier_name: input.supplierName.trim(),
+          quoted_price: item.quotedPrice,
+          lead_time_days: item.leadTimeDays,
+          is_shortlisted: false,
+          created_by: userEmail,
+          material_cost_percent: item.materialCostPercent ?? matchedCap?.material_cost_percent ?? null,
+          labor_cost_percent: item.laborCostPercent ?? matchedCap?.labor_cost_percent ?? null,
+          overhead_cost_percent: item.overheadCostPercent ?? matchedCap?.overhead_cost_percent ?? null,
+          profit_margin_percent: item.profitMarginPercent ?? matchedCap?.profit_margin_percent ?? null
+        }
+      })
 
       const { error: bidsError } = await supabase
         .from('order_suppliers')
@@ -1106,6 +1164,15 @@ export async function deleteSuppliersBatchAction(ids: string[], deleteProfile: b
     const supabase = await createClient()
 
     if (deleteProfile) {
+      // Enforce Ownership Verification for all items in the batch
+      const { data: { user } } = await supabase.auth.getUser()
+      for (const id of ids) {
+        const checkResult = await verifySupplierOwnership(supabase, id, user)
+        if (!checkResult.success) {
+          return { success: false, error: `Batch delete blocked. ${checkResult.error}` }
+        }
+      }
+
       // Fetch names before deleting
       const { data: suppliersToDelete } = await supabase
         .from('suppliers')
@@ -1287,6 +1354,10 @@ export async function fetchSupplierCapabilitiesAction(supplierId: string) {
 export interface UpdateSupplierCapabilitiesInput {
   productName: string
   targetPrice: number
+  materialCostPercent?: number
+  laborCostPercent?: number
+  overheadCostPercent?: number
+  profitMarginPercent?: number
 }
 
 export interface UpdateSupplierProfileInput {
@@ -1377,9 +1448,75 @@ export interface UpdateSupplierProfileInput {
   communicationHistory?: string
 }
 
+async function verifySupplierOwnership(
+  supabase: any,
+  supplierId: string,
+  user: any
+): Promise<{ success: boolean; error?: string }> {
+  if (!user) {
+    return { success: false, error: 'Authentication required.' }
+  }
+
+  // 1. Get user role from profiles
+  const { data: profile, error: profileErr } = await supabase
+    .from('profiles')
+    .select('role')
+    .eq('id', user.id)
+    .single()
+
+  if (profileErr || !profile) {
+    console.error('Error fetching user role for permission check:', profileErr?.message)
+    return { success: false, error: 'Could not verify user permissions.' }
+  }
+
+  const role = profile.role
+  if (role === 'admin' || role === 'boss') {
+    return { success: true }
+  }
+
+  // 2. Fetch the supplier's created_by field
+  const { data: supplier, error: supplierErr } = await supabase
+    .from('suppliers')
+    .select('created_by')
+    .eq('id', supplierId)
+    .single()
+
+  if (supplierErr || !supplier) {
+    console.error('Error fetching supplier for permission check:', supplierErr?.message)
+    return { success: false, error: 'Supplier profile not found.' }
+  }
+
+  const createdBy = supplier.created_by?.trim()
+  const isCreatedBySystem = !createdBy || createdBy.toLowerCase() === 'system'
+
+  if (isCreatedBySystem) {
+    // Legacy or system created profiles are only editable by Admin/Boss
+    return {
+      success: false,
+      error: 'Unauthorized: Legacy or System-created supplier profiles can only be modified by an Administrator or Boss.'
+    }
+  }
+
+  if (user.email && createdBy.toLowerCase() === user.email.trim().toLowerCase()) {
+    return { success: true }
+  }
+
+  return {
+    success: false,
+    error: 'Unauthorized: You can only edit or delete Supplier Profiles that you created.'
+  }
+}
+
 export async function updateSupplierProfileAction(input: UpdateSupplierProfileInput) {
   try {
     const supabase = await createClient()
+
+    // Enforce Ownership Verification
+    const { data: { user } } = await supabase.auth.getUser()
+    const checkResult = await verifySupplierOwnership(supabase, input.supplierId, user)
+    if (!checkResult.success) {
+      return { success: false, error: checkResult.error }
+    }
 
     // Fetch old supplier details to compare changes
     const { data: oldSupplier } = await supabase
@@ -1584,7 +1721,11 @@ export async function updateSupplierProfileAction(input: UpdateSupplierProfileIn
       const capsToInsert = input.capabilities.map(cap => ({
         supplier_id: input.supplierId,
         product_name: cap.productName.trim(),
-        target_price: cap.targetPrice
+        target_price: cap.targetPrice,
+        material_cost_percent: cap.materialCostPercent,
+        labor_cost_percent: cap.laborCostPercent,
+        overhead_cost_percent: cap.overheadCostPercent,
+        profit_margin_percent: cap.profitMarginPercent
       }))
 
       const { error: insertError } = await supabase
@@ -1822,6 +1963,32 @@ export async function confirmSupplierAndCreatePoAction(formData: FormData) {
 
         const isPoIssued = true
 
+        // Fetch template from database
+        const { data: dbTemplate } = await supabase
+          .from('email_templates')
+          .select('subject, body')
+          .eq('key', 'purchase_order')
+          .single()
+
+        const templateSubject = dbTemplate?.subject || '[TR Sourcing] Purchase Order Issued - Order ID: {{Order Code}}'
+        const templateBody = dbTemplate?.body || 'Dear {{Supplier Name}} Team,\n\nWe are pleased to inform you that we have finalized our sourcing selection and officially issued a Purchase Order. Please find the details of the purchase order below:'
+
+        // Format subject & body
+        const variables = {
+          'Supplier Name': supplier.name,
+          'Order Code': displayOrderId,
+          'Item Name': currentItem?.item_name || 'N/A',
+          'Contract Value': Number(contractValue).toLocaleString('en-US', { minimumFractionDigits: 2 }),
+          'Target Delivery Date': targetDeliveryDate,
+          'Delivery Address': deliveryAddress
+        }
+
+        const emailSubject = formatEmailSubject(templateSubject, variables)
+        const emailBodyParagraphsHtml = formatEmailBodyHtml(templateBody, {
+          ...variables,
+          'Supplier Name': `<strong>${supplier.name}</strong>`
+        })
+
         const emailHtml = `
           <!DOCTYPE html>
           <html>
@@ -1857,8 +2024,8 @@ export async function confirmSupplierAndCreatePoAction(formData: FormData) {
                 <div class="logo">TR Sourcing Hub</div>
               </div>
               <h1>Purchase Order Confirmation</h1>
-              <p>Dear <strong>${supplier.name}</strong> Team,</p>
-              <p>We are pleased to inform you that we have finalized our sourcing selection and officially issued a Purchase Order. Please find the details of the purchase order below:</p>
+              
+              ${emailBodyParagraphsHtml}
               
               <div class="details-box">
                 <div class="detail-row">
@@ -1922,7 +2089,7 @@ export async function confirmSupplierAndCreatePoAction(formData: FormData) {
         await sendGmail({
           agentId: gmailAgentId,
           toEmail: supplier.email,
-          subject: `[TR Sourcing] Purchase Order Issued - Order ID: ${displayOrderId}`,
+          subject: emailSubject,
           html: emailHtml,
         })
         emailSent = true
@@ -1969,4 +2136,236 @@ export async function saveGmailAgentIdAction(agentId: number) {
     console.error('Uncaught error saving Gmail Agent ID:', error)
     return { success: false, error: error.message || 'An unexpected error occurred' }
   }
+}
+
+// ─── Email Templates Actions ──────────────────────────────────────────────────
+
+export async function fetchEmailTemplatesAction() {
+  try {
+    const supabase = await createClient()
+    const { data, error } = await supabase
+      .from('email_templates')
+      .select('*')
+      .order('key', { ascending: true })
+
+    if (error) {
+      console.error('Error fetching email templates:', error.message)
+      throw new Error(error.message)
+    }
+
+    const defaultTemplates = [
+      {
+        key: 'purchase_order',
+        name: 'Purchase Order Confirmation',
+        subject: '[TR Sourcing] Purchase Order Issued - Order ID: {{Order Code}}',
+        body: 'Dear {{Supplier Name}} Team,\n\nWe are pleased to inform you that we have finalized our sourcing selection and officially issued a Purchase Order. Please find the details of the purchase order below:',
+        placeholders: ['Supplier Name', 'Order Code', 'Item Name', 'Contract Value', 'Target Delivery Date', 'Delivery Address'],
+        description: 'Sent automatically to the selected supplier when their bid is confirmed and a Purchase Order is generated.'
+      },
+      {
+        key: 'rfq',
+        name: 'Request for Quote (RFQ)',
+        subject: '[TR Sourcing] New Request for Quote - {{Item Name}}',
+        body: 'Dear {{Supplier Name}} Team,\n\nWe would like to invite you to submit a quotation for the following product requirements:\n\nItem Name: {{Item Name}}\nTarget Price: ${{Target Price}} USD\n\nPlease review the requirements and submit your best quote.',
+        placeholders: ['Supplier Name', 'Item Name', 'Target Price'],
+        description: 'Sent to suppliers to invite them to bid on new sourcing requirements.'
+      },
+      {
+        key: 'deposit_check',
+        name: 'Deposit Confirmation Check',
+        subject: '[Milestone Check] Deposit Confirmation Required - Order ID: {{Order Code}}',
+        body: 'Dear {{Supplier Name}} Team,\n\nOur records show that the Purchase Order was issued 48 hours ago. Please click the button below to confirm that you have received the deposit. This will automatically transition your order to the active Production phase in our tracking system:',
+        placeholders: ['Supplier Name', 'Order Code'],
+        description: 'Sent automatically to the supplier 48 hours after PO issuance to request deposit receipt confirmation.'
+      },
+      {
+        key: 'production_pulse',
+        name: 'Weekly Production Progress Pulse',
+        subject: '[Progress Pulse] Production Status Check - Order ID: {{Order Code}}',
+        body: 'Dear {{Supplier Name}} Team,\n\nThis is our automated weekly progress check. Please click one of the options below to report the current status of production directly to our dashboard:',
+        placeholders: ['Supplier Name', 'Order Code'],
+        description: 'Sent weekly to suppliers with active orders in the Production phase to track status.'
+      },
+      {
+        key: 'production_started',
+        name: 'Production Started & Mark as Shipped',
+        subject: '[TR Sourcing] Production Started & PO Confirmed - Order ID: {{Order Code}}',
+        body: 'Dear {{Supplier Name}} Team,\n\nThank you for confirming and accepting the Purchase Order. Your order status has been updated to PO Confirmed and production has officially started. Please save this email; once the production run is complete and cargo is ready for dispatch, please use the Mark as Shipped option below:',
+        placeholders: ['Supplier Name', 'Order Code', 'Item Name', 'Target Delivery Date', 'Delivery Address'],
+        description: 'Sent when PO is accepted, starting production and offering a link to mark the order as shipped.'
+      }
+    ]
+
+    // Auto-seed if the table is empty
+    if (!data || data.length === 0) {
+      const { data: inserted, error: insertErr } = await supabase
+        .from('email_templates')
+        .insert(defaultTemplates)
+        .select('*')
+      
+      if (insertErr) {
+        console.error('Error seeding default email templates:', insertErr.message)
+        throw new Error(insertErr.message)
+      }
+      return inserted
+    }
+
+    // Check if any default templates are missing and insert them
+    const existingKeys = data.map((t: any) => t.key)
+    const missingTemplates = defaultTemplates.filter(t => !existingKeys.includes(t.key))
+
+    if (missingTemplates.length > 0) {
+      const { error: insertErr } = await supabase
+        .from('email_templates')
+        .insert(missingTemplates)
+
+      if (insertErr) {
+        console.error('Error seeding missing default email templates:', insertErr.message)
+        throw new Error(insertErr.message)
+      }
+
+      // Re-fetch all templates
+      const { data: refetchedData, error: refetchErr } = await supabase
+        .from('email_templates')
+        .select('*')
+        .order('key', { ascending: true })
+
+      if (refetchErr) {
+        console.error('Error re-fetching email templates:', refetchErr.message)
+        throw new Error(refetchErr.message)
+      }
+      return refetchedData
+    }
+
+    return data
+  } catch (error: any) {
+    console.error('fetchEmailTemplatesAction error:', error)
+    throw error
+  }
+}
+
+export async function updateEmailTemplateAction(id: string, subject: string, body: string) {
+  try {
+    const supabase = await createClient()
+    const { data: { user } } = await supabase.auth.getUser()
+    const userEmail = user?.email || null
+
+    const { data, error } = await supabase
+      .from('email_templates')
+      .update({
+        subject,
+        body,
+        created_by: userEmail,
+        updated_at: new Date().toISOString()
+      })
+      .eq('id', id)
+      .select('*')
+      .single()
+
+    if (error) {
+      console.error('Error updating email template:', error.message)
+      return { success: false, error: error.message }
+    }
+    revalidatePath('/sourcing')
+    return { success: true, template: data }
+  } catch (error: any) {
+    console.error('updateEmailTemplateAction error:', error)
+    return { success: false, error: error.message || 'An unexpected error occurred' }
+  }
+}
+
+export async function resetEmailTemplateAction(id: string) {
+  try {
+    const supabase = await createClient()
+    const { data: { user } } = await supabase.auth.getUser()
+    const userEmail = user?.email || null
+    
+    // Fetch template key
+    const { data: current, error: getErr } = await supabase
+      .from('email_templates')
+      .select('key')
+      .eq('id', id)
+      .single()
+      
+    if (getErr) {
+      console.error('Error finding template key to reset:', getErr.message)
+      return { success: false, error: getErr.message }
+    }
+    
+    const defaults: Record<string, { subject: string, body: string }> = {
+      purchase_order: {
+        subject: '[TR Sourcing] Purchase Order Issued - Order ID: {{Order Code}}',
+        body: 'Dear {{Supplier Name}} Team,\n\nWe are pleased to inform you that we have finalized our sourcing selection and officially issued a Purchase Order. Please find the details of the purchase order below:'
+      },
+      rfq: {
+        subject: '[TR Sourcing] New Request for Quote - {{Item Name}}',
+        body: 'Dear {{Supplier Name}} Team,\n\nWe would like to invite you to submit a quotation for the following product requirements:\n\nItem Name: {{Item Name}}\nTarget Price: ${{Target Price}} USD\n\nPlease review the requirements and submit your best quote.'
+      },
+      deposit_check: {
+        subject: '[Milestone Check] Deposit Confirmation Required - Order ID: {{Order Code}}',
+        body: 'Dear {{Supplier Name}} Team,\n\nOur records show that the Purchase Order was issued 48 hours ago. Please click the button below to confirm that you have received the deposit. This will automatically transition your order to the active Production phase in our tracking system:'
+      },
+      production_pulse: {
+        subject: '[Progress Pulse] Production Status Check - Order ID: {{Order Code}}',
+        body: 'Dear {{Supplier Name}} Team,\n\nThis is our automated weekly progress check. Please click one of the options below to report the current status of production directly to our dashboard:'
+      },
+      production_started: {
+        subject: '[TR Sourcing] Production Started & PO Confirmed - Order ID: {{Order Code}}',
+        body: 'Dear {{Supplier Name}} Team,\n\nThank you for confirming and accepting the Purchase Order. Your order status has been updated to PO Confirmed and production has officially started. Please save this email; once the production run is complete and cargo is ready for dispatch, please use the Mark as Shipped option below:'
+      }
+    }
+    
+    const def = defaults[current.key]
+    if (!def) return { success: false, error: 'Unknown template key' }
+    
+    const { data, error } = await supabase
+      .from('email_templates')
+      .update({
+        subject: def.subject,
+        body: def.body,
+        created_by: userEmail,
+        updated_at: new Date().toISOString()
+      })
+      .eq('id', id)
+      .select('*')
+      .single()
+
+    if (error) {
+      console.error('Error resetting email template:', error.message)
+      return { success: false, error: error.message }
+    }
+    revalidatePath('/sourcing')
+    return { success: true, template: data }
+  } catch (error: any) {
+    console.error('resetEmailTemplateAction error:', error)
+    return { success: false, error: error.message || 'An unexpected error occurred' }
+  }
+}
+
+// Helper functions for template parsing
+function formatEmailBodyHtml(
+  bodyText: string,
+  variables: Record<string, string>
+): string {
+  let formatted = bodyText
+  for (const [key, value] of Object.entries(variables)) {
+    const escapedKey = key.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&')
+    formatted = formatted.replace(new RegExp(`{{\\s*${escapedKey}\\s*}}`, 'g'), value)
+  }
+  return formatted
+    .split('\n\n')
+    .map(para => `<p style="font-size: 14px; color: #475569; margin-top: 0; margin-bottom: 16px;">${para.replace(/\n/g, '<br/>')}</p>`)
+    .join('')
+}
+
+function formatEmailSubject(
+  subjectText: string,
+  variables: Record<string, string>
+): string {
+  let formatted = subjectText
+  for (const [key, value] of Object.entries(variables)) {
+    const escapedKey = key.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&')
+    formatted = formatted.replace(new RegExp(`{{\\s*${escapedKey}\\s*}}`, 'g'), value)
+  }
+  return formatted
 }

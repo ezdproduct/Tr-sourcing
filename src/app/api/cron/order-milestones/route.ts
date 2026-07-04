@@ -12,6 +12,14 @@ export async function GET(req: NextRequest) {
     const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'
     const now = new Date()
 
+    // Fetch email templates from database
+    const { data: templates } = await supabase
+      .from('email_templates')
+      .select('*')
+
+    const depositTemplate = templates?.find((t: any) => t.key === 'deposit_check')
+    const pulseTemplate = templates?.find((t: any) => t.key === 'production_pulse')
+
     // ────────────────────────────────────────────────────────────────────────
     // MILESTONE 1: Deposit Check (48h after PO email is issued, stage = 'PO ISSUED')
     // ────────────────────────────────────────────────────────────────────────
@@ -34,6 +42,36 @@ export async function GET(req: NextRequest) {
           const secureToken = generateToken(order.id)
           const actionLink = `${appUrl}/api/orders/update-progress?token=${secureToken}&action=confirm_deposit`
 
+          // Parse Template 3 (deposit_check)
+          let emailSubject = `[Milestone Check] Deposit Confirmation Required - Order ID: ${order.id}`
+          let emailBodyText = `Our records show that the Purchase Order was issued 48 hours ago. Please click the button below to confirm that you have received the deposit. This will automatically transition your order to the active Production phase in our tracking system:`
+
+          if (depositTemplate) {
+            const templateSubject = depositTemplate.subject || ''
+            const templateBody = depositTemplate.body || ''
+            const variables: Record<string, string> = {
+              'Supplier Name': supplier.name || 'Supplier',
+              'Order Code': order.id
+            }
+            
+            let parsedSubject = templateSubject
+            let parsedBody = templateBody
+
+            for (const [k, v] of Object.entries(variables)) {
+              const escapedKey = k.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&')
+              parsedSubject = parsedSubject.replace(new RegExp(`{{\\s*${escapedKey}\\s*}}`, 'g'), v)
+              parsedBody = parsedBody.replace(new RegExp(`{{\\s*${escapedKey}\\s*}}`, 'g'), v)
+            }
+            emailSubject = parsedSubject
+            emailBodyText = parsedBody
+          }
+
+          // Format paragraph breaks
+          const formattedBodyHtml = emailBodyText
+            .split('\n\n')
+            .map(para => `<p style="margin-bottom: 24px; margin-top: 0;">${para.replace(/\n/g, '<br/>')}</p>`)
+            .join('')
+
           const emailHtml = `
             <!DOCTYPE html>
             <html>
@@ -52,9 +90,11 @@ export async function GET(req: NextRequest) {
             </head>
             <body>
               <div class="container">
+                <div style="border-bottom: 2px solid #f1f5f9; padding-bottom: 16px; margin-bottom: 24px; text-align: center;">
+                  <div style="font-size: 18px; font-weight: 800; color: #4f46e5; text-transform: uppercase; letter-spacing: 0.05em; font-family: sans-serif;">TR Sourcing Hub</div>
+                </div>
                 <h1>Confirm Deposit Received</h1>
-                <p>Dear <strong>${supplier.name}</strong> Team,</p>
-                <p>Our records show that the Purchase Order was issued 48 hours ago. Please click the button below to confirm that you have received the deposit. This will automatically transition your order to the active Production phase in our tracking system:</p>
+                ${formattedBodyHtml}
                 
                 <div style="text-align: center; margin: 32px 0;">
                   <a href="${actionLink}" class="btn" target="_blank">Confirm Deposit Received & Start Production</a>
@@ -72,7 +112,7 @@ export async function GET(req: NextRequest) {
           await sendGmail({
             agentId: systemAgentId,
             toEmail: supplier.email,
-            subject: `[Milestone Check] Deposit Confirmation Required - Order ID: ${order.id}`,
+            subject: emailSubject,
             html: emailHtml,
           })
 
@@ -114,6 +154,36 @@ export async function GET(req: NextRequest) {
           const onTrackLink = `${appUrl}/api/orders/update-progress?token=${secureToken}&action=weekly_check_on_track`
           const delayedLink = `${appUrl}/api/orders/update-progress?token=${secureToken}&action=weekly_check_delayed`
 
+          // Parse Template 4 (production_pulse)
+          let emailSubject = `[Progress Pulse] Production Status Check - Order ID: ${order.id}`
+          let emailBodyText = `This is our automated weekly progress check. Please click one of the options below to report the current status of production directly to our dashboard:`
+
+          if (pulseTemplate) {
+            const templateSubject = pulseTemplate.subject || ''
+            const templateBody = pulseTemplate.body || ''
+            const variables: Record<string, string> = {
+              'Supplier Name': supplier.name || 'Supplier',
+              'Order Code': order.id
+            }
+            
+            let parsedSubject = templateSubject
+            let parsedBody = templateBody
+
+            for (const [k, v] of Object.entries(variables)) {
+              const escapedKey = k.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&')
+              parsedSubject = parsedSubject.replace(new RegExp(`{{\\s*${escapedKey}\\s*}}`, 'g'), v)
+              parsedBody = parsedBody.replace(new RegExp(`{{\\s*${escapedKey}\\s*}}`, 'g'), v)
+            }
+            emailSubject = parsedSubject
+            emailBodyText = parsedBody
+          }
+
+          // Format paragraph breaks
+          const formattedBodyHtml = emailBodyText
+            .split('\n\n')
+            .map(para => `<p style="margin-bottom: 24px; margin-top: 0;">${para.replace(/\n/g, '<br/>')}</p>`)
+            .join('')
+
           const emailHtml = `
             <!DOCTYPE html>
             <html>
@@ -135,9 +205,11 @@ export async function GET(req: NextRequest) {
             </head>
             <body>
               <div class="container">
+                <div style="border-bottom: 2px solid #f1f5f9; padding-bottom: 16px; margin-bottom: 24px; text-align: center;">
+                  <div style="font-size: 18px; font-weight: 800; color: #4f46e5; text-transform: uppercase; letter-spacing: 0.05em; font-family: sans-serif;">TR Sourcing Hub</div>
+                </div>
                 <h1>Production Progress Pulse</h1>
-                <p>Dear <strong>${supplier.name}</strong> Team,</p>
-                <p>This is our automated weekly progress check. Please click one of the options below to report the current status of production directly to our dashboard:</p>
+                ${formattedBodyHtml}
                 
                 <div class="btn-group">
                   <a href="${onTrackLink}" class="btn-yes" target="_blank">Yes, Production is On-Track</a>
@@ -156,7 +228,7 @@ export async function GET(req: NextRequest) {
           await sendGmail({
             agentId: systemAgentId,
             toEmail: supplier.email,
-            subject: `[Progress Pulse] Production Status Check - Order ID: ${order.id}`,
+            subject: emailSubject,
             html: emailHtml,
           })
 

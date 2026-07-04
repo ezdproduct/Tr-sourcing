@@ -1,5 +1,7 @@
 'use client'
 
+/* eslint-disable react-hooks/set-state-in-effect */
+
 import { useState, useEffect } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { 
@@ -17,6 +19,7 @@ import {
 } from '../../actions'
 import { updateSupplierProfileAction } from '../../../sourcing/actions'
 import { HistoryChartsModal } from './history-charts-modal'
+import { useSourcing } from '@/providers/sourcing-provider'
 
 // Helper to upload a file to Cloudflare R2 via proxy API
 async function uploadFile(file: File, supplierId?: string, customName?: string): Promise<string> {
@@ -49,6 +52,12 @@ interface SupplierDetailClientProps {
 export function SupplierDetailClient({ supplier }: SupplierDetailClientProps) {
   const router = useRouter()
   const searchParams = useSearchParams()
+  const { userRole, currentUserEmail } = useSourcing()
+
+  const isCreatedBySystem = !supplier.created_by || supplier.created_by.trim() === '' || supplier.created_by.trim().toLowerCase() === 'system'
+  const canEdit = userRole === 'admin' || userRole === 'boss' || 
+    (!isCreatedBySystem && currentUserEmail && supplier.created_by.trim().toLowerCase() === currentUserEmail.trim().toLowerCase())
+
   const tabParam = searchParams.get('tab')
   const [activeTab, setActiveTab] = useState<'overview' | 'sourcing' | 'financials' | 'documents' | 'product' | 'library' | 'logs'>(() => {
     if (tabParam && ['overview', 'sourcing', 'financials', 'documents', 'product', 'library', 'logs'].includes(tabParam)) {
@@ -80,6 +89,10 @@ export function SupplierDetailClient({ supplier }: SupplierDetailClientProps) {
   const [productMoq, setProductMoq] = useState('')
   const [productSku, setProductSku] = useState('')
   const [productMonthlyCapacity, setProductMonthlyCapacity] = useState('')
+  const [productMaterialPercent, setProductMaterialPercent] = useState('')
+  const [productLaborPercent, setProductLaborPercent] = useState('')
+  const [productOverheadPercent, setProductOverheadPercent] = useState('')
+  const [productProfitPercent, setProductProfitPercent] = useState('')
   const [isSavingProduct, setIsSavingProduct] = useState(false)
   const [isDeletingProduct, setIsDeletingProduct] = useState<string | null>(null)
   const [productError, setProductError] = useState<string | null>(null)
@@ -795,6 +808,16 @@ export function SupplierDetailClient({ supplier }: SupplierDetailClientProps) {
       return
     }
 
+    const mat = productMaterialPercent ? parseFloat(productMaterialPercent) : 0
+    const lab = productLaborPercent ? parseFloat(productLaborPercent) : 0
+    const over = productOverheadPercent ? parseFloat(productOverheadPercent) : 0
+    const prof = productProfitPercent ? parseFloat(productProfitPercent) : 0
+    const total = mat + lab + over + prof
+    if (total > 0 && total !== 100) {
+      setProductError('Cost breakdown percentages must sum to exactly 100%.')
+      return
+    }
+
     setIsSavingProduct(true)
     setProductError(null)
 
@@ -809,7 +832,11 @@ export function SupplierDetailClient({ supplier }: SupplierDetailClientProps) {
       productDescription,
       moqVal,
       productSku,
-      productMonthlyCapacity
+      productMonthlyCapacity,
+      productMaterialPercent ? mat : undefined,
+      productLaborPercent ? lab : undefined,
+      productOverheadPercent ? over : undefined,
+      productProfitPercent ? prof : undefined
     )
     setIsSavingProduct(false)
 
@@ -823,6 +850,10 @@ export function SupplierDetailClient({ supplier }: SupplierDetailClientProps) {
       setProductMoq('')
       setProductSku('')
       setProductMonthlyCapacity('')
+      setProductMaterialPercent('')
+      setProductLaborPercent('')
+      setProductOverheadPercent('')
+      setProductProfitPercent('')
       router.refresh()
     } else {
       setProductError(res.error || 'Failed to add product.')
@@ -834,6 +865,16 @@ export function SupplierDetailClient({ supplier }: SupplierDetailClientProps) {
     if (!editingCapability) return
     if (!productName.trim() || !defaultPrice) {
       setProductError('Product Name and Default Price are required.')
+      return
+    }
+
+    const mat = productMaterialPercent ? parseFloat(productMaterialPercent) : 0
+    const lab = productLaborPercent ? parseFloat(productLaborPercent) : 0
+    const over = productOverheadPercent ? parseFloat(productOverheadPercent) : 0
+    const prof = productProfitPercent ? parseFloat(productProfitPercent) : 0
+    const total = mat + lab + over + prof
+    if (total > 0 && total !== 100) {
+      setProductError('Cost breakdown percentages must sum to exactly 100%.')
       return
     }
 
@@ -852,7 +893,11 @@ export function SupplierDetailClient({ supplier }: SupplierDetailClientProps) {
       productDescription,
       moqVal,
       productSku,
-      productMonthlyCapacity
+      productMonthlyCapacity,
+      productMaterialPercent ? mat : undefined,
+      productLaborPercent ? lab : undefined,
+      productOverheadPercent ? over : undefined,
+      productProfitPercent ? prof : undefined
     )
     setIsSavingProduct(false)
 
@@ -867,6 +912,10 @@ export function SupplierDetailClient({ supplier }: SupplierDetailClientProps) {
       setProductMoq('')
       setProductSku('')
       setProductMonthlyCapacity('')
+      setProductMaterialPercent('')
+      setProductLaborPercent('')
+      setProductOverheadPercent('')
+      setProductProfitPercent('')
       router.refresh()
     } else {
       setProductError(res.error || 'Failed to update product.')
@@ -1323,8 +1372,10 @@ export function SupplierDetailClient({ supplier }: SupplierDetailClientProps) {
               <Button
                 type="button"
                 size="sm"
+                disabled={!canEdit}
                 onClick={() => setIsEditMode(true)}
-                className="bg-[#5c59e9] hover:bg-[#4a47d2] text-white gap-1.5 h-8.5 rounded-lg text-xs font-semibold"
+                className="bg-[#5c59e9] hover:bg-[#4a47d2] text-white disabled:bg-slate-200 dark:disabled:bg-slate-800 disabled:text-slate-500 dark:disabled:text-slate-500 gap-1.5 h-8.5 rounded-lg text-xs font-semibold cursor-pointer"
+                title={!canEdit ? "You do not have permission to edit this supplier profile" : ""}
               >
                 <Edit size={12} />
                 <span>Edit Profile</span>
@@ -1469,6 +1520,7 @@ export function SupplierDetailClient({ supplier }: SupplierDetailClientProps) {
             <div className="flex items-center justify-between">
               <h3 className="text-xs font-extrabold text-slate-400 uppercase tracking-wider">Supplier Product Lines</h3>
               <button
+                disabled={!canEdit}
                 onClick={() => {
                   setProductName('')
                   setDefaultPrice('')
@@ -1477,10 +1529,15 @@ export function SupplierDetailClient({ supplier }: SupplierDetailClientProps) {
                   setProductMoq('')
                   setProductSku('')
                   setProductMonthlyCapacity('')
+                  setProductMaterialPercent('')
+                  setProductLaborPercent('')
+                  setProductOverheadPercent('')
+                  setProductProfitPercent('')
                   setProductError(null)
                   setIsAddProductOpen(true)
                 }}
-                className="h-9 text-xs bg-[#5c59e9] hover:bg-[#4a47d2] text-white rounded-lg px-4 flex items-center gap-1.5 cursor-pointer font-semibold shadow-sm"
+                className="h-9 text-xs bg-[#5c59e9] hover:bg-[#4a47d2] text-white disabled:bg-slate-200 dark:disabled:bg-slate-800 disabled:text-slate-500 dark:disabled:text-slate-500 rounded-lg px-4 flex items-center gap-1.5 cursor-pointer font-semibold shadow-sm"
+                title={!canEdit ? "You do not have permission to edit this supplier profile" : ""}
               >
                 <Plus size={14} />
                 <span>Add Product</span>
@@ -1503,6 +1560,7 @@ export function SupplierDetailClient({ supplier }: SupplierDetailClientProps) {
                       <th className="px-5 py-3 text-right">Lead Time</th>
                       <th className="px-5 py-3 text-right">Min Order Qty (MOQ)</th>
                       <th className="px-5 py-3 text-right">Production Capacity</th>
+                      <th className="px-5 py-3 text-center">Cost Breakdown</th>
                       <th className="px-5 py-3 text-center w-24">Actions</th>
                     </tr>
                   </thead>
@@ -1535,6 +1593,18 @@ export function SupplierDetailClient({ supplier }: SupplierDetailClientProps) {
                           {cap.monthly_capacity || '—'}
                         </td>
                         <td className="px-5 py-3.5 text-center">
+                          {cap.material_cost_percent ? (
+                            <div className="flex items-center justify-center gap-1.5 font-bold flex-wrap text-[9px] text-slate-500 dark:text-slate-400">
+                              <span className="text-rose-600 dark:text-rose-400 bg-rose-50 dark:bg-rose-950/20 px-2 py-0.5 rounded-lg border border-rose-100 dark:border-rose-900/30">Mat: {cap.material_cost_percent}%</span>
+                              <span className="text-amber-600 dark:text-amber-500 bg-amber-50 dark:bg-amber-950/20 px-2 py-0.5 rounded-lg border border-amber-100 dark:border-amber-900/30">Lab: {cap.labor_cost_percent}%</span>
+                              <span className="text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-950/20 px-2 py-0.5 rounded-lg border border-blue-100 dark:border-blue-900/30">Over: {cap.overhead_cost_percent}%</span>
+                              <span className="text-emerald-600 dark:text-emerald-500 bg-emerald-50 dark:bg-emerald-950/20 px-2 py-0.5 rounded-lg border border-emerald-100 dark:border-emerald-900/30">Prof: {cap.profit_margin_percent}%</span>
+                            </div>
+                          ) : (
+                            <span className="text-slate-350 dark:text-slate-600 font-medium italic">—</span>
+                          )}
+                        </td>
+                        <td className="px-5 py-3.5 text-center">
                           <div className="flex items-center justify-center gap-1.5">
                             <button
                               onClick={() => setSelectedHistoryProduct(cap.product_name)}
@@ -1544,6 +1614,7 @@ export function SupplierDetailClient({ supplier }: SupplierDetailClientProps) {
                               <TrendingUp size={14} />
                             </button>
                             <button
+                              disabled={!canEdit}
                               onClick={() => {
                                 setEditingCapability(cap)
                                 setProductName(cap.product_name)
@@ -1553,19 +1624,23 @@ export function SupplierDetailClient({ supplier }: SupplierDetailClientProps) {
                                 setProductMoq(cap.moq != null ? String(cap.moq) : '')
                                 setProductSku(cap.sku || '')
                                 setProductMonthlyCapacity(cap.monthly_capacity || '')
+                                setProductMaterialPercent(cap.material_cost_percent != null ? String(cap.material_cost_percent) : '')
+                                setProductLaborPercent(cap.labor_cost_percent != null ? String(cap.labor_cost_percent) : '')
+                                setProductOverheadPercent(cap.overhead_cost_percent != null ? String(cap.overhead_cost_percent) : '')
+                                setProductProfitPercent(cap.profit_margin_percent != null ? String(cap.profit_margin_percent) : '')
                                 setProductError(null)
                                 setIsEditProductOpen(true)
                               }}
-                              className="p-1.5 text-slate-400 hover:text-[#5c59e9] dark:hover:text-indigo-400 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg transition-colors cursor-pointer"
-                              title="Edit product"
+                              className="p-1.5 text-slate-400 hover:text-[#5c59e9] dark:hover:text-indigo-400 disabled:opacity-40 disabled:hover:bg-transparent hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg transition-colors cursor-pointer disabled:cursor-not-allowed"
+                              title={!canEdit ? "You do not have permission to edit this product" : "Edit product"}
                             >
                               <Edit size={14} />
                             </button>
                             <button
                               onClick={() => setDeleteConfirmProduct(cap)}
-                              disabled={isDeletingProduct === cap.id}
-                              className="p-1.5 text-slate-400 hover:text-red-500 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg transition-colors cursor-pointer"
-                              title="Delete product"
+                              disabled={!canEdit || isDeletingProduct === cap.id}
+                              className="p-1.5 text-slate-400 hover:text-red-500 disabled:opacity-40 disabled:hover:bg-transparent hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg transition-colors cursor-pointer disabled:cursor-not-allowed"
+                              title={!canEdit ? "You do not have permission to delete this product" : "Delete product"}
                             >
                               {isDeletingProduct === cap.id ? (
                                 <Loader2 size={14} className="animate-spin text-red-500" />
@@ -1596,11 +1671,13 @@ export function SupplierDetailClient({ supplier }: SupplierDetailClientProps) {
               <Button
                 type="button"
                 size="sm"
+                disabled={!canEdit}
                 onClick={() => {
                   setLibrarySelectedFiles([])
                   setIsUploadModalOpen(true)
                 }}
-                className="bg-[#5c59e9] hover:bg-[#4a47d2] text-white gap-1.5 h-8.5 rounded-lg text-xs font-semibold cursor-pointer"
+                className="bg-[#5c59e9] hover:bg-[#4a47d2] text-white disabled:bg-slate-200 dark:disabled:bg-slate-800 disabled:text-slate-500 dark:disabled:text-slate-500 gap-1.5 h-8.5 rounded-lg text-xs font-semibold cursor-pointer"
+                title={!canEdit ? "You do not have permission to edit this supplier profile" : ""}
               >
                 <Upload size={12} />
                 <span>Upload File</span>
@@ -1731,9 +1808,10 @@ export function SupplierDetailClient({ supplier }: SupplierDetailClientProps) {
                             {copiedFileId === file.id ? <Check size={14} className="text-emerald-500" /> : <Copy size={14} />}
                           </button>
                           <button
+                            disabled={!canEdit}
                             onClick={() => handleDeleteLibraryFile(file)}
-                            className="p-1.5 hover:bg-rose-50 dark:hover:bg-rose-950/20 rounded-lg text-slate-500 dark:text-slate-400 hover:text-rose-600 dark:hover:text-rose-400 transition-all ml-auto cursor-pointer"
-                            title="Delete File"
+                            className="p-1.5 hover:bg-rose-50 dark:hover:bg-rose-950/20 disabled:opacity-40 disabled:hover:bg-transparent rounded-lg text-slate-500 dark:text-slate-400 hover:text-rose-600 dark:hover:text-rose-400 transition-all ml-auto cursor-pointer disabled:cursor-not-allowed"
+                            title={!canEdit ? "You do not have permission to delete files for this supplier profile" : "Delete File"}
                           >
                             <Trash2 size={14} />
                           </button>
@@ -2101,6 +2179,76 @@ export function SupplierDetailClient({ supplier }: SupplierDetailClientProps) {
                 />
               </div>
 
+              {/* Cost Breakdown (%) */}
+              <div className="space-y-2 bg-slate-50/50 dark:bg-slate-950/20 p-3 rounded-xl border border-slate-200 dark:border-slate-800">
+                <div className="flex justify-between items-center text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">
+                  <span>Cost Breakdown (%)</span>
+                  {(() => {
+                    const m = parseFloat(productMaterialPercent) || 0
+                    const l = parseFloat(productLaborPercent) || 0
+                    const o = parseFloat(productOverheadPercent) || 0
+                    const p = parseFloat(productProfitPercent) || 0
+                    const total = m + l + o + p
+                    if (total === 0) return <span className="text-[9px] font-normal text-slate-450 normal-case">(Optional)</span>
+                    return (
+                      <span className={`text-[9px] font-bold ${total === 100 ? 'text-emerald-600 dark:text-emerald-400' : 'text-amber-500'}`}>
+                        Total: {total}% {total === 100 ? '✓' : '(Must sum to 100%)'}
+                      </span>
+                    )
+                  })()}
+                </div>
+                <div className="grid grid-cols-4 gap-2">
+                  <div className="space-y-1">
+                    <span className="text-[9px] text-slate-450 dark:text-slate-500 font-bold uppercase block text-center">Mat %</span>
+                    <Input
+                      type="number"
+                      min="0"
+                      max="100"
+                      placeholder="%"
+                      value={productMaterialPercent}
+                      onChange={e => setProductMaterialPercent(e.target.value)}
+                      className="h-8 text-xs rounded-lg bg-white dark:bg-slate-950 text-center font-bold border-slate-200 dark:border-slate-800"
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <span className="text-[9px] text-slate-450 dark:text-slate-500 font-bold uppercase block text-center">Lab %</span>
+                    <Input
+                      type="number"
+                      min="0"
+                      max="100"
+                      placeholder="%"
+                      value={productLaborPercent}
+                      onChange={e => setProductLaborPercent(e.target.value)}
+                      className="h-8 text-xs rounded-lg bg-white dark:bg-slate-950 text-center font-bold border-slate-200 dark:border-slate-800"
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <span className="text-[9px] text-slate-450 dark:text-slate-500 font-bold uppercase block text-center">Over %</span>
+                    <Input
+                      type="number"
+                      min="0"
+                      max="100"
+                      placeholder="%"
+                      value={productOverheadPercent}
+                      onChange={e => setProductOverheadPercent(e.target.value)}
+                      className="h-8 text-xs rounded-lg bg-white dark:bg-slate-950 text-center font-bold border-slate-200 dark:border-slate-800"
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <span className="text-[9px] text-slate-450 dark:text-slate-500 font-bold uppercase block text-center">Prof %</span>
+                    <Input
+                      type="number"
+                      min="0"
+                      max="100"
+                      placeholder="%"
+                      value={productProfitPercent}
+                      onChange={e => setProductProfitPercent(e.target.value)}
+                      className="h-8 text-xs rounded-lg bg-white dark:bg-slate-950 text-center font-bold border-slate-200 dark:border-slate-800"
+                    />
+                  </div>
+                </div>
+              </div>
+
               <div className="flex gap-2.5 pt-2">
                 <Button
                   type="button"
@@ -2255,6 +2403,76 @@ export function SupplierDetailClient({ supplier }: SupplierDetailClientProps) {
                   onChange={e => setProductDescription(e.target.value)}
                   className="flex w-full rounded-xl border border-slate-200 bg-white/50 px-3 py-2 text-xs shadow-sm transition-colors placeholder:text-slate-400 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[#5c59e9] dark:border-slate-800 dark:bg-slate-955 resize-none animate-in fade-in duration-200"
                 />
+              </div>
+
+              {/* Cost Breakdown (%) */}
+              <div className="space-y-2 bg-slate-50/50 dark:bg-slate-955/20 p-3 rounded-xl border border-slate-200 dark:border-slate-800">
+                <div className="flex justify-between items-center text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">
+                  <span>Cost Breakdown (%)</span>
+                  {(() => {
+                    const m = parseFloat(productMaterialPercent) || 0
+                    const l = parseFloat(productLaborPercent) || 0
+                    const o = parseFloat(productOverheadPercent) || 0
+                    const p = parseFloat(productProfitPercent) || 0
+                    const total = m + l + o + p
+                    if (total === 0) return <span className="text-[9px] font-normal text-slate-450 normal-case">(Optional)</span>
+                    return (
+                      <span className={`text-[9px] font-bold ${total === 100 ? 'text-emerald-600 dark:text-emerald-400' : 'text-amber-500'}`}>
+                        Total: {total}% {total === 100 ? '✓' : '(Must sum to 100%)'}
+                      </span>
+                    )
+                  })()}
+                </div>
+                <div className="grid grid-cols-4 gap-2">
+                  <div className="space-y-1">
+                    <span className="text-[9px] text-slate-450 dark:text-slate-500 font-bold uppercase block text-center">Mat %</span>
+                    <Input
+                      type="number"
+                      min="0"
+                      max="100"
+                      placeholder="%"
+                      value={productMaterialPercent}
+                      onChange={e => setProductMaterialPercent(e.target.value)}
+                      className="h-8 text-xs rounded-lg bg-white dark:bg-slate-950 text-center font-bold border-slate-200 dark:border-slate-800"
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <span className="text-[9px] text-slate-450 dark:text-slate-500 font-bold uppercase block text-center">Lab %</span>
+                    <Input
+                      type="number"
+                      min="0"
+                      max="100"
+                      placeholder="%"
+                      value={productLaborPercent}
+                      onChange={e => setProductLaborPercent(e.target.value)}
+                      className="h-8 text-xs rounded-lg bg-white dark:bg-slate-950 text-center font-bold border-slate-200 dark:border-slate-800"
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <span className="text-[9px] text-slate-450 dark:text-slate-500 font-bold uppercase block text-center">Over %</span>
+                    <Input
+                      type="number"
+                      min="0"
+                      max="100"
+                      placeholder="%"
+                      value={productOverheadPercent}
+                      onChange={e => setProductOverheadPercent(e.target.value)}
+                      className="h-8 text-xs rounded-lg bg-white dark:bg-slate-950 text-center font-bold border-slate-200 dark:border-slate-800"
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <span className="text-[9px] text-slate-450 dark:text-slate-500 font-bold uppercase block text-center">Prof %</span>
+                    <Input
+                      type="number"
+                      min="0"
+                      max="100"
+                      placeholder="%"
+                      value={productProfitPercent}
+                      onChange={e => setProductProfitPercent(e.target.value)}
+                      className="h-8 text-xs rounded-lg bg-white dark:bg-slate-950 text-center font-bold border-slate-200 dark:border-slate-800"
+                    />
+                  </div>
+                </div>
               </div>
 
               <div className="flex gap-2.5 pt-2">

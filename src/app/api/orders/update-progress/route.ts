@@ -336,6 +336,45 @@ export async function GET(req: NextRequest) {
             const shipmentActionUrl = `${appUrl}/api/orders/update-progress?token=${secureToken}&action=shipped&orderItemId=${orderItemId || ''}`
             const fullContractUrl = order.contract_file_url ? `${appUrl}${order.contract_file_url}` : ''
 
+            // Load Template 5 (production_started) from database
+            const { data: template } = await supabase
+              .from('email_templates')
+              .select('*')
+              .eq('key', 'production_started')
+              .maybeSingle()
+
+            let emailSubject = `[TR Sourcing] Production Started - Order ID: ${displayOrderId}`
+            let emailBodyText = `Thank you for confirming and accepting the Purchase Order. Your order status has been updated to PO Confirmed and production has officially started. Please save this email; once the production run is complete and cargo is ready for dispatch, please use the Mark as Shipped option below:`
+
+            if (template) {
+              const templateSubject = template.subject || ''
+              const templateBody = template.body || ''
+              const variables: Record<string, string> = {
+                'Supplier Name': supplier.name || 'Supplier',
+                'Order Code': displayOrderId,
+                'Item Name': prodName,
+                'Target Delivery Date': order.target_delivery_date || 'N/A',
+                'Delivery Address': order.delivery_address || 'N/A'
+              }
+
+              let parsedSubject = templateSubject
+              let parsedBody = templateBody
+
+              for (const [k, v] of Object.entries(variables)) {
+                const escapedKey = k.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&')
+                parsedSubject = parsedSubject.replace(new RegExp(`{{\\s*${escapedKey}\\s*}}`, 'g'), v)
+                parsedBody = parsedBody.replace(new RegExp(`{{\\s*${escapedKey}\\s*}}`, 'g'), v)
+              }
+              emailSubject = parsedSubject
+              emailBodyText = parsedBody
+            }
+
+            // Format paragraph breaks
+            const formattedBodyHtml = emailBodyText
+              .split('\n\n')
+              .map(para => `<p style="margin-top: 0; margin-bottom: 16px;">${para.replace(/\n/g, '<br/>')}</p>`)
+              .join('')
+
             const emailHtml = `
               <!DOCTYPE html>
               <html>
@@ -372,7 +411,7 @@ export async function GET(req: NextRequest) {
                   </div>
                   <h1>Production Started &amp; PO Confirmed</h1>
                   <p>Dear <strong>${supplier.name}</strong> Team,</p>
-                  <p>Thank you for confirming and accepting the Purchase Order. Your order status has been updated to <strong>PO Confirmed</strong> and production has officially started. Please save this email; once the production run is complete and cargo is ready for dispatch, please use the <strong>Mark as Shipped</strong> option below:</p>
+                  ${formattedBodyHtml}
                   
                   <div class="details-box">
                     <div class="detail-row">
@@ -439,7 +478,7 @@ export async function GET(req: NextRequest) {
               await sendGmail({
                 agentId: systemAgentId,
                 toEmail: supplier.email,
-                subject: `[TR Sourcing] Production Started - Order ID: ${displayOrderId}`,
+                subject: emailSubject,
                 html: emailHtml,
               })
             } catch (gmailErr: any) {

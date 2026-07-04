@@ -135,7 +135,11 @@ export async function addSupplierCapabilityAction(
   description?: string,
   moq?: number,
   sku?: string,
-  monthlyCapacity?: string
+  monthlyCapacity?: string,
+  materialCostPercent?: number,
+  laborCostPercent?: number,
+  overheadCostPercent?: number,
+  profitMarginPercent?: number
 ) {
   try {
     const supabase = await createClient()
@@ -152,7 +156,11 @@ export async function addSupplierCapabilityAction(
         description: description?.trim() || null,
         moq: moq || null,
         sku: sku?.trim() || null,
-        monthly_capacity: monthlyCapacity?.trim() || null
+        monthly_capacity: monthlyCapacity?.trim() || null,
+        material_cost_percent: materialCostPercent ?? null,
+        labor_cost_percent: laborCostPercent ?? null,
+        overhead_cost_percent: overheadCostPercent ?? null,
+        profit_margin_percent: profitMarginPercent ?? null
       })
       .select()
       .single()
@@ -205,7 +213,11 @@ export async function updateSupplierCapabilityAction(
   description?: string,
   moq?: number,
   sku?: string,
-  monthlyCapacity?: string
+  monthlyCapacity?: string,
+  materialCostPercent?: number,
+  laborCostPercent?: number,
+  overheadCostPercent?: number,
+  profitMarginPercent?: number
 ) {
   try {
     const supabase = await createClient()
@@ -221,7 +233,11 @@ export async function updateSupplierCapabilityAction(
         description: description?.trim() || null,
         moq: moq || null,
         sku: sku?.trim() || null,
-        monthly_capacity: monthlyCapacity?.trim() || null
+        monthly_capacity: monthlyCapacity?.trim() || null,
+        material_cost_percent: materialCostPercent ?? null,
+        labor_cost_percent: laborCostPercent ?? null,
+        overhead_cost_percent: overheadCostPercent ?? null,
+        profit_margin_percent: profitMarginPercent ?? null
       })
       .eq('id', capabilityId)
       .select()

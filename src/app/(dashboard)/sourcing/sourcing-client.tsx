@@ -2,7 +2,7 @@
 
 /* eslint-disable react-hooks/set-state-in-effect */
 
-import React, { useState, useTransition, useEffect } from 'react'
+import React, { useState, useTransition, useEffect, useRef } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { suppliersQueryOptions, ordersQueryOptions, auditsQueryOptions } from './api/queries'
 import { SourcingAnalytics } from './components/sourcing-analytics'
@@ -24,7 +24,10 @@ import {
   fetchSupplierCapabilitiesAction,
   updateSupplierProfileAction,
   confirmSupplierAndCreatePoAction,
-  saveGmailAgentIdAction
+  saveGmailAgentIdAction,
+  fetchEmailTemplatesAction,
+  updateEmailTemplateAction,
+  resetEmailTemplateAction
 } from './actions'
 import { KanbanBoard } from '@/app/(dashboard)/orders/kanban-board'
 import { updateOrderStageAction } from '@/app/(dashboard)/orders/actions'
@@ -75,6 +78,12 @@ import {
   Download,
   Sparkles,
   Edit,
+  RotateCcw,
+  Bold,
+  Italic,
+  Link,
+  List,
+  Save
 } from 'lucide-react'
 
 // ─── CSV Parser Helper ────────────────────────────────────────────────────────
@@ -152,6 +161,10 @@ export interface DatabaseSupplier {
   created_by?: string | null
   supplier_id?: string | null
   is_bid?: boolean
+  material_cost_percent?: number | null
+  labor_cost_percent?: number | null
+  overhead_cost_percent?: number | null
+  profit_margin_percent?: number | null
   // Joined from orders table
   orders?: { order_code: string } | null
   order_items?: { item_name: string } | null
@@ -279,8 +292,8 @@ export function SourcingClient({ initialOrders, initialSuppliers, initialAudits 
   }, [orders, selectedOrderId])
 
   const searchParams = useSearchParams()
-  const initialSubtab = (searchParams.get('subtab') as 'overview' | 'suppliers' | 'workplace') || 'overview'
-  const [subtab, setSubtab] = useState<'overview' | 'suppliers' | 'workplace'>(initialSubtab)
+  const initialSubtab = (searchParams.get('subtab') as 'overview' | 'suppliers' | 'workplace' | 'email-templates') || 'overview'
+  const [subtab, setSubtab] = useState<'overview' | 'suppliers' | 'workplace' | 'email-templates'>(initialSubtab)
   const [supplierSearch, setSupplierSearch] = useState('')
   const [supplierSort, setSupplierSort] = useState<{ field: 'name' | 'created_by' | null; order: 'asc' | 'desc' }>({
     field: null,
@@ -288,10 +301,26 @@ export function SourcingClient({ initialOrders, initialSuppliers, initialAudits 
   })
   const [isDeletingBatch, setIsDeletingBatch] = useState(false)
 
+  const [isInlineAdding, setIsInlineAdding] = useState(false)
+  const [inlineSupplier, setInlineSupplier] = useState({
+    name: '',
+    email: '',
+    phone: '',
+    contactPerson: '',
+    website: '',
+    address: '',
+    mainProducts: ''
+  })
+  const [isSavingInline, setIsSavingInline] = useState(false)
+  const [isInlineProductsModalOpen, setIsInlineProductsModalOpen] = useState(false)
+  const [inlineCapabilities, setInlineCapabilities] = useState(() => [
+    { id: Math.random().toString(), productName: '', targetPrice: '', leadTimeDays: '' }
+  ])
+
   const subtabParam = searchParams.get('subtab')
 
   useEffect(() => {
-    if (subtabParam === 'overview' || subtabParam === 'suppliers' || subtabParam === 'workplace') {
+    if (subtabParam === 'overview' || subtabParam === 'suppliers' || subtabParam === 'workplace' || subtabParam === 'email-templates') {
       setSubtab(subtabParam)
       setIsInlineAdding(false)
     } else {
@@ -299,7 +328,7 @@ export function SourcingClient({ initialOrders, initialSuppliers, initialAudits 
     }
   }, [subtabParam])
 
-  const handleTabChange = (val: 'overview' | 'suppliers' | 'workplace') => {
+  const handleTabChange = (val: 'overview' | 'suppliers' | 'workplace' | 'email-templates') => {
     setSubtab(val)
     setSelectedSupplierIds([])
     setIsManageMode(false)
@@ -321,25 +350,130 @@ export function SourcingClient({ initialOrders, initialSuppliers, initialAudits 
       window.history.pushState({ ...window.history.state, as: newUrl, url: newUrl }, '', newUrl)
     }
   }
+
+  // Email Templates management states
+  const { data: emailTemplates, refetch: refetchTemplates } = useQuery({
+    queryKey: ['email-templates'],
+    queryFn: () => fetchEmailTemplatesAction(),
+    enabled: subtab === 'email-templates'
+  })
+
+  const [selectedTemplateKey, setSelectedTemplateKey] = useState<string>('purchase_order')
+  const [editedSubject, setEditedSubject] = useState<string>('')
+  const [editedBody, setEditedBody] = useState<string>('')
+  const [isSavingTemplate, setIsSavingTemplate] = useState<boolean>(false)
+  const [isResettingTemplate, setIsResettingTemplate] = useState<boolean>(false)
+  const [isResetConfirmOpen, setIsResetConfirmOpen] = useState<boolean>(false)
+
+  const textareaRef = useRef<HTMLTextAreaElement>(null)
+
+  const insertPlaceholder = (tag: string) => {
+    const textarea = textareaRef.current
+    if (!textarea) {
+      setEditedBody((prev) => prev + ` {{${tag}}}`)
+      return
+    }
+    const start = textarea.selectionStart
+    const end = textarea.selectionEnd
+    const text = textarea.value
+    const before = text.substring(0, start)
+    const after = text.substring(end, text.length)
+    const tagText = `{{${tag}}}`
+    setEditedBody(before + tagText + after)
+    setTimeout(() => {
+      textarea.focus()
+      textarea.setSelectionRange(start + tagText.length, start + tagText.length)
+    }, 0)
+  }
+
+  const wrapSelectionWithTag = (openTag: string, closeTag: string, defaultPlaceholder: string) => {
+    const textarea = textareaRef.current
+    if (!textarea) return
+    const start = textarea.selectionStart
+    const end = textarea.selectionEnd
+    const text = textarea.value
+    const selected = text.substring(start, end)
+    const before = text.substring(0, start)
+    const after = text.substring(end, text.length)
+    const replacement = selected ? `${openTag}${selected}${closeTag}` : `${openTag}${defaultPlaceholder}${closeTag}`
+    setEditedBody(before + replacement + after)
+    setTimeout(() => {
+      textarea.focus()
+      if (!selected) {
+        textarea.setSelectionRange(start + openTag.length, start + openTag.length + defaultPlaceholder.length)
+      } else {
+        textarea.setSelectionRange(start + replacement.length, start + replacement.length)
+      }
+    }, 0)
+  }
+
+  const insertBulletPoint = () => {
+    const textarea = textareaRef.current
+    if (!textarea) return
+    const start = textarea.selectionStart
+    const end = textarea.selectionEnd
+    const text = textarea.value
+    const before = text.substring(0, start)
+    const after = text.substring(end, text.length)
+    const bullet = '• '
+    setEditedBody(before + bullet + after)
+    setTimeout(() => {
+      textarea.focus()
+      textarea.setSelectionRange(start + bullet.length, start + bullet.length)
+    }, 0)
+  }
+
+  const activeTemplate = emailTemplates?.find((t: any) => t.key === selectedTemplateKey)
+
+  useEffect(() => {
+    if (activeTemplate) {
+      setEditedSubject(activeTemplate.subject || '')
+      setEditedBody(activeTemplate.body || '')
+    }
+  }, [activeTemplate, selectedTemplateKey])
+
+  // Mock variables for email live previews
+  const mockVariablesPo: Record<string, string> = {
+    'Supplier Name': 'Acme Manufacturing Corp',
+    'Order Code': 'PO-2026-089',
+    'Item Name': 'Premium Silk Fabric - Grade A',
+    'Contract Value': '24,500.00',
+    'Target Delivery Date': '2026-08-15',
+    'Delivery Address': '123 Supply Chain Road, Logistics Hub, SG'
+  }
+
+  const mockVariablesRfq: Record<string, string> = {
+    'Supplier Name': 'Acme Manufacturing Corp',
+    'Item Name': 'Premium Silk Fabric - Grade A',
+    'Target Price': '5.50'
+  }
+
+  const mockVariables = selectedTemplateKey === 'purchase_order' ? mockVariablesPo : mockVariablesRfq
+
+  const previewSubject = (() => {
+    let subject = editedSubject
+    for (const [key, val] of Object.entries(mockVariables)) {
+      const escapedKey = key.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&')
+      subject = subject.replace(new RegExp(`{{\\s*${escapedKey}\\s*}}`, 'g'), val)
+    }
+    return subject
+  })()
+
+  const previewBodyHtml = (() => {
+    let body = editedBody
+    for (const [key, val] of Object.entries(mockVariables)) {
+      const escapedKey = key.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&')
+      body = body.replace(new RegExp(`{{\\s*${escapedKey}\\s*}}`, 'g'), `<strong>${val}</strong>`)
+    }
+    return body
+      .split('\n\n')
+      .map(para => `<p style="margin-bottom: 12px; margin-top: 0;">${para.replace(/\n/g, '<br/>')}</p>`)
+      .join('')
+  })()
+
   const [isAddOpen, setIsAddOpen] = useState(false)
   const [isPending, startTransition] = useTransition()
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
-
-  const [isInlineAdding, setIsInlineAdding] = useState(false)
-  const [inlineSupplier, setInlineSupplier] = useState({
-    name: '',
-    email: '',
-    phone: '',
-    contactPerson: '',
-    website: '',
-    address: '',
-    mainProducts: ''
-  })
-  const [isSavingInline, setIsSavingInline] = useState(false)
-  const [isInlineProductsModalOpen, setIsInlineProductsModalOpen] = useState(false)
-  const [inlineCapabilities, setInlineCapabilities] = useState(() => [
-    { id: Math.random().toString(), productName: '', targetPrice: '', leadTimeDays: '' }
-  ])
 
   const handleSaveInlineSupplier = async () => {
     if (!inlineSupplier.name.trim()) {
@@ -894,6 +1028,7 @@ export function SourcingClient({ initialOrders, initialSuppliers, initialAudits 
     certifications: false,
     productItem: true,
     quotedPrice: true,
+    costBreakdown: true,
     leadTime: true,
     shortlistStatus: true,
     qcStatus: true,
@@ -911,6 +1046,7 @@ export function SourcingClient({ initialOrders, initialSuppliers, initialAudits 
     { key: 'certifications', label: 'Certifications' },
     { key: 'productItem', label: 'Product Item' },
     { key: 'quotedPrice', label: 'Quoted Price' },
+    { key: 'costBreakdown', label: 'Cost Breakdown' },
     { key: 'leadTime', label: 'Lead Time' },
     { key: 'shortlistStatus', label: 'Shortlist Status' },
     { key: 'qcStatus', label: 'QC Status' },
@@ -3114,6 +3250,7 @@ export function SourcingClient({ initialOrders, initialSuppliers, initialAudits 
                                       {orderColumnVisibility.productItem && <th className="px-6 py-4">Product Item</th>}
                                       {orderColumnVisibility.quotedPrice && <th className="px-6 py-4">Quoted Price</th>}
                                       {orderColumnVisibility.leadTime && <th className="px-6 py-4">Lead Time</th>}
+                                       {orderColumnVisibility.costBreakdown && <th className="px-6 py-4 text-center">Cost Breakdown</th>}
                                       {orderColumnVisibility.shortlistStatus && <th className="px-6 py-4 text-center">Shortlist</th>}
                                       {orderColumnVisibility.qcStatus && <th className="px-6 py-4">QC Status</th>}
               
@@ -3230,30 +3367,44 @@ export function SourcingClient({ initialOrders, initialSuppliers, initialAudits 
                                             </td>
                                           )}
                                           {orderColumnVisibility.quotedPrice && (
-                                            <td className="px-6 py-4">
-                                              <div className={`font-bold ${isLowestPrice ? 'text-emerald-600 dark:text-emerald-400' : 'text-slate-900 dark:text-white'}`}>
-                                                ${Number(supplier.quoted_price).toLocaleString('en-US', { minimumFractionDigits: 2 })}
-                                              </div>
-                                              {isLowestPrice && (
-                                                <div className="text-[9px] text-emerald-600 font-medium flex items-center gap-0.5 mt-0.5">
-                                                  <TrendingUp size={9} /> Best price
-                                                </div>
-                                              )}
-                                            </td>
-                                          )}
-                                          {orderColumnVisibility.leadTime && (
-                                            <td className="px-6 py-4">
-                                              <div className={`font-semibold ${isFastestLead ? 'text-indigo-600 dark:text-indigo-400' : 'text-slate-700 dark:text-slate-300'}`}>
-                                                {supplier.lead_time_days} days
-                                              </div>
-                                              {isFastestLead && (
-                                                <div className="text-[9px] text-indigo-600 font-medium mt-0.5">
-                                                  Fastest
-                                                </div>
-                                              )}
-                                            </td>
-                                          )}
-                                          {orderColumnVisibility.shortlistStatus && (
+                                             <td className="px-6 py-4">
+                                               <div className={`font-bold ${isLowestPrice ? 'text-emerald-600 dark:text-emerald-400' : 'text-slate-900 dark:text-white'}`}>
+                                                 ${Number(supplier.quoted_price).toLocaleString('en-US', { minimumFractionDigits: 2 })}
+                                               </div>
+                                               {isLowestPrice && (
+                                                 <div className="text-[9px] text-emerald-600 font-medium flex items-center gap-0.5 mt-0.5">
+                                                   <TrendingUp size={9} /> Best price
+                                                 </div>
+                                               )}
+                                             </td>
+                                           )}
+                                           {orderColumnVisibility.leadTime && (
+                                             <td className="px-6 py-4">
+                                               <div className={`font-semibold ${isFastestLead ? 'text-indigo-600 dark:text-indigo-400' : 'text-slate-700 dark:text-slate-300'}`}>
+                                                 {supplier.lead_time_days} days
+                                               </div>
+                                               {isFastestLead && (
+                                                 <div className="text-[9px] text-indigo-600 font-medium mt-0.5">
+                                                   Fastest
+                                                 </div>
+                                               )}
+                                             </td>
+                                           )}
+                                           {orderColumnVisibility.costBreakdown && (
+                                             <td className="px-6 py-4 text-center">
+                                               {supplier.material_cost_percent ? (
+                                                 <div className="flex items-center justify-center gap-1.5 font-bold flex-wrap text-[9px] text-slate-500 dark:text-slate-400">
+                                                   <span className="text-rose-600 dark:text-rose-450 bg-rose-50 dark:bg-rose-955/20 px-2 py-0.5 rounded-lg border border-rose-100 dark:border-rose-900/30">Mat: {supplier.material_cost_percent}%</span>
+                                                   <span className="text-amber-600 dark:text-amber-500 bg-amber-50 dark:bg-amber-955/20 px-2 py-0.5 rounded-lg border border-amber-100 dark:border-amber-900/30">Lab: {supplier.labor_cost_percent}%</span>
+                                                   <span className="text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-955/20 px-2 py-0.5 rounded-lg border border-blue-100 dark:border-blue-900/30">Over: {supplier.overhead_cost_percent}%</span>
+                                                   <span className="text-emerald-600 dark:text-emerald-500 bg-emerald-50 dark:bg-emerald-955/20 px-2 py-0.5 rounded-lg border border-emerald-100 dark:border-emerald-900/30">Prof: {supplier.profit_margin_percent}%</span>
+                                                 </div>
+                                               ) : (
+                                                 <span className="text-slate-350 dark:text-slate-600 font-medium italic">—</span>
+                                               )}
+                                             </td>
+                                           )}
+                                           {orderColumnVisibility.shortlistStatus && (
                                             <td className="px-6 py-4 text-center">
                                               <button
                                                 id={`shortlist-${supplier.id}`}
@@ -3330,6 +3481,346 @@ export function SourcingClient({ initialOrders, initialSuppliers, initialAudits 
         </div>
       </div>
       </TabsContent>
+
+      <TabsContent value="email-templates" className="space-y-6 mt-0 border-none p-0 focus-visible:ring-0 focus-visible:ring-offset-0">
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 animate-in fade-in duration-300">
+          {/* Left panel: Template Selector list (lg:col-span-4) */}
+          <div className="lg:col-span-4 space-y-6">
+            <Card className="rounded-2xl border-slate-200/60 dark:border-slate-800 bg-white/50 dark:bg-slate-900/10 backdrop-blur-md shadow-sm">
+              <CardHeader className="pb-3">
+                <CardTitle className="text-base font-bold text-slate-800 dark:text-white">Email Templates Manager</CardTitle>
+                <CardDescription className="text-xs text-slate-400 dark:text-slate-500">
+                  Select a template from the list below to edit its content and subject directly inside the preview on the right.
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                {/* Template Selector */}
+                <div className="space-y-1.5">
+                  <Label className="text-xs text-slate-500 font-bold dark:text-slate-400">Select Template</Label>
+                  <div className="flex flex-col gap-2">
+                    {emailTemplates?.map((t: any) => (
+                      <button
+                        key={t.key}
+                        onClick={() => setSelectedTemplateKey(t.key)}
+                        className={`text-left p-3.5 rounded-xl border text-xs font-semibold transition-all cursor-pointer flex flex-col gap-1.5 ${
+                          selectedTemplateKey === t.key
+                            ? 'bg-[#5c59e9]/5 border-[#5c59e9] text-[#5c59e9] dark:bg-indigo-950/20 dark:border-indigo-500 dark:text-indigo-400 shadow-sm'
+                            : 'bg-white border-slate-200 text-slate-650 hover:border-slate-350 dark:bg-slate-900 dark:border-slate-800 dark:text-slate-400'
+                        }`}
+                      >
+                        <div className="font-bold">{t.name}</div>
+                        <div className="text-[10px] text-slate-400 dark:text-slate-500 line-clamp-2 leading-relaxed">
+                          {(() => {
+                            if (t.key === 'purchase_order') return 'Sent automatically to the selected supplier when their bid is confirmed.'
+                            if (t.key === 'rfq') return 'Sent to suppliers to invite them to bid on new sourcing requirements.'
+                            if (t.key === 'deposit_check') return 'Sent automatically to the supplier 48 hours after PO issuance to request deposit receipt confirmation.'
+                            if (t.key === 'production_pulse') return 'Sent weekly to active suppliers to report current production status.'
+                            if (t.key === 'production_started') return 'Sent on PO acceptance to notify that production has started and allow shipment mark.'
+                            return t.description || 'Email Template'
+                          })()}
+                        </div>
+                      </button>
+                    ))}
+                    {!emailTemplates && (
+                      <div className="text-center text-xs text-slate-400 py-6">Loading templates...</div>
+                    )}
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          </div>
+
+          {/* Right panel: Live Editor & Preview (lg:col-span-8) */}
+          <div className="lg:col-span-8">
+            <Card className="rounded-2xl border-slate-200/60 dark:border-slate-800 bg-white dark:bg-slate-900 shadow-sm overflow-hidden flex flex-col h-full min-h-[550px]">
+              <div className="bg-slate-100 dark:bg-slate-955 px-4 py-2.5 border-b border-slate-200/60 dark:border-slate-850 flex items-center justify-between">
+                <div className="flex items-center gap-1.5">
+                  <div className="w-2.5 h-2.5 rounded-full bg-red-400" />
+                  <div className="w-2.5 h-2.5 rounded-full bg-amber-400" />
+                  <div className="w-2.5 h-2.5 rounded-full bg-green-400" />
+                </div>
+                <div className="text-[11px] font-semibold text-slate-500 dark:text-slate-400">Interactive Template Editor &amp; Preview</div>
+                
+                {/* Reset & Save Buttons */}
+                {activeTemplate && (
+                  <div className="flex items-center gap-2 shrink-0">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      disabled={isResettingTemplate}
+                      onClick={async () => {
+                        setIsResetConfirmOpen(true)
+                      }}
+                      className="border-slate-200 hover:bg-slate-50 dark:border-slate-800 dark:text-slate-400 dark:hover:bg-slate-800 text-[10px] font-bold px-2.5 h-7 rounded-lg cursor-pointer gap-1 flex items-center bg-white dark:bg-slate-900"
+                    >
+                      {isResettingTemplate ? (
+                        <Loader2 size={10} className="animate-spin" />
+                      ) : (
+                        <RotateCcw size={10} />
+                      )}
+                      <span>Reset</span>
+                    </Button>
+                    
+                    <Button
+                      type="button"
+                      size="sm"
+                      disabled={isSavingTemplate}
+                      onClick={async () => {
+                        setIsSavingTemplate(true)
+                        const res = await updateEmailTemplateAction(activeTemplate.id, editedSubject, editedBody)
+                        setIsSavingTemplate(false)
+                        if (res.success) {
+                          triggerToast('Email template updated successfully!')
+                          refetchTemplates()
+                        } else {
+                          triggerToast(`Failed to save template: ${res.error}`)
+                        }
+                      }}
+                      className="bg-[#5c59e9] hover:bg-indigo-600 text-white text-[10px] font-bold px-2.5 h-7 rounded-lg cursor-pointer gap-1 flex items-center"
+                    >
+                      {isSavingTemplate ? (
+                        <Loader2 size={10} className="animate-spin" />
+                      ) : (
+                        <Save size={10} />
+                      )}
+                      <span>Save</span>
+                    </Button>
+                  </div>
+                )}
+              </div>
+
+              <div className="p-4 bg-slate-50 dark:bg-slate-955 border-b border-slate-200/50 dark:border-slate-850 space-y-1.5 text-xs text-slate-500 dark:text-slate-400">
+                <div>
+                  <span className="font-bold text-slate-400">From:</span> TR Sourcing Hub &lt;sourcing@tr.com&gt;
+                </div>
+                <div>
+                  <span className="font-bold text-slate-400">To:</span> contact@supplier-acme.com
+                </div>
+                {activeTemplate && (
+                  <div className="flex gap-1.5 items-center w-full">
+                    <span className="font-bold text-slate-400 shrink-0">Subject:</span>
+                    <input
+                      type="text"
+                      value={editedSubject}
+                      onChange={(e) => setEditedSubject(e.target.value)}
+                      className="bg-transparent border-none p-0 text-xs font-semibold text-slate-850 dark:text-slate-150 focus:outline-none focus:ring-0 focus-visible:outline-none focus-visible:ring-0 w-full hover:bg-slate-200/30 dark:hover:bg-slate-800/30 rounded px-1 transition-colors py-0.5"
+                      placeholder="Enter email subject..."
+                    />
+                  </div>
+                )}
+              </div>
+
+              {activeTemplate ? (
+                <div className="flex-1 p-6 bg-slate-100 dark:bg-slate-955 overflow-y-auto max-h-[650px] flex flex-col gap-4">
+                  {/* Sleek Toolbar docked at the top of the preview scroll area */}
+                  <div className="bg-white dark:bg-slate-900 border border-slate-200/60 dark:border-slate-800 rounded-xl p-3 flex flex-col sm:flex-row gap-3 items-center justify-between shadow-sm">
+                    {/* Formatting buttons */}
+                    <div className="flex items-center gap-1 bg-slate-50 dark:bg-slate-950 p-1 rounded-lg border border-slate-100 dark:border-slate-800">
+                      <button
+                        type="button"
+                        onClick={() => wrapSelectionWithTag('<strong>', '</strong>', 'Bold text')}
+                        title="Bold"
+                        className="p-1.5 rounded-md hover:bg-white dark:hover:bg-slate-900 text-slate-550 hover:text-slate-755 dark:text-slate-450 dark:hover:text-slate-205 transition-all cursor-pointer shadow-sm border border-transparent hover:border-slate-200/60 dark:hover:border-slate-800"
+                      >
+                        <Bold size={13} className="stroke-[2.5]" />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => wrapSelectionWithTag('<em>', '</em>', 'Italic text')}
+                        title="Italic"
+                        className="p-1.5 rounded-md hover:bg-white dark:hover:bg-slate-900 text-slate-550 hover:text-slate-755 dark:text-slate-450 dark:hover:text-slate-205 transition-all cursor-pointer shadow-sm border border-transparent hover:border-slate-200/60 dark:hover:border-slate-800"
+                      >
+                        <Italic size={13} className="stroke-[2.5]" />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => wrapSelectionWithTag('<a href="https://example.com">', '</a>', 'Link text')}
+                        title="Insert Link"
+                        className="p-1.5 rounded-md hover:bg-white dark:hover:bg-slate-900 text-slate-550 hover:text-slate-755 dark:text-slate-450 dark:hover:text-slate-205 transition-all cursor-pointer shadow-sm border border-transparent hover:border-slate-200/60 dark:hover:border-slate-800"
+                      >
+                        <Link size={13} className="stroke-[2.5]" />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={insertBulletPoint}
+                        title="Bullet List"
+                        className="p-1.5 rounded-md hover:bg-white dark:hover:bg-slate-900 text-slate-550 hover:text-slate-755 dark:text-slate-450 dark:hover:text-slate-205 transition-all cursor-pointer shadow-sm border border-transparent hover:border-slate-200/60 dark:hover:border-slate-800"
+                      >
+                        <List size={13} className="stroke-[2.5]" />
+                      </button>
+                    </div>
+
+                    {/* Placeholders chip selector */}
+                    <div className="flex flex-wrap items-center gap-1.5 justify-end">
+                      <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider mr-1">Insert:</span>
+                      {activeTemplate.placeholders?.map((tag: string) => (
+                        <button
+                          key={tag}
+                          type="button"
+                          onClick={() => insertPlaceholder(tag)}
+                          className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-indigo-50/50 dark:bg-indigo-950/20 text-[#5c59e9] dark:text-indigo-400 border border-indigo-100/50 dark:border-indigo-900/30 hover:bg-[#5c59e9] hover:text-white dark:hover:bg-indigo-600 dark:hover:text-white text-[10px] font-bold cursor-pointer transition-all duration-200 shadow-sm"
+                        >
+                          <Plus size={8} className="stroke-[3]" />
+                          <span>{tag}</span>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Email Envelope Container */}
+                  <div className="bg-white dark:bg-slate-900 border border-slate-200/60 dark:border-slate-800 rounded-2xl p-8 max-w-[600px] mx-auto shadow-sm w-full">
+                    {/* Header */}
+                    <div className="border-b-2 border-slate-100 dark:border-slate-800/80 pb-4 mb-6 text-center">
+                      <div className="text-lg font-extrabold text-[#5c59e9] dark:text-indigo-400 uppercase tracking-wider font-sans">
+                        TR Sourcing Hub
+                      </div>
+                    </div>
+                    
+                    {/* Title */}
+                    <h1 className="text-xl font-bold text-slate-900 dark:text-white mt-0 mb-4 text-center font-sans">
+                      {(() => {
+                        if (selectedTemplateKey === 'purchase_order') return 'Purchase Order Confirmation'
+                        if (selectedTemplateKey === 'rfq') return 'Request for Quote'
+                        if (selectedTemplateKey === 'deposit_check') return 'Confirm Deposit Received'
+                        if (selectedTemplateKey === 'production_pulse') return 'Production Progress Pulse'
+                        if (selectedTemplateKey === 'production_started') return 'Production Started & PO Confirmed'
+                        return 'Email Notification'
+                      })()}
+                    </h1>
+
+                    {/* Editable Body Editor */}
+                    <div className="relative group border border-transparent hover:border-slate-200/85 focus-within:border-[#5c59e9] dark:hover:border-slate-800 dark:focus-within:border-indigo-500 rounded-xl p-3 -mx-3 transition-all duration-200">
+                      <textarea
+                        ref={textareaRef}
+                        value={editedBody}
+                        onChange={(e) => setEditedBody(e.target.value)}
+                        className="w-full bg-transparent border-0 p-0 text-sm text-slate-650 dark:text-slate-355 focus:outline-none focus:ring-0 focus-visible:ring-0 focus-visible:outline-none resize-none font-sans leading-relaxed min-h-[180px]"
+                        placeholder="Dear {{Supplier Name}} Team, ..."
+                      />
+                      <div className="absolute right-3 bottom-2 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 transition-opacity text-[10px] text-slate-400 dark:text-slate-500 pointer-events-none flex items-center gap-1">
+                        <span>Click to edit directly</span>
+                      </div>
+                    </div>
+
+                    {/* Details Box */}
+                    {(selectedTemplateKey === 'purchase_order' || selectedTemplateKey === 'production_started') ? (
+                      <div className="bg-slate-50 dark:bg-slate-955 rounded-xl border border-slate-100 dark:border-slate-800/80 p-5 mt-6 mb-6 font-sans">
+                        <div className="flex justify-between font-sans text-xs mb-2.5 border-b border-dashed border-slate-200/60 dark:border-slate-800 pb-2.5">
+                          <span className="text-slate-400 dark:text-slate-500 font-semibold">Order ID:</span>
+                          <span className="text-slate-800 dark:text-slate-200 font-bold text-right">{mockVariables['Order Code'] || 'PO-2026-089'}</span>
+                        </div>
+                        <div className="flex justify-between font-sans text-xs mb-2.5 border-b border-dashed border-slate-200/60 dark:border-slate-800 pb-2.5">
+                          <span className="text-slate-400 dark:text-slate-500 font-semibold">Product Item:</span>
+                          <span className="text-slate-800 dark:text-slate-200 font-bold text-right">{mockVariables['Item Name'] || 'Premium Silk Fabric - Grade A'}</span>
+                        </div>
+                        <div className="flex justify-between font-sans text-xs mb-2.5 border-b border-dashed border-slate-200/60 dark:border-slate-800 pb-2.5">
+                          <span className="text-slate-400 dark:text-slate-500 font-semibold">Contract Value:</span>
+                          <span className="text-slate-800 dark:text-slate-200 font-bold text-right">${mockVariables['Contract Value'] || '24,500.00'} USD</span>
+                        </div>
+                        <div className="flex justify-between font-sans text-xs mb-2.5 border-b border-dashed border-slate-200/60 dark:border-slate-800 pb-2.5">
+                          <span className="text-slate-400 dark:text-slate-500 font-semibold">Target Delivery Date:</span>
+                          <span className="text-slate-800 dark:text-slate-200 font-bold text-right">{mockVariables['Target Delivery Date'] || '2026-08-15'}</span>
+                        </div>
+                        <div className="flex justify-between font-sans text-xs pb-0">
+                          <span className="text-slate-400 dark:text-slate-500 font-semibold">Delivery Address:</span>
+                          <span className="text-slate-800 dark:text-slate-200 font-bold text-right">{mockVariables['Delivery Address'] || '123 Supply Chain Road, Logistics Hub, SG'}</span>
+                        </div>
+                      </div>
+                    ) : selectedTemplateKey === 'rfq' ? (
+                      <div className="bg-slate-50 dark:bg-slate-955 rounded-xl border border-slate-100 dark:border-slate-800/80 p-5 mt-6 mb-6 font-sans">
+                        <div className="flex justify-between font-sans text-xs mb-2.5 border-b border-dashed border-slate-200/60 dark:border-slate-800 pb-2.5">
+                          <span className="text-slate-400 dark:text-slate-500 font-semibold">Product Item:</span>
+                          <span className="text-slate-800 dark:text-slate-200 font-bold text-right">{mockVariables['Item Name'] || 'Premium Silk Fabric - Grade A'}</span>
+                        </div>
+                        <div className="flex justify-between font-sans text-xs pb-0">
+                          <span className="text-slate-400 dark:text-slate-500 font-semibold">Target Price:</span>
+                          <span className="text-slate-800 dark:text-slate-200 font-bold text-right">${mockVariables['Target Price'] || '5.50'} USD</span>
+                        </div>
+                      </div>
+                    ) : null}
+
+                    {/* Buttons */}
+                    <div className="mt-6 font-sans">
+                      {(() => {
+                        if (selectedTemplateKey === 'purchase_order') {
+                          return (
+                            <div className="grid grid-cols-2 gap-3">
+                              <div className="bg-emerald-500 hover:bg-emerald-600 text-white text-xs font-bold text-center py-3 rounded-lg shadow-sm cursor-pointer select-none">
+                                Confirm & Accept PO
+                              </div>
+                              <div className="bg-[#5c59e9] hover:bg-indigo-600 text-white text-xs font-bold text-center py-3 rounded-lg shadow-sm cursor-pointer select-none">
+                                View Signed Contract
+                              </div>
+                            </div>
+                          )
+                        }
+                        if (selectedTemplateKey === 'rfq') {
+                          return (
+                            <div className="bg-[#5c59e9] hover:bg-indigo-600 text-white text-xs font-bold text-center py-3 rounded-lg shadow-sm cursor-pointer select-none">
+                              Submit Proposal Quote
+                            </div>
+                          )
+                        }
+                        if (selectedTemplateKey === 'deposit_check') {
+                          return (
+                            <div className="bg-[#5c59e9] hover:bg-indigo-600 text-white text-xs font-bold text-center py-3 rounded-lg shadow-sm cursor-pointer select-none">
+                              Confirm Deposit Received & Start Production
+                            </div>
+                          )
+                        }
+                        if (selectedTemplateKey === 'production_pulse') {
+                          return (
+                            <div className="grid grid-cols-2 gap-3">
+                              <div className="bg-emerald-500 hover:bg-emerald-600 text-white text-xs font-bold text-center py-3 rounded-lg shadow-sm cursor-pointer select-none">
+                                Yes, Production is On-Track
+                              </div>
+                              <div className="bg-rose-500 hover:bg-rose-600 text-white text-xs font-bold text-center py-3 rounded-lg shadow-sm cursor-pointer select-none">
+                                No, We are experiencing Delays
+                              </div>
+                            </div>
+                          )
+                        }
+                        if (selectedTemplateKey === 'production_started') {
+                          return (
+                            <div className="space-y-3">
+                              <div className="grid grid-cols-2 gap-3">
+                                <div className="bg-slate-100 dark:bg-slate-800 text-slate-400 dark:text-slate-500 border border-slate-200 dark:border-slate-700 text-xs font-bold text-center py-3 rounded-lg cursor-not-allowed select-none">
+                                  Confirm & Accept PO
+                                </div>
+                                <div className="bg-[#5c59e9] hover:bg-indigo-600 text-white text-xs font-bold text-center py-3 rounded-lg shadow-sm cursor-pointer select-none">
+                                  View Signed Contract
+                                </div>
+                              </div>
+                              <div className="bg-slate-500 hover:bg-slate-600 text-white text-xs font-bold text-center py-3 rounded-lg shadow-sm cursor-pointer select-none">
+                                Mark as Shipped
+                              </div>
+                            </div>
+                          )
+                        }
+                        return null
+                      })()}
+                    </div>
+
+                    <p className="mt-7 font-sans text-xs text-slate-400 dark:text-slate-500 leading-relaxed">
+                      Should you have any questions or require further clarification, please do not hesitate to contact our Sourcing team.
+                    </p>
+                    
+                    <div className="border-t border-slate-100 dark:border-slate-800/80 pt-4 mt-6 text-[10px] text-slate-400 dark:text-slate-500 text-center font-sans">
+                      This is an automated notification from TR Sourcing Hub. Please do not reply directly to this email.
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                <div className="flex-1 flex items-center justify-center text-xs text-slate-400 p-6">
+                  Select a template to begin editing.
+                </div>
+              )}
+            </Card>
+          </div>
+        </div>
+      </TabsContent>
+
       </Tabs>
 
       {/* Inline products & capabilities configuration modal */}
@@ -3481,6 +3972,55 @@ export function SourcingClient({ initialOrders, initialSuppliers, initialAudits 
         </div>
       )}
 
+      {/* Reset Template Confirmation Modal */}
+      {isResetConfirmOpen && activeTemplate && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div
+            className="absolute inset-0 bg-black/40 backdrop-blur-sm"
+            onClick={() => setIsResetConfirmOpen(false)}
+          />
+          <div className="relative z-10 w-full max-w-sm bg-white dark:bg-slate-900 rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-800 p-6 animate-in fade-in zoom-in-95 duration-150">
+            <div className="flex items-center gap-3 text-amber-500 dark:text-amber-400 mb-4">
+              <RotateCcw size={22} className="flex-shrink-0" />
+              <h3 className="text-base font-bold text-slate-900 dark:text-white">Reset Template</h3>
+            </div>
+            
+            <p className="text-xs text-slate-650 dark:text-slate-400 mb-6 leading-relaxed font-medium">
+              Are you sure you want to reset <strong className="font-semibold text-slate-850 dark:text-slate-200">{activeTemplate.name}</strong> to its default settings? This will overwrite your current changes.
+            </p>
+
+            <div className="flex gap-3">
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => setIsResetConfirmOpen(false)}
+                className="flex-1 h-9 text-xs font-semibold cursor-pointer border-slate-200 dark:border-slate-800"
+              >
+                Cancel
+              </Button>
+              <Button
+                type="button"
+                onClick={async () => {
+                  setIsResetConfirmOpen(false)
+                  setIsResettingTemplate(true)
+                  const res = await resetEmailTemplateAction(activeTemplate.id)
+                  setIsResettingTemplate(false)
+                  if (res.success) {
+                    triggerToast('Email template reset to default!')
+                    refetchTemplates()
+                  } else {
+                    triggerToast(`Failed to reset template: ${res.error}`)
+                  }
+                }}
+                className="flex-1 h-9 text-xs font-semibold bg-amber-500 hover:bg-amber-600 text-white cursor-pointer"
+              >
+                Reset Default
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Add Supplier Modal */}
       <AssignSupplierModal
         isOpen={isAddOpen}
@@ -3489,7 +4029,7 @@ export function SourcingClient({ initialOrders, initialSuppliers, initialAudits 
         uniqueSuppliers={uniqueSuppliers}
         selectedOrderId={selectedOrderId}
         viewMode={viewMode}
-        subtab={subtab}
+        subtab={subtab === 'email-templates' ? 'workplace' : subtab}
         onSuccess={invalidateSourcingData}
         addSupplierNormalizedAction={addSupplierNormalizedAction}
         onDuplicateDetected={(duplicates, payload) => {
