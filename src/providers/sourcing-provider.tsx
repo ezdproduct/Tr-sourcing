@@ -30,24 +30,31 @@ export function SourcingProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     const supabase = createClient()
 
-    supabase.auth.getUser().then(({ data }) => {
-      if (data?.user) {
+    supabase.auth.getUser().then(({ data, error }) => {
+      if (data?.user && !error) {
         setCurrentUserEmail(data.user.email || null)
         supabase
           .from('profiles')
           .select('role, department, is_approved')
           .eq('id', data.user.id)
           .single()
-          .then(({ data: profile }) => {
-            if (profile) {
+          .then(({ data: profile, error: profileError }) => {
+            if (profile && !profileError) {
               if (!profile.is_approved) {
                 supabase.auth.signOut().then(() => {
+                  setCurrentUserEmail(null)
                   window.location.href = '/auth/login?unauthorized=true'
                 })
               } else {
                 setUserRole(profile.role as UserRole)
                 setUserDepartment(profile.department as UserDepartment)
               }
+            } else {
+              // Profile not found or query error (user might have been deleted)
+              supabase.auth.signOut().then(() => {
+                setCurrentUserEmail(null)
+                window.location.href = '/auth/login'
+              })
             }
           })
       } else {
@@ -70,16 +77,23 @@ export function SourcingProvider({ children }: { children: React.ReactNode }) {
           .select('role, department, is_approved')
           .eq('id', session.user.id)
           .single()
-          .then(({ data: profile }) => {
-            if (profile) {
+          .then(({ data: profile, error: profileError }) => {
+            if (profile && !profileError) {
               if (!profile.is_approved) {
                 supabase.auth.signOut().then(() => {
+                  setCurrentUserEmail(null)
                   window.location.href = '/auth/login?unauthorized=true'
                 })
               } else {
                 setUserRole(profile.role as UserRole)
                 setUserDepartment(profile.department as UserDepartment)
               }
+            } else {
+              // Profile not found or query error (user might have been deleted)
+              supabase.auth.signOut().then(() => {
+                setCurrentUserEmail(null)
+                window.location.href = '/auth/login'
+              })
             }
           })
       } else {
