@@ -348,6 +348,9 @@ export function Sidebar() {
     if (item.href === '/dashboard' || item.href === '/management') {
       return false
     }
+    if (userDepartment === 'all') {
+      return true
+    }
     switch (userDepartment) {
       case 'orders':
         return item.href === '/orders'
