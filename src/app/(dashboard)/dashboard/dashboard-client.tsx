@@ -27,7 +27,8 @@ import {
   AlertCircle,
   TrendingDown,
   Warehouse,
-  Truck
+  Truck,
+  Handshake
 } from 'lucide-react'
 import { TimeframeSelector } from './timeframe-selector'
 import { SourcingPerformance } from './components/sourcing-performance'
@@ -229,7 +230,7 @@ export function DashboardClient(props: DashboardClientProps) {
           {/* Top Metrics Row */}
           <div>
             <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-3">Volume & Pipeline</h3>
-            <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4 mb-6">
+            <div className="grid gap-4 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-5 mb-6">
               <Card className="border-slate-200/60 dark:border-slate-800/80 bg-white/50 dark:bg-slate-900/40 shadow-xs">
                 <CardHeader className="flex flex-row items-center justify-between pb-2">
                   <CardTitle className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Total Active Orders</CardTitle>
@@ -238,6 +239,21 @@ export function DashboardClient(props: DashboardClientProps) {
                 <CardContent>
                   <div className="text-2xl font-black text-slate-900 dark:text-white">{props.totalActiveOrders}</div>
                   <p className="text-[10px] text-slate-400 mt-1 font-medium">Orders in workflow</p>
+                </CardContent>
+              </Card>
+
+              <Card className="border-slate-200/60 dark:border-slate-800/80 bg-white/50 dark:bg-slate-900/40 shadow-xs">
+                <CardHeader className="flex flex-row items-center justify-between pb-2">
+                  <CardTitle className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Total Suppliers</CardTitle>
+                  <div className="p-1.5 bg-indigo-50 dark:bg-indigo-950/40 rounded-lg"><Handshake className="h-4 w-4 text-indigo-500" /></div>
+                </CardHeader>
+                <CardContent>
+                  <div className="text-2xl font-black text-slate-900 dark:text-white">{props.masterSuppliers.length}</div>
+                  <p className="text-[10px] text-slate-400 mt-1 font-medium">
+                    {props.filteredMasterSuppliers.length !== props.masterSuppliers.length 
+                      ? `${props.filteredMasterSuppliers.length} added in timeframe`
+                      : 'Master database'}
+                  </p>
                 </CardContent>
               </Card>
 
@@ -360,6 +376,7 @@ export function DashboardClient(props: DashboardClientProps) {
                   </div>
                 </CardHeader>
                 <CardContent className="text-xs text-slate-600 dark:text-slate-400 space-y-1">
+                  <div className="flex justify-between"><span className="font-semibold">Total Suppliers:</span> <span>{props.masterSuppliers.length}</span></div>
                   <div className="flex justify-between"><span className="font-semibold">Bids Evaluated:</span> <span>{props.suppliersEvaluated}</span></div>
                   <div className="flex justify-between"><span className="font-semibold">Shortlisted:</span> <span>{props.shortlistedSuppliers}</span></div>
                 </CardContent>

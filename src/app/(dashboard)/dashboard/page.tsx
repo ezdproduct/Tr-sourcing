@@ -358,8 +358,8 @@ function DashboardFallback() {
       </div>
 
       {/* Top Cards Skeleton */}
-      <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-4">
-        {Array(4).fill(0).map((_, idx) => (
+      <div className="grid gap-6 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-5">
+        {Array(5).fill(0).map((_, idx) => (
           <div key={idx} className="border border-slate-200/60 dark:border-slate-800 bg-white/50 dark:bg-slate-900/40 p-6 rounded-2xl space-y-4">
             <div className="flex justify-between items-center">
               <div className="h-4 bg-slate-200 dark:bg-slate-800 rounded w-1/2" />
