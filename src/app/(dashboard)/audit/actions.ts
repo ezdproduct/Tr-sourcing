@@ -81,7 +81,7 @@ export async function submitAuditResultAction(formData: FormData) {
     const supabase = await createClient()
 
     const auditId = formData.get('auditId') as string
-    const auditVerdict = formData.get('auditVerdict') as 'PASS' | 'PASS WITH CONDITIONS' | 'FAIL'
+    const auditVerdict = formData.get('auditVerdict') as 'PASS' | 'FAIL'
     const notes = (formData.get('notes') as string) || ''
     const certificationsJson = formData.get('certifications') as string
     const certifications = certificationsJson ? (JSON.parse(certificationsJson) as string[]) : []
@@ -185,7 +185,7 @@ export async function submitAuditResultAction(formData: FormData) {
     }
 
     // Determine the next stage based on the QC Verdict
-    const nextStage = (auditVerdict === 'PASS' || auditVerdict === 'PASS WITH CONDITIONS')
+    const nextStage = auditVerdict === 'PASS'
       ? 'Ready for PO'
       : 'QC Failed - Re-Route'
 

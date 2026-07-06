@@ -67,7 +67,7 @@ export interface FactoryAudit {
   total_score: number | null
   audit_status: 'Not Requested' | 'Pending QC Assignment' | 'Scheduled' | 'In Progress' | 'Completed'
   audit_notes: string | null
-  audit_verdict?: 'PASS' | 'PASS WITH CONDITIONS' | 'FAIL' | null
+  audit_verdict?: 'PASS' | 'FAIL' | null
   report_url?: string | null
   certifications?: string[] | null
   created_at: string
@@ -178,7 +178,7 @@ export function AuditClient({
   const [isResultModalOpen, setIsResultModalOpen] = useState(false)
   const [selectedAudit, setSelectedAudit] = useState<FactoryAudit | null>(null)
   const [resultData, setResultData] = useState({
-    auditVerdict: '' as 'PASS' | 'PASS WITH CONDITIONS' | 'FAIL' | '',
+    auditVerdict: '' as 'PASS' | 'FAIL' | '',
     reportUrl: '',
     certifications: [] as string[],
     notes: ''
@@ -910,9 +910,7 @@ export function AuditClient({
                         className={`text-[10px] font-semibold py-0.5 px-2.5 ${
                           audit.audit_verdict === 'PASS'
                             ? 'bg-emerald-50 text-emerald-700 border-emerald-250 dark:bg-emerald-950/20 dark:text-emerald-400 dark:border-emerald-800'
-                            : audit.audit_verdict === 'PASS WITH CONDITIONS'
-                            ? 'bg-amber-50 text-amber-700 border-amber-250 dark:bg-amber-950/20 dark:text-amber-400 dark:border-amber-800'
-                            : 'bg-rose-50 text-rose-700 border-rose-250 dark:bg-rose-950/20 dark:text-rose-400 dark:border-rose-800'
+                            : 'bg-rose-50 text-rose-700 border-rose-250 dark:bg-rose-950/20 dark:text-rose-450 dark:border-rose-800'
                         }`}
                       >
                         {audit.audit_verdict}
@@ -1166,16 +1164,13 @@ export function AuditClient({
                     className={`flex h-8.5 w-full rounded-lg border px-3 py-1.5 text-xs shadow-sm transition-all focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[#5c59e9] font-bold ${
                       resultData.auditVerdict === 'PASS'
                         ? 'bg-emerald-50 text-emerald-700 border-emerald-300 dark:bg-emerald-950/20 dark:text-emerald-400 dark:border-emerald-800'
-                        : resultData.auditVerdict === 'PASS WITH CONDITIONS'
-                        ? 'bg-amber-50 text-amber-700 border-amber-300 dark:bg-amber-950/20 dark:text-amber-400 dark:border-amber-800'
                         : resultData.auditVerdict === 'FAIL'
-                        ? 'bg-rose-50 text-rose-700 border-rose-300 dark:bg-rose-950/20 dark:text-rose-400 dark:border-rose-800'
+                        ? 'bg-rose-50 text-rose-700 border-rose-300 dark:bg-rose-950/20 dark:text-rose-450 dark:border-rose-800'
                         : 'bg-transparent border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-300'
                     }`}
                   >
                     <option value="" className="text-slate-500 bg-white dark:bg-slate-900 font-normal">-- Select Verdict --</option>
                     <option value="PASS" className="text-emerald-600 bg-white dark:bg-slate-900 font-bold">PASS</option>
-                    <option value="PASS WITH CONDITIONS" className="text-amber-600 bg-white dark:bg-slate-900 font-bold">PASS WITH CONDITIONS</option>
                     <option value="FAIL" className="text-rose-600 bg-white dark:bg-slate-900 font-bold">FAIL</option>
                   </select>
                 </div>

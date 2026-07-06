@@ -267,7 +267,7 @@ async function DashboardLoader({ searchParams }: { searchParams: SearchParams | 
 
   const completedAudits = filteredAudits.filter(a => a.audit_status === 'Completed')
   const passedAudits = completedAudits.filter(a => 
-    a.audit_verdict === 'PASS' || a.audit_verdict === 'PASS WITH CONDITIONS'
+    a.audit_verdict === 'PASS'
   )
   const qaPassRate = completedAudits.length > 0 
     ? (passedAudits.length / completedAudits.length) * 100 

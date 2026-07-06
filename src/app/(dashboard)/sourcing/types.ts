@@ -16,6 +16,9 @@ export interface DatabaseOrder {
   estimated_delivery_date: string | null
   order_items?: DatabaseOrderItem[]
   order_stage_timelines?: any[]
+  deposit_email_sent?: boolean
+  deposit_email_sent_at?: string | null
+  shipment_reminder_sent?: boolean
 }
 
 export interface DatabaseSupplier {

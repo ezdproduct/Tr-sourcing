@@ -6,20 +6,37 @@ import { useState, useEffect } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { 
   X, Phone, Mail, MapPin, Globe, ArrowUpRight, ArrowLeft, Edit, Trash2, Plus, Loader2, Check, CheckCircle2, AlertCircle, Calendar, Shield,
-  Upload, FileText, File, Copy, ExternalLink, TrendingUp
+  Upload, FileText, File, Copy, ExternalLink, TrendingUp, MoreHorizontal, SlidersHorizontal, Cpu, BarChart3, Database, Info
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Badge } from '@/components/ui/badge'
 import { 
+  DropdownMenu, 
+  DropdownMenuTrigger, 
+  DropdownMenuContent, 
+  DropdownMenuItem,
+  DropdownMenuCheckboxItem
+} from '@/components/ui/dropdown-menu'
+import { 
   addSupplierCapabilityAction, 
   updateSupplierCapabilityAction, 
-  deleteSupplierCapabilityAction 
+  deleteSupplierCapabilityAction,
+  getSupplierProductHistoryAction
 } from '../../actions'
 import { updateSupplierProfileAction } from '../../../sourcing/actions'
-import { HistoryChartsModal } from './history-charts-modal'
 import { useSourcing } from '@/providers/sourcing-provider'
+import { 
+  LineChart, Line, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer
+} from 'recharts'
+
+function parseCapacityValue(capacityStr: string | null | undefined): number {
+  if (!capacityStr) return 0
+  const cleanStr = (capacityStr || '').replace(/,/g, '')
+  const match = cleanStr.match(/\d+/)
+  return match ? parseInt(match[0], 10) : 0
+}
 
 // Helper to upload a file to Cloudflare R2 via proxy API
 async function uploadFile(file: File, supplierId?: string, customName?: string): Promise<string> {
@@ -80,7 +97,55 @@ export function SupplierDetailClient({ supplier }: SupplierDetailClientProps) {
   const [isAddProductOpen, setIsAddProductOpen] = useState(false)
   const [isEditProductOpen, setIsEditProductOpen] = useState(false)
   const [editingCapability, setEditingCapability] = useState<any | null>(null)
-  const [selectedHistoryProduct, setSelectedHistoryProduct] = useState<string | null>(null)
+  const [selectedCapIds, setSelectedCapIds] = useState<string[]>([])
+  const [isBulkDeleteConfirmOpen, setIsBulkDeleteConfirmOpen] = useState(false)
+  const [isBulkDeleting, setIsBulkDeleting] = useState(false)
+  const [productColumnVisibility, setProductColumnVisibility] = useState({
+    itemType: true,
+    sku: true,
+    defaultPrice: true,
+    leadTime: true,
+    moq: true,
+    monthlyCapacity: true,
+    costBreakdown: true,
+  })
+  const [viewingProduct, setViewingProduct] = useState<any | null>(null)
+  const [viewingProductHistory, setViewingProductHistory] = useState<any[]>([])
+  const [isHistoryLoading, setIsHistoryLoading] = useState(false)
+  const [modalActiveTab, setModalActiveTab] = useState<'details' | 'price' | 'capacity' | 'orders' | 'raw'>('details')
+  const [reopenDetailsOnClose, setReopenDetailsOnClose] = useState<any | null>(null)
+
+  useEffect(() => {
+    if (!viewingProduct) {
+      setViewingProductHistory([])
+      return
+    }
+    setModalActiveTab('details')
+    async function fetchProductHistory() {
+      setIsHistoryLoading(true)
+      try {
+        const res = await getSupplierProductHistoryAction(supplier.id, viewingProduct.product_name)
+        if (res.success && res.history) {
+          setViewingProductHistory(res.history)
+        }
+      } catch (err) {
+        console.error(err)
+      } finally {
+        setIsHistoryLoading(false)
+      }
+    }
+    fetchProductHistory()
+  }, [viewingProduct, supplier.id])
+  
+  const closeEditModal = () => {
+    setIsEditProductOpen(false)
+    setProductError(null)
+    setEditingCapability(null)
+    if (reopenDetailsOnClose) {
+      setViewingProduct(reopenDetailsOnClose)
+      setReopenDetailsOnClose(null)
+    }
+  }
   
   const [productName, setProductName] = useState('')
   const [defaultPrice, setDefaultPrice] = useState('')
@@ -88,6 +153,7 @@ export function SupplierDetailClient({ supplier }: SupplierDetailClientProps) {
   const [productDescription, setProductDescription] = useState('')
   const [productMoq, setProductMoq] = useState('')
   const [productSku, setProductSku] = useState('')
+  const [productItemType, setProductItemType] = useState<'PRODUCT' | 'MATERIAL'>('PRODUCT')
   const [productMonthlyCapacity, setProductMonthlyCapacity] = useState('')
   const [productMaterialPercent, setProductMaterialPercent] = useState('')
   const [productLaborPercent, setProductLaborPercent] = useState('')
@@ -836,7 +902,8 @@ export function SupplierDetailClient({ supplier }: SupplierDetailClientProps) {
       productMaterialPercent ? mat : undefined,
       productLaborPercent ? lab : undefined,
       productOverheadPercent ? over : undefined,
-      productProfitPercent ? prof : undefined
+      productProfitPercent ? prof : undefined,
+      productItemType
     )
     setIsSavingProduct(false)
 
@@ -854,6 +921,8 @@ export function SupplierDetailClient({ supplier }: SupplierDetailClientProps) {
       setProductLaborPercent('')
       setProductOverheadPercent('')
       setProductProfitPercent('')
+      setProductItemType('PRODUCT')
+      setSelectedCapIds([])
       router.refresh()
     } else {
       setProductError(res.error || 'Failed to add product.')
@@ -897,7 +966,8 @@ export function SupplierDetailClient({ supplier }: SupplierDetailClientProps) {
       productMaterialPercent ? mat : undefined,
       productLaborPercent ? lab : undefined,
       productOverheadPercent ? over : undefined,
-      productProfitPercent ? prof : undefined
+      productProfitPercent ? prof : undefined,
+      productItemType
     )
     setIsSavingProduct(false)
 
@@ -905,6 +975,10 @@ export function SupplierDetailClient({ supplier }: SupplierDetailClientProps) {
       setCapabilities(prev => prev.map(c => c.id === editingCapability.id ? res.capability : c))
       setIsEditProductOpen(false)
       setEditingCapability(null)
+      if (reopenDetailsOnClose) {
+        setViewingProduct(res.capability)
+        setReopenDetailsOnClose(null)
+      }
       setProductName('')
       setDefaultPrice('')
       setLeadTime('')
@@ -916,6 +990,8 @@ export function SupplierDetailClient({ supplier }: SupplierDetailClientProps) {
       setProductLaborPercent('')
       setProductOverheadPercent('')
       setProductProfitPercent('')
+      setProductItemType('PRODUCT')
+      setSelectedCapIds([])
       router.refresh()
     } else {
       setProductError(res.error || 'Failed to update product.')
@@ -932,9 +1008,43 @@ export function SupplierDetailClient({ supplier }: SupplierDetailClientProps) {
 
     if (res.success) {
       setCapabilities(prev => prev.filter(c => c.id !== id))
+      setSelectedCapIds(prev => prev.filter(capId => capId !== id))
       router.refresh()
     } else {
       alert(res.error || 'Failed to delete product.')
+    }
+  }
+
+  const confirmBulkDeleteProducts = async () => {
+    if (selectedCapIds.length === 0) return
+    setIsBulkDeleting(true)
+    try {
+      const deletePromises = selectedCapIds.map(id => deleteSupplierCapabilityAction(supplier.id, id))
+      const results = await Promise.all(deletePromises)
+      
+      const successfulIds: string[] = []
+      results.forEach((res, index) => {
+        if (res.success) {
+          successfulIds.push(selectedCapIds[index])
+        }
+      })
+
+      if (successfulIds.length > 0) {
+        setCapabilities(prev => prev.filter(c => !successfulIds.includes(c.id)))
+        setSelectedCapIds(prev => prev.filter(id => !successfulIds.includes(id)))
+        router.refresh()
+      }
+
+      const failedCount = selectedCapIds.length - successfulIds.length
+      if (failedCount > 0) {
+        alert(`Failed to delete ${failedCount} products.`)
+      }
+    } catch (err: any) {
+      console.error(err)
+      alert(err.message || 'An error occurred during bulk delete.')
+    } finally {
+      setIsBulkDeleting(false)
+      setIsBulkDeleteConfirmOpen(false)
     }
   }
 
@@ -1519,29 +1629,81 @@ export function SupplierDetailClient({ supplier }: SupplierDetailClientProps) {
             {/* Header section */}
             <div className="flex items-center justify-between">
               <h3 className="text-xs font-extrabold text-slate-400 uppercase tracking-wider">Supplier Product Lines</h3>
-              <button
-                disabled={!canEdit}
-                onClick={() => {
-                  setProductName('')
-                  setDefaultPrice('')
-                  setLeadTime('')
-                  setProductDescription('')
-                  setProductMoq('')
-                  setProductSku('')
-                  setProductMonthlyCapacity('')
-                  setProductMaterialPercent('')
-                  setProductLaborPercent('')
-                  setProductOverheadPercent('')
-                  setProductProfitPercent('')
-                  setProductError(null)
-                  setIsAddProductOpen(true)
-                }}
-                className="h-9 text-xs bg-[#5c59e9] hover:bg-[#4a47d2] text-white disabled:bg-slate-200 dark:disabled:bg-slate-800 disabled:text-slate-500 dark:disabled:text-slate-500 rounded-lg px-4 flex items-center gap-1.5 cursor-pointer font-semibold shadow-sm"
-                title={!canEdit ? "You do not have permission to edit this supplier profile" : ""}
-              >
-                <Plus size={14} />
-                <span>Add Product</span>
-              </button>
+              <div className="flex items-center gap-2">
+                {/* Manage Table Dropdown */}
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button
+                      variant="outline"
+                      className="h-9 text-xs font-semibold rounded-lg px-4 flex items-center gap-1.5 cursor-pointer shadow-sm border border-slate-200 dark:border-slate-800 text-slate-700 dark:text-slate-200 bg-white dark:bg-slate-900 hover:bg-slate-50 dark:hover:bg-slate-800 transition-colors"
+                    >
+                      <SlidersHorizontal size={14} className="text-slate-505" />
+                      <span>Manage Table</span>
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end" className="w-48 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl p-1 shadow-md z-50">
+                    <div className="px-2.5 py-1 text-[10px] font-bold text-slate-400 uppercase tracking-wider">
+                      Toggle Columns
+                    </div>
+                    {([
+                      { key: 'itemType', label: 'Type' },
+                      { key: 'sku', label: 'SKU' },
+                      { key: 'defaultPrice', label: 'Default Price' },
+                      { key: 'leadTime', label: 'Lead Time' },
+                      { key: 'moq', label: 'Min Order Qty (MOQ)' },
+                      { key: 'monthlyCapacity', label: 'Production Capacity' },
+                      { key: 'costBreakdown', label: 'Cost Breakdown' },
+                    ] as { key: keyof typeof productColumnVisibility; label: string }[]).map(col => (
+                      <DropdownMenuCheckboxItem
+                        key={col.key}
+                        checked={productColumnVisibility[col.key]}
+                        onCheckedChange={(checked) => {
+                          setProductColumnVisibility(prev => ({ ...prev, [col.key]: !!checked }))
+                        }}
+                        onSelect={(e) => e.preventDefault()}
+                        className="text-xs rounded-lg cursor-pointer py-1.5 hover:bg-slate-50 dark:hover:bg-slate-800"
+                      >
+                        {col.label}
+                      </DropdownMenuCheckboxItem>
+                    ))}
+                  </DropdownMenuContent>
+                </DropdownMenu>
+
+                <Button
+                  disabled={selectedCapIds.length === 0}
+                  variant="outline"
+                  onClick={() => setIsBulkDeleteConfirmOpen(true)}
+                  className="h-9 text-xs font-semibold rounded-lg px-4 flex items-center gap-1.5 cursor-pointer shadow-sm border border-rose-200 dark:border-rose-900/50 text-rose-600 dark:text-rose-450 bg-white dark:bg-slate-900 hover:bg-rose-50 dark:hover:bg-rose-955/20 disabled:opacity-40 disabled:cursor-not-allowed transition-all"
+                  title={selectedCapIds.length === 0 ? "Select one or more rows to delete" : "Delete selected items"}
+                >
+                  <Trash2 size={14} className="text-rose-505" />
+                  <span>Delete {selectedCapIds.length > 0 ? `(${selectedCapIds.length})` : ''}</span>
+                </Button>
+
+                <Button
+                  disabled={!canEdit}
+                  onClick={() => {
+                    setProductName('')
+                    setDefaultPrice('')
+                    setLeadTime('')
+                    setProductDescription('')
+                    setProductMoq('')
+                    setProductSku('')
+                    setProductMonthlyCapacity('')
+                    setProductMaterialPercent('')
+                    setProductLaborPercent('')
+                    setProductOverheadPercent('')
+                    setProductProfitPercent('')
+                    setProductError(null)
+                    setIsAddProductOpen(true)
+                  }}
+                  className="h-9 text-xs bg-[#5c59e9] hover:bg-[#4a47d2] text-white disabled:bg-slate-200 dark:disabled:bg-slate-800 disabled:text-slate-500 dark:disabled:text-slate-500 rounded-lg px-4 flex items-center gap-1.5 cursor-pointer font-semibold shadow-sm"
+                  title={!canEdit ? "You do not have permission to edit this supplier profile" : ""}
+                >
+                  <Plus size={14} />
+                  <span>Add Product</span>
+                </Button>
+              </div>
             </div>
 
             {/* Main Grid Table */}
@@ -1554,22 +1716,54 @@ export function SupplierDetailClient({ supplier }: SupplierDetailClientProps) {
                 <table className="w-full text-left border-collapse text-xs">
                   <thead>
                     <tr className="bg-slate-50/50 border-b border-slate-100 dark:border-slate-800 text-[10px] font-extrabold text-slate-400 dark:text-slate-500 uppercase tracking-wider">
-                      <th className="px-5 py-3">Product Name</th>
-                      <th className="px-5 py-3">SKU</th>
-                      <th className="px-5 py-3 text-right">Default Price</th>
-                      <th className="px-5 py-3 text-right">Lead Time</th>
-                      <th className="px-5 py-3 text-right">Min Order Qty (MOQ)</th>
-                      <th className="px-5 py-3 text-right">Production Capacity</th>
-                      <th className="px-5 py-3 text-center">Cost Breakdown</th>
-                      <th className="px-5 py-3 text-center w-24">Actions</th>
-                    </tr>
+                      <th className="w-10 px-5 py-3 text-center">
+                        <input
+                          type="checkbox"
+                          checked={capabilities.length > 0 && selectedCapIds.length === capabilities.length}
+                          onChange={(e) => {
+                            setSelectedCapIds(e.target.checked ? capabilities.map(c => c.id) : [])
+                          }}
+                          className="rounded border-slate-350 text-[#5c59e9] focus:ring-[#5c59e9] cursor-pointer h-3.5 w-3.5"
+                        />
+                      </th>
+                      <th className="px-5 py-3">Item Name</th>
+                      {productColumnVisibility.itemType && <th className="px-5 py-3 text-center">Type</th>}
+                      {productColumnVisibility.sku && <th className="px-5 py-3 text-center">SKU</th>}
+                      {productColumnVisibility.defaultPrice && <th className="px-5 py-3 text-center">Default Price</th>}
+                      {productColumnVisibility.leadTime && <th className="px-5 py-3 text-center">Lead Time</th>}
+                      {productColumnVisibility.moq && <th className="px-5 py-3 text-center">Min Order Qty (MOQ)</th>}
+                      {productColumnVisibility.monthlyCapacity && <th className="px-5 py-3 text-center">Production Capacity</th>}
+                      {productColumnVisibility.costBreakdown && <th className="px-5 py-3 text-center">Cost Breakdown</th>}
+                                          </tr>
                   </thead>
                   <tbody className="divide-y divide-slate-100 dark:divide-slate-800/80">
                     {capabilities.map((cap) => (
-                      <tr key={cap.id} className="hover:bg-slate-50/30">
+                      <tr 
+                        key={cap.id} 
+                        onClick={() => setViewingProduct(cap)}
+                        className={`hover:bg-slate-50/30 cursor-pointer transition-all duration-150 select-none ${
+                          selectedCapIds.includes(cap.id) 
+                            ? 'bg-[#5c59e9]/5 dark:bg-[#5c59e9]/10' 
+                            : ''
+                        }`}
+                      >
+                        <td className="px-5 py-3.5 text-center w-10" onClick={(e) => e.stopPropagation()}>
+                          <input
+                            type="checkbox"
+                            checked={selectedCapIds.includes(cap.id)}
+                            onChange={() => {
+                              setSelectedCapIds(prev => 
+                                prev.includes(cap.id)
+                                  ? prev.filter(id => id !== cap.id)
+                                  : [...prev, cap.id]
+                              )
+                            }}
+                            className="rounded border-slate-355 text-[#5c59e9] focus:ring-[#5c59e9] cursor-pointer h-3.5 w-3.5"
+                          />
+                        </td>
                         <td className="px-5 py-3.5 font-bold text-slate-800 dark:text-slate-200">
                           <div>
-                            <span className="block text-slate-800 dark:text-slate-200 font-bold">{cap.product_name}</span>
+                            <span className="text-slate-800 dark:text-slate-200 font-bold">{cap.product_name}</span>
                             {cap.description && (
                               <span className="block text-[10px] text-slate-400 dark:text-slate-500 font-medium mt-0.5 max-w-xs truncate">
                                 {cap.description}
@@ -1577,79 +1771,59 @@ export function SupplierDetailClient({ supplier }: SupplierDetailClientProps) {
                             )}
                           </div>
                         </td>
-                        <td className="px-5 py-3.5 font-semibold text-slate-550 dark:text-slate-400">
-                          {cap.sku || <span className="text-slate-350 dark:text-slate-600 font-medium italic">—</span>}
-                        </td>
-                        <td className="px-5 py-3.5 text-right font-extrabold text-slate-800 dark:text-white">
-                          ${Number(cap.target_price || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}
-                        </td>
-                        <td className="px-5 py-3.5 text-right text-slate-600 dark:text-slate-400 font-semibold">
-                          {cap.lead_time_days != null ? `${cap.lead_time_days} days` : '—'}
-                        </td>
-                        <td className="px-5 py-3.5 text-right text-slate-600 dark:text-slate-400 font-semibold">
-                          {cap.moq != null ? `${Number(cap.moq).toLocaleString()} units` : '—'}
-                        </td>
-                        <td className="px-5 py-3.5 text-right text-slate-600 dark:text-slate-400 font-semibold">
-                          {cap.monthly_capacity || '—'}
-                        </td>
-                        <td className="px-5 py-3.5 text-center">
-                          {cap.material_cost_percent ? (
-                            <div className="flex items-center justify-center gap-1.5 font-bold flex-wrap text-[9px] text-slate-500 dark:text-slate-400">
-                              <span className="text-rose-600 dark:text-rose-400 bg-rose-50 dark:bg-rose-950/20 px-2 py-0.5 rounded-lg border border-rose-100 dark:border-rose-900/30">Mat: {cap.material_cost_percent}%</span>
-                              <span className="text-amber-600 dark:text-amber-500 bg-amber-50 dark:bg-amber-950/20 px-2 py-0.5 rounded-lg border border-amber-100 dark:border-amber-900/30">Lab: {cap.labor_cost_percent}%</span>
-                              <span className="text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-950/20 px-2 py-0.5 rounded-lg border border-blue-100 dark:border-blue-900/30">Over: {cap.overhead_cost_percent}%</span>
-                              <span className="text-emerald-600 dark:text-emerald-500 bg-emerald-50 dark:bg-emerald-950/20 px-2 py-0.5 rounded-lg border border-emerald-100 dark:border-emerald-900/30">Prof: {cap.profit_margin_percent}%</span>
-                            </div>
-                          ) : (
-                            <span className="text-slate-350 dark:text-slate-600 font-medium italic">—</span>
-                          )}
-                        </td>
-                        <td className="px-5 py-3.5 text-center">
-                          <div className="flex items-center justify-center gap-1.5">
-                            <button
-                              onClick={() => setSelectedHistoryProduct(cap.product_name)}
-                              className="p-1.5 text-slate-400 hover:text-[#5c59e9] dark:hover:text-indigo-400 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg transition-colors cursor-pointer"
-                              title="View History Charts"
-                            >
-                              <TrendingUp size={14} />
-                            </button>
-                            <button
-                              disabled={!canEdit}
-                              onClick={() => {
-                                setEditingCapability(cap)
-                                setProductName(cap.product_name)
-                                setDefaultPrice(String(cap.target_price || ''))
-                                setLeadTime(cap.lead_time_days != null ? String(cap.lead_time_days) : '')
-                                setProductDescription(cap.description || '')
-                                setProductMoq(cap.moq != null ? String(cap.moq) : '')
-                                setProductSku(cap.sku || '')
-                                setProductMonthlyCapacity(cap.monthly_capacity || '')
-                                setProductMaterialPercent(cap.material_cost_percent != null ? String(cap.material_cost_percent) : '')
-                                setProductLaborPercent(cap.labor_cost_percent != null ? String(cap.labor_cost_percent) : '')
-                                setProductOverheadPercent(cap.overhead_cost_percent != null ? String(cap.overhead_cost_percent) : '')
-                                setProductProfitPercent(cap.profit_margin_percent != null ? String(cap.profit_margin_percent) : '')
-                                setProductError(null)
-                                setIsEditProductOpen(true)
-                              }}
-                              className="p-1.5 text-slate-400 hover:text-[#5c59e9] dark:hover:text-indigo-400 disabled:opacity-40 disabled:hover:bg-transparent hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg transition-colors cursor-pointer disabled:cursor-not-allowed"
-                              title={!canEdit ? "You do not have permission to edit this product" : "Edit product"}
-                            >
-                              <Edit size={14} />
-                            </button>
-                            <button
-                              onClick={() => setDeleteConfirmProduct(cap)}
-                              disabled={!canEdit || isDeletingProduct === cap.id}
-                              className="p-1.5 text-slate-400 hover:text-red-500 disabled:opacity-40 disabled:hover:bg-transparent hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg transition-colors cursor-pointer disabled:cursor-not-allowed"
-                              title={!canEdit ? "You do not have permission to delete this product" : "Delete product"}
-                            >
-                              {isDeletingProduct === cap.id ? (
-                                <Loader2 size={14} className="animate-spin text-red-500" />
-                              ) : (
-                                <Trash2 size={14} />
-                              )}
-                            </button>
-                          </div>
-                        </td>
+                        {productColumnVisibility.itemType && (
+                          <td className="px-5 py-3.5 text-center">
+                            {cap.item_type === 'MATERIAL' ? (
+                              <span className="inline-flex items-center px-2 py-0.5 rounded-lg text-[9px] font-extrabold bg-amber-50 text-amber-700 dark:bg-amber-955/20 dark:text-amber-400 border border-amber-200 dark:border-amber-900/30">
+                                Material
+                              </span>
+                            ) : (
+                              <span className="inline-flex items-center px-2 py-0.5 rounded-lg text-[9px] font-extrabold bg-indigo-50 text-indigo-700 dark:bg-indigo-955/20 dark:text-indigo-400 border border-indigo-200 dark:border-indigo-900/30">
+                                Product
+                              </span>
+                            )}
+                          </td>
+                        )}
+                        {productColumnVisibility.sku && (
+                          <td className="px-5 py-3.5 text-center font-semibold text-slate-550 dark:text-slate-400">
+                            {cap.sku || <span className="text-slate-350 dark:text-slate-600 font-medium italic">—</span>}
+                          </td>
+                        )}
+                        {productColumnVisibility.defaultPrice && (
+                          <td className="px-5 py-3.5 text-center font-extrabold text-slate-800 dark:text-white">
+                            ${Number(cap.target_price || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}
+                          </td>
+                        )}
+                        {productColumnVisibility.leadTime && (
+                          <td className="px-5 py-3.5 text-center text-slate-600 dark:text-slate-400 font-semibold">
+                            {cap.lead_time_days != null ? `${cap.lead_time_days} days` : '—'}
+                          </td>
+                        )}
+                        {productColumnVisibility.moq && (
+                          <td className="px-5 py-3.5 text-center text-slate-600 dark:text-slate-400 font-semibold">
+                            {cap.moq != null ? `${Number(cap.moq).toLocaleString()} units` : '—'}
+                          </td>
+                        )}
+                        {productColumnVisibility.monthlyCapacity && (
+                          <td className="px-5 py-3.5 text-center text-slate-600 dark:text-slate-400 font-semibold">
+                            {cap.monthly_capacity || '—'}
+                          </td>
+                        )}
+                        {productColumnVisibility.costBreakdown && (
+                          <td className="px-5 py-3.5 text-center">
+                            {cap.material_cost_percent ? (
+                              <div className="flex items-center justify-center gap-1.5 font-bold flex-wrap text-[9px] text-slate-500 dark:text-slate-400">
+                                <span className="text-rose-600 dark:text-rose-400 bg-rose-50 dark:bg-rose-950/20 px-2 py-0.5 rounded-lg border border-rose-100 dark:border-rose-900/30">Mat: {cap.material_cost_percent}%</span>
+                                <span className="text-amber-600 dark:text-amber-500 bg-amber-50 dark:bg-amber-950/20 px-2 py-0.5 rounded-lg border border-amber-100 dark:border-amber-900/30">Lab: {cap.labor_cost_percent}%</span>
+                                <span className="text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-950/20 px-2 py-0.5 rounded-lg border border-blue-100 dark:border-blue-900/30">Over: {cap.overhead_cost_percent}%</span>
+                                <span className="text-emerald-600 dark:text-emerald-500 bg-emerald-50 dark:bg-emerald-950/20 px-2 py-0.5 rounded-lg border border-emerald-100 dark:border-emerald-900/30">Prof: {cap.profit_margin_percent}%</span>
+                              </div>
+                            ) : (
+                              <span className="text-slate-350 dark:text-slate-600 font-medium italic">—</span>
+                            )}
+                          </td>
+                        )}
+                        
                       </tr>
                     ))}
                   </tbody>
@@ -2057,7 +2231,9 @@ export function SupplierDetailClient({ supplier }: SupplierDetailClientProps) {
           <div className="relative z-10 w-full max-w-md bg-white dark:bg-slate-900 rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-800 animate-in zoom-in-95 duration-150">
             <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100 dark:border-slate-800">
               <div>
-                <h3 className="text-sm font-bold text-slate-900 dark:text-white">Add Product Line</h3>
+                <h3 className="text-sm font-bold text-slate-900 dark:text-white">
+                  Add {productItemType === 'PRODUCT' ? 'Product' : 'Material'} Line
+                </h3>
               </div>
               <button
                 onClick={() => { setIsAddProductOpen(false); setProductError(null) }}
@@ -2074,10 +2250,41 @@ export function SupplierDetailClient({ supplier }: SupplierDetailClientProps) {
                 </div>
               )}
 
+              {/* Item Type Selector */}
+              <div className="space-y-1.5">
+                <Label className="text-xs font-semibold text-slate-700 dark:text-slate-300">
+                  Item Classification <span className="text-red-500">*</span>
+                </Label>
+                <div className="grid grid-cols-2 gap-2 bg-slate-50 dark:bg-slate-950/40 p-1 rounded-xl border border-slate-200/60 dark:border-slate-800">
+                  <button
+                    type="button"
+                    onClick={() => setProductItemType('PRODUCT')}
+                    className={`text-xs py-1.5 font-bold rounded-lg transition-all cursor-pointer ${
+                      productItemType === 'PRODUCT'
+                        ? 'bg-white dark:bg-slate-900 text-[#5c59e9] dark:text-indigo-400 shadow-sm border border-slate-100 dark:border-slate-800'
+                        : 'text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200 border border-transparent'
+                    }`}
+                  >
+                    Product
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setProductItemType('MATERIAL')}
+                    className={`text-xs py-1.5 font-bold rounded-lg transition-all cursor-pointer ${
+                      productItemType === 'MATERIAL'
+                        ? 'bg-white dark:bg-slate-900 text-[#5c59e9] dark:text-indigo-400 shadow-sm border border-slate-100 dark:border-slate-800'
+                        : 'text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200 border border-transparent'
+                    }`}
+                  >
+                    Material
+                  </button>
+                </div>
+              </div>
+
               {/* Product Name */}
               <div className="space-y-1.5">
                 <Label htmlFor="product-name" className="text-xs font-semibold text-slate-700 dark:text-slate-300">
-                  Product Name <span className="text-red-500">*</span>
+                  {productItemType === 'PRODUCT' ? 'Product Name' : 'Material Name'} <span className="text-red-500">*</span>
                 </Label>
                 <Input
                   id="product-name"
@@ -2093,7 +2300,7 @@ export function SupplierDetailClient({ supplier }: SupplierDetailClientProps) {
               <div className="grid grid-cols-2 gap-3.5">
                 <div className="space-y-1.5">
                   <Label htmlFor="product-sku" className="text-xs font-semibold text-slate-700 dark:text-slate-300">
-                    Product SKU
+                    {productItemType === 'PRODUCT' ? 'Product SKU' : 'Material SKU'}
                   </Label>
                   <Input
                     id="product-sku"
@@ -2167,7 +2374,7 @@ export function SupplierDetailClient({ supplier }: SupplierDetailClientProps) {
               {/* Description */}
               <div className="space-y-1.5">
                 <Label htmlFor="product-desc" className="text-xs font-semibold text-slate-700 dark:text-slate-300">
-                  Product Description
+                  {productItemType === 'PRODUCT' ? 'Product Description' : 'Material Description'}
                 </Label>
                 <textarea
                   id="product-desc"
@@ -2265,7 +2472,7 @@ export function SupplierDetailClient({ supplier }: SupplierDetailClientProps) {
                   className="flex-1 h-9 text-xs font-semibold bg-[#5c59e9] hover:bg-[#4a47d2] text-white cursor-pointer gap-1.5 rounded-xl"
                 >
                   {isSavingProduct && <Loader2 size={12} className="animate-spin" />}
-                  <span>Save Product</span>
+                  <span>Save {productItemType === 'PRODUCT' ? 'Product' : 'Material'}</span>
                 </Button>
               </div>
             </form>
@@ -2278,15 +2485,17 @@ export function SupplierDetailClient({ supplier }: SupplierDetailClientProps) {
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
           <div
             className="absolute inset-0 bg-black/40 backdrop-blur-sm"
-            onClick={() => { setIsEditProductOpen(false); setProductError(null); setEditingCapability(null) }}
+            onClick={closeEditModal}
           />
           <div className="relative z-10 w-full max-w-md bg-white dark:bg-slate-900 rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-800 animate-in zoom-in-95 duration-150">
             <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100 dark:border-slate-800">
               <div>
-                <h3 className="text-sm font-bold text-slate-900 dark:text-white">Edit Product Line</h3>
+                <h3 className="text-sm font-bold text-slate-900 dark:text-white">
+                  Edit {productItemType === 'PRODUCT' ? 'Product' : 'Material'} Line
+                </h3>
               </div>
               <button
-                onClick={() => { setIsEditProductOpen(false); setProductError(null); setEditingCapability(null) }}
+                onClick={closeEditModal}
                 className="h-7 w-7 flex items-center justify-center rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-400 transition-colors cursor-pointer"
               >
                 <X size={14} />
@@ -2295,15 +2504,46 @@ export function SupplierDetailClient({ supplier }: SupplierDetailClientProps) {
 
             <form onSubmit={handleEditProductSubmit} className="p-5 space-y-4">
               {productError && (
-                <div className="text-xs text-red-650 dark:text-red-400 bg-red-50 dark:bg-red-955/20 p-2.5 rounded-lg border border-red-200 dark:border-red-900">
+                <div className="text-xs text-red-600 dark:text-red-400 bg-red-50 dark:bg-red-955/20 p-2.5 rounded-lg border border-red-200 dark:border-red-900">
                   {productError}
                 </div>
               )}
 
+              {/* Item Type Selector */}
+              <div className="space-y-1.5">
+                <Label className="text-xs font-semibold text-slate-700 dark:text-slate-300">
+                  Item Classification <span className="text-red-500">*</span>
+                </Label>
+                <div className="grid grid-cols-2 gap-2 bg-slate-50 dark:bg-slate-950/40 p-1 rounded-xl border border-slate-200/60 dark:border-slate-800">
+                  <button
+                    type="button"
+                    onClick={() => setProductItemType('PRODUCT')}
+                    className={`text-xs py-1.5 font-bold rounded-lg transition-all cursor-pointer ${
+                      productItemType === 'PRODUCT'
+                        ? 'bg-white dark:bg-slate-900 text-[#5c59e9] dark:text-indigo-400 shadow-sm border border-slate-100 dark:border-slate-800'
+                        : 'text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200 border border-transparent'
+                    }`}
+                  >
+                    Product
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setProductItemType('MATERIAL')}
+                    className={`text-xs py-1.5 font-bold rounded-lg transition-all cursor-pointer ${
+                      productItemType === 'MATERIAL'
+                        ? 'bg-white dark:bg-slate-900 text-[#5c59e9] dark:text-indigo-400 shadow-sm border border-slate-100 dark:border-slate-800'
+                        : 'text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200 border border-transparent'
+                    }`}
+                  >
+                    Material
+                  </button>
+                </div>
+              </div>
+
               {/* Product Name */}
               <div className="space-y-1.5">
                 <Label htmlFor="edit-product-name" className="text-xs font-semibold text-slate-700 dark:text-slate-300">
-                  Product Name <span className="text-red-500">*</span>
+                  {productItemType === 'PRODUCT' ? 'Product Name' : 'Material Name'} <span className="text-red-500">*</span>
                 </Label>
                 <Input
                   id="edit-product-name"
@@ -2319,7 +2559,7 @@ export function SupplierDetailClient({ supplier }: SupplierDetailClientProps) {
               <div className="grid grid-cols-2 gap-3.5">
                 <div className="space-y-1.5">
                   <Label htmlFor="edit-product-sku" className="text-xs font-semibold text-slate-700 dark:text-slate-300">
-                    Product SKU
+                    {productItemType === 'PRODUCT' ? 'Product SKU' : 'Material SKU'}
                   </Label>
                   <Input
                     id="edit-product-sku"
@@ -2393,7 +2633,7 @@ export function SupplierDetailClient({ supplier }: SupplierDetailClientProps) {
               {/* Description */}
               <div className="space-y-1.5">
                 <Label htmlFor="edit-product-desc" className="text-xs font-semibold text-slate-700 dark:text-slate-300">
-                  Product Description
+                  {productItemType === 'PRODUCT' ? 'Product Description' : 'Material Description'}
                 </Label>
                 <textarea
                   id="edit-product-desc"
@@ -2479,7 +2719,7 @@ export function SupplierDetailClient({ supplier }: SupplierDetailClientProps) {
                 <Button
                   type="button"
                   variant="outline"
-                  onClick={() => { setIsEditProductOpen(false); setProductError(null); setEditingCapability(null) }}
+                  onClick={closeEditModal}
                   className="flex-1 h-9 text-xs font-semibold cursor-pointer rounded-xl"
                   disabled={isSavingProduct}
                 >
@@ -2491,7 +2731,7 @@ export function SupplierDetailClient({ supplier }: SupplierDetailClientProps) {
                   className="flex-1 h-9 text-xs font-semibold bg-[#5c59e9] hover:bg-[#4a47d2] text-white cursor-pointer gap-1.5 rounded-xl"
                 >
                   {isSavingProduct && <Loader2 size={12} className="animate-spin" />}
-                  <span>Save Changes</span>
+                  <span>Save {productItemType === 'PRODUCT' ? 'Product' : 'Material'}</span>
                 </Button>
               </div>
             </form>
@@ -2559,7 +2799,7 @@ export function SupplierDetailClient({ supplier }: SupplierDetailClientProps) {
               Delete Product Capability
             </h3>
             
-            <p className="text-xs text-slate-500 dark:text-slate-400 leading-relaxed mb-6">
+            <p className="text-xs text-slate-500 dark:text-slate-405 leading-relaxed mb-6">
               Are you sure you want to permanently delete the product capability <span className="text-slate-800 dark:text-slate-250 font-semibold break-all">&ldquo;{deleteConfirmProduct.product_name}&rdquo;</span>? This action cannot be undone.
             </p>
 
@@ -2582,13 +2822,452 @@ export function SupplierDetailClient({ supplier }: SupplierDetailClientProps) {
         </div>
       )}
 
-      {selectedHistoryProduct && (
-        <HistoryChartsModal
-          supplierId={supplier.id}
-          supplierName={supplier.name}
-          productName={selectedHistoryProduct}
-          onClose={() => setSelectedHistoryProduct(null)}
-        />
+      {/* Product Bulk Delete Confirmation Modal */}
+      {isBulkDeleteConfirmOpen && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 animate-in fade-in duration-200">
+          <div
+            className="absolute inset-0 bg-black/60 backdrop-blur-sm"
+            onClick={() => setIsBulkDeleteConfirmOpen(false)}
+          />
+          <div className="relative z-10 w-full max-w-md bg-white dark:bg-slate-900 rounded-3xl shadow-2xl border border-slate-200 dark:border-slate-800 p-6 animate-in zoom-in-95 duration-150 text-center">
+            {/* Warning icon */}
+            <div className="mx-auto w-12 h-12 rounded-2xl bg-rose-50 dark:bg-rose-950/20 text-rose-500 flex items-center justify-center mb-4">
+              <Trash2 size={20} />
+            </div>
+            
+            <h3 className="text-sm font-bold text-slate-900 dark:text-white mb-2">
+              Delete Selected Product Lines
+            </h3>
+            
+            <p className="text-xs text-slate-500 dark:text-slate-400 leading-relaxed mb-6">
+              Are you sure you want to permanently delete the <span className="text-slate-850 dark:text-slate-200 font-extrabold">{selectedCapIds.length}</span> selected product lines? This action cannot be undone.
+            </p>
+
+            <div className="flex gap-3">
+              <Button
+                variant="outline"
+                onClick={() => setIsBulkDeleteConfirmOpen(false)}
+                className="flex-1 h-9.5 text-xs font-semibold cursor-pointer rounded-xl"
+                disabled={isBulkDeleting}
+              >
+                Cancel
+              </Button>
+              <Button
+                onClick={confirmBulkDeleteProducts}
+                className="flex-1 h-9.5 text-xs font-semibold bg-rose-600 hover:bg-rose-700 text-white cursor-pointer rounded-xl border-none flex items-center justify-center gap-1.5"
+                disabled={isBulkDeleting}
+              >
+                {isBulkDeleting && <Loader2 size={12} className="animate-spin" />}
+                Confirm Delete
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+
+
+      {/* Premium Product Details Popup Modal */}
+      {viewingProduct && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 animate-in fade-in duration-200">
+          {/* Backdrop */}
+          <div 
+            onClick={() => setViewingProduct(null)}
+            className="absolute inset-0 bg-black/60 backdrop-blur-sm" 
+          />
+          
+          {/* Popup Panel (max-w-4xl) */}
+          <div className="relative z-10 w-full max-w-4xl bg-white dark:bg-slate-900 rounded-3xl shadow-2xl border border-slate-200 dark:border-slate-800 p-6 animate-in zoom-in-95 duration-150 flex flex-col max-h-[90vh]">
+            {/* Header */}
+            <div className="pb-4 border-b border-slate-100 dark:border-slate-800 flex items-start justify-between">
+              <div>
+                <span className={`inline-flex items-center px-2 py-0.5 rounded-lg text-[9px] font-extrabold mb-1.5 ${
+                  viewingProduct.item_type === 'MATERIAL' 
+                    ? 'bg-amber-55 text-amber-700 dark:bg-amber-955/20 dark:text-amber-400 border border-amber-200 dark:border-amber-900/30' 
+                    : 'bg-indigo-55 text-indigo-700 dark:bg-indigo-955/20 dark:text-indigo-400 border border-indigo-200 dark:border-indigo-900/30'
+                }`}>
+                  {viewingProduct.item_type === 'MATERIAL' ? 'Material' : 'Product'}
+                </span>
+                <h3 className="text-sm font-bold text-slate-900 dark:text-white leading-tight">
+                  {viewingProduct.product_name}
+                </h3>
+              </div>
+              <button 
+                onClick={() => setViewingProduct(null)}
+                className="p-1.5 hover:bg-slate-100 dark:hover:bg-slate-800 rounded-lg text-slate-400 hover:text-slate-655 transition-colors"
+              >
+                <X size={16} />
+              </button>
+            </div>
+
+            {/* Tab Controls */}
+            <div className="flex border-b border-slate-100 dark:border-slate-800 mt-2 bg-slate-50/30 dark:bg-slate-950/20 rounded-xl overflow-hidden">
+              {(
+                [
+                  { id: 'details', label: 'Product Details', icon: Info },
+                  { id: 'price', label: 'Price Trend', icon: TrendingUp },
+                  { id: 'capacity', label: 'Capacity Trend', icon: Cpu },
+                  { id: 'orders', label: 'Order Volume', icon: BarChart3 },
+                  { id: 'raw', label: 'Raw Log', icon: Database }
+                ] as const
+              ).map(tab => {
+                const Icon = tab.icon
+                return (
+                  <button
+                    key={tab.id}
+                    onClick={() => setModalActiveTab(tab.id)}
+                    className={`flex items-center gap-1.5 px-4 py-3 text-xs font-semibold border-b-2 transition-all cursor-pointer ${
+                      modalActiveTab === tab.id
+                        ? 'border-[#5c59e9] text-[#5c59e9] dark:border-indigo-400 dark:text-indigo-400 bg-white dark:bg-slate-900'
+                        : 'border-transparent text-slate-500 hover:text-slate-700 dark:hover:text-slate-350'
+                    }`}
+                  >
+                    <Icon size={13} />
+                    <span>{tab.label}</span>
+                  </button>
+                )
+              })}
+            </div>
+
+            {/* Content (Scrollable) */}
+            <div className="flex-1 overflow-y-auto py-5 pr-1">
+              
+              {/* Tab 1: Details */}
+              {modalActiveTab === 'details' && (
+                <div className="space-y-5 animate-in fade-in duration-200">
+                  {/* Details Grid */}
+                  <div className="grid grid-cols-2 md:grid-cols-4 gap-4 bg-slate-50/50 dark:bg-slate-950/20 p-4 rounded-2xl border border-slate-100 dark:border-slate-800/60">
+                    <div>
+                      <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider block mb-0.5">SKU</span>
+                      <span className="text-xs font-semibold text-slate-700 dark:text-slate-355">
+                        {viewingProduct.sku || '—'}
+                      </span>
+                    </div>
+                    <div>
+                      <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider block mb-0.5">Default Price</span>
+                      <span className="text-xs font-extrabold text-slate-800 dark:text-white">
+                        ${Number(viewingProduct.target_price || 0).toLocaleString('en-US', { minimumFractionDigits: 2 })}
+                      </span>
+                    </div>
+                    <div>
+                      <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider block mb-0.5">Lead Time</span>
+                      <span className="text-xs font-semibold text-slate-700 dark:text-slate-355">
+                        {viewingProduct.lead_time_days != null ? `${viewingProduct.lead_time_days} days` : '—'}
+                      </span>
+                    </div>
+                    <div>
+                      <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider block mb-0.5">Min Order Qty</span>
+                      <span className="text-xs font-semibold text-slate-700 dark:text-slate-355">
+                        {viewingProduct.moq != null ? `${Number(viewingProduct.moq).toLocaleString()}` : '—'}
+                      </span>
+                    </div>
+                    <div className="col-span-2 md:col-span-4">
+                      <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider block mb-0.5">Monthly Capacity</span>
+                      <span className="text-xs font-semibold text-slate-700 dark:text-slate-355">
+                        {viewingProduct.monthly_capacity || '—'}
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* Description */}
+                  {viewingProduct.description && (
+                    <div className="space-y-1.5">
+                      <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider block">Description</span>
+                      <p className="text-xs text-slate-606 dark:text-slate-405 leading-relaxed whitespace-pre-wrap">
+                        {viewingProduct.description}
+                      </p>
+                    </div>
+                  )}
+
+                  {/* Cost Breakdown */}
+                  <div className="pt-2 border-t border-slate-100 dark:border-slate-800 space-y-3">
+                    <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider block">Cost Breakdown</span>
+                    {viewingProduct.material_cost_percent ? (
+                      <div className="space-y-3">
+                        {[
+                          { label: 'Material Cost', percent: viewingProduct.material_cost_percent, color: 'bg-rose-500' },
+                          { label: 'Labor Cost', percent: viewingProduct.labor_cost_percent, color: 'bg-amber-500' },
+                          { label: 'Overhead Cost', percent: viewingProduct.overhead_cost_percent, color: 'bg-blue-500' },
+                          { label: 'Profit Margin', percent: viewingProduct.profit_margin_percent, color: 'bg-emerald-500' },
+                        ].map((item, idx) => (
+                          <div key={idx} className="space-y-1">
+                            <div className="flex justify-between text-[11px] font-semibold">
+                              <span className="text-slate-655 dark:text-slate-400">{item.label}</span>
+                              <span className="text-slate-800 dark:text-white">{item.percent}%</span>
+                            </div>
+                            <div className="w-full bg-slate-100 dark:bg-slate-800 h-2 rounded-full overflow-hidden">
+                              <div className={`h-full ${item.color} rounded-full`} style={{ width: `${item.percent}%` }} />
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    ) : (
+                      <div className="text-xs italic text-slate-400 dark:text-slate-500">No cost breakdown specified.</div>
+                    )}
+                  </div>
+                </div>
+              )}
+
+              {/* Tab 2: Price Trend */}
+              {modalActiveTab === 'price' && (
+                <div className="space-y-4 animate-in fade-in duration-200">
+                  <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider block">Quoted Price History (USD)</span>
+                  {isHistoryLoading ? (
+                    <div className="flex flex-col items-center justify-center py-20 gap-2 h-[320px]">
+                      <Loader2 size={16} className="animate-spin text-[#5c59e9]" />
+                      <span className="text-[10px] text-slate-400 font-medium">Loading history logs...</span>
+                    </div>
+                  ) : viewingProductHistory.length === 0 ? (
+                    <div className="text-[11px] italic text-slate-400 dark:text-slate-500 py-20 text-center h-[320px] flex items-center justify-center">
+                      No history points recorded for this product yet.
+                    </div>
+                  ) : (
+                    <div className="w-full h-[320px] mt-2">
+                      <ResponsiveContainer width="100%" height="100%">
+                        <LineChart 
+                          data={viewingProductHistory.map(item => {
+                            const date = new Date(item.created_at).toLocaleDateString('en-US', {
+                              month: 'short',
+                              day: 'numeric',
+                              year: '2-digit'
+                            });
+                            return {
+                              name: date,
+                              price: Number(item.price),
+                              eventType: item.event_type
+                            };
+                          })} 
+                          margin={{ top: 10, right: 30, left: 10, bottom: 10 }}
+                        >
+                          <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" className="dark:stroke-slate-800" />
+                          <XAxis dataKey="name" tick={{ fontSize: 10 }} stroke="#94a3b8" />
+                          <YAxis tick={{ fontSize: 10 }} stroke="#94a3b8" tickFormatter={(v) => `$${v}`} />
+                          <Tooltip 
+                            contentStyle={{
+                              backgroundColor: '#0f172a',
+                              border: 'none',
+                              borderRadius: '12px',
+                              color: '#fff',
+                              fontSize: '11px'
+                            }}
+                            formatter={(value: any, name: any, props: any) => [
+                              `$${Number(value).toFixed(2)}`, 
+                              `Price (Event: ${props.payload.eventType})`
+                            ]}
+                          />
+                          <Line type="monotone" dataKey="price" stroke="#5c59e9" strokeWidth={2.5} activeDot={{ r: 6 }} dot={{ strokeWidth: 2, r: 4 }} />
+                        </LineChart>
+                      </ResponsiveContainer>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Tab 3: Capacity Trend */}
+              {modalActiveTab === 'capacity' && (
+                <div className="space-y-4 animate-in fade-in duration-200">
+                  <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider block">Monthly Manufacturing Capacity History</span>
+                  {isHistoryLoading ? (
+                    <div className="flex flex-col items-center justify-center py-20 gap-2 h-[320px]">
+                      <Loader2 size={16} className="animate-spin text-[#5c59e9]" />
+                      <span className="text-[10px] text-slate-400 font-medium">Loading history logs...</span>
+                    </div>
+                  ) : viewingProductHistory.length === 0 ? (
+                    <div className="text-[11px] italic text-slate-400 dark:text-slate-500 py-20 text-center h-[320px] flex items-center justify-center">
+                      No history points recorded for this product yet.
+                    </div>
+                  ) : (
+                    <div className="w-full h-[320px] mt-2">
+                      <ResponsiveContainer width="100%" height="100%">
+                        <LineChart 
+                          data={viewingProductHistory.map(item => {
+                            const date = new Date(item.created_at).toLocaleDateString('en-US', {
+                              month: 'short',
+                              day: 'numeric',
+                              year: '2-digit'
+                            });
+                            return {
+                              name: date,
+                              capacity: parseCapacityValue(item.capacity),
+                              capacityText: item.capacity || '—',
+                              eventType: item.event_type
+                            };
+                          })} 
+                          margin={{ top: 10, right: 30, left: 10, bottom: 10 }}
+                        >
+                          <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" className="dark:stroke-slate-800" />
+                          <XAxis dataKey="name" tick={{ fontSize: 10 }} stroke="#94a3b8" />
+                          <YAxis tick={{ fontSize: 10 }} stroke="#94a3b8" />
+                          <Tooltip 
+                            contentStyle={{
+                              backgroundColor: '#0f172a',
+                              border: 'none',
+                              borderRadius: '12px',
+                              color: '#fff',
+                              fontSize: '11px'
+                            }}
+                            formatter={(value: any, name: any, props: any) => [
+                              props.payload.capacityText,
+                              `Capacity (Event: ${props.payload.eventType})`
+                            ]}
+                          />
+                          <Line type="monotone" dataKey="capacity" stroke="#10b981" strokeWidth={2.5} activeDot={{ r: 6 }} dot={{ strokeWidth: 2, r: 4 }} />
+                        </LineChart>
+                      </ResponsiveContainer>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Tab 4: Order Volume */}
+              {modalActiveTab === 'orders' && (
+                <div className="space-y-4 animate-in fade-in duration-200">
+                  <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider block">Historical Order Quantity Placed</span>
+                  {isHistoryLoading ? (
+                    <div className="flex flex-col items-center justify-center py-20 gap-2 h-[320px]">
+                      <Loader2 size={16} className="animate-spin text-[#5c59e9]" />
+                      <span className="text-[10px] text-slate-400 font-medium">Loading history logs...</span>
+                    </div>
+                  ) : viewingProductHistory.filter(d => Number(d.ordered_quantity || 0) > 0).length === 0 ? (
+                    <div className="text-[11px] italic text-slate-400 dark:text-slate-500 py-20 text-center h-[320px] flex items-center justify-center">
+                      No order history points recorded for this product yet.
+                    </div>
+                  ) : (
+                    <div className="w-full h-[320px] mt-2">
+                      <ResponsiveContainer width="100%" height="100%">
+                        <BarChart 
+                          data={viewingProductHistory.filter(d => Number(d.ordered_quantity || 0) > 0).map(item => {
+                            const date = new Date(item.created_at).toLocaleDateString('en-US', {
+                              month: 'short',
+                              day: 'numeric',
+                              year: '2-digit'
+                            });
+                            return {
+                              name: date,
+                              ordered: Number(item.ordered_quantity || 0)
+                            };
+                          })} 
+                          margin={{ top: 10, right: 30, left: 10, bottom: 10 }}
+                        >
+                          <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" className="dark:stroke-slate-800" />
+                          <XAxis dataKey="name" tick={{ fontSize: 10 }} stroke="#94a3b8" />
+                          <YAxis tick={{ fontSize: 10 }} stroke="#94a3b8" />
+                          <Tooltip 
+                            contentStyle={{
+                              backgroundColor: '#0f172a',
+                              border: 'none',
+                              borderRadius: '12px',
+                              color: '#fff',
+                              fontSize: '11px'
+                            }}
+                            formatter={(value: any) => [`${Number(value).toLocaleString()} units`, 'Quantity Ordered']}
+                          />
+                          <Bar dataKey="ordered" fill="#8b5cf6" radius={[4, 4, 0, 0]} barSize={30} />
+                        </BarChart>
+                      </ResponsiveContainer>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Tab 5: Raw Log */}
+              {modalActiveTab === 'raw' && (
+                <div className="space-y-4 animate-in fade-in duration-200">
+                  <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider block">Raw Historical Changes Log</span>
+                  {isHistoryLoading ? (
+                    <div className="flex flex-col items-center justify-center py-20 gap-2 h-[320px]">
+                      <Loader2 size={16} className="animate-spin text-[#5c59e9]" />
+                      <span className="text-[10px] text-slate-400 font-medium">Loading history logs...</span>
+                    </div>
+                  ) : viewingProductHistory.length === 0 ? (
+                    <div className="text-[11px] italic text-slate-400 dark:text-slate-500 py-20 text-center h-[320px] flex items-center justify-center">
+                      No history points recorded for this product yet.
+                    </div>
+                  ) : (
+                    <div className="border border-slate-200 dark:border-slate-800 rounded-2xl overflow-x-auto">
+                      <table className="w-full text-left border-collapse text-[11px] min-w-[500px]">
+                        <thead>
+                          <tr className="bg-slate-50 dark:bg-slate-950/40 border-b border-slate-150 dark:border-slate-850 text-slate-400 dark:text-slate-500 font-extrabold uppercase tracking-wider">
+                            <th className="px-4 py-2.5">Date</th>
+                            <th className="px-4 py-2.5">Price</th>
+                            <th className="px-4 py-2.5">Capacity</th>
+                            <th className="px-4 py-2.5">Ordered Qty</th>
+                            <th className="px-4 py-2.5">Event Type</th>
+                            <th className="px-4 py-2.5">User</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-100 dark:divide-slate-850/80">
+                          {viewingProductHistory.map((item, idx) => {
+                            const date = new Date(item.created_at).toLocaleDateString('en-US', {
+                              month: 'short',
+                              day: 'numeric',
+                              year: '2-digit'
+                            });
+                            const createdBy = item.created_by ? item.created_by.split('@')[0] : 'System';
+                            return (
+                              <tr key={idx} className="hover:bg-slate-50/30">
+                                <td className="px-4 py-2.5 font-medium text-slate-500 dark:text-slate-400">{date}</td>
+                                <td className="px-4 py-2.5 font-bold text-slate-800 dark:text-slate-200">${Number(item.price).toFixed(2)}</td>
+                                <td className="px-4 py-2.5 font-medium text-slate-700 dark:text-slate-300">{item.capacity || '—'}</td>
+                                <td className="px-4 py-2.5 font-semibold text-purple-600 dark:text-purple-400">
+                                  {Number(item.ordered_quantity || 0) > 0 ? `${Number(item.ordered_quantity).toLocaleString()} units` : '—'}
+                                </td>
+                                <td className="px-4 py-2.5">
+                                  <span className="bg-slate-100 dark:bg-slate-800 px-2 py-0.5 rounded-full font-bold text-[9px] text-slate-600 dark:text-slate-400 uppercase tracking-wide">
+                                    {item.event_type}
+                                  </span>
+                                </td>
+                                <td className="px-4 py-2.5 font-medium text-slate-450">{createdBy}</td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+
+            {/* Footer */}
+            <div className="pt-4 border-t border-slate-100 dark:border-slate-800 flex justify-end gap-3">
+              {modalActiveTab === 'details' && canEdit && (
+                <Button
+                  onClick={() => {
+                    // Start editing this product capability
+                    setEditingCapability(viewingProduct)
+                    setProductName(viewingProduct.product_name)
+                    setDefaultPrice(String(viewingProduct.target_price || ''))
+                    setLeadTime(viewingProduct.lead_time_days != null ? String(viewingProduct.lead_time_days) : '')
+                    setProductDescription(viewingProduct.description || '')
+                    setProductMoq(viewingProduct.moq != null ? String(viewingProduct.moq) : '')
+                    setProductSku(viewingProduct.sku || '')
+                    setProductMonthlyCapacity(viewingProduct.monthly_capacity || '')
+                    setProductMaterialPercent(viewingProduct.material_cost_percent != null ? String(viewingProduct.material_cost_percent) : '')
+                    setProductLaborPercent(viewingProduct.labor_cost_percent != null ? String(viewingProduct.labor_cost_percent) : '')
+                    setProductOverheadPercent(viewingProduct.overhead_cost_percent != null ? String(viewingProduct.overhead_cost_percent) : '')
+                    setProductProfitPercent(viewingProduct.profit_margin_percent != null ? String(viewingProduct.profit_margin_percent) : '')
+                    setProductItemType(viewingProduct.item_type || 'PRODUCT')
+                    setProductError(null)
+                    setReopenDetailsOnClose(viewingProduct)
+                    setIsEditProductOpen(true)
+                    setViewingProduct(null) // Close the detail popup
+                  }}
+                  variant="outline"
+                  className="px-5 h-9.5 text-xs font-semibold rounded-xl border border-slate-200 dark:border-slate-800 hover:bg-slate-50 dark:hover:bg-slate-800 flex items-center gap-1.5 cursor-pointer text-slate-700 dark:text-slate-200"
+                >
+                  <Edit size={13} className="text-slate-450" />
+                  <span>Edit Product</span>
+                </Button>
+              )}
+              <Button
+                onClick={() => setViewingProduct(null)}
+                className="px-6 h-9.5 text-xs font-semibold bg-[#5c59e9] hover:bg-[#4a47d2] text-white cursor-pointer rounded-xl"
+              >
+                Close
+              </Button>
+            </div>
+          </div>
+        </div>
       )}
 
       {/* Premium Toast Notifications */}

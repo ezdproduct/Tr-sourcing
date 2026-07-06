@@ -139,7 +139,8 @@ export async function addSupplierCapabilityAction(
   materialCostPercent?: number,
   laborCostPercent?: number,
   overheadCostPercent?: number,
-  profitMarginPercent?: number
+  profitMarginPercent?: number,
+  itemType?: string
 ) {
   try {
     const supabase = await createClient()
@@ -160,7 +161,8 @@ export async function addSupplierCapabilityAction(
         material_cost_percent: materialCostPercent ?? null,
         labor_cost_percent: laborCostPercent ?? null,
         overhead_cost_percent: overheadCostPercent ?? null,
-        profit_margin_percent: profitMarginPercent ?? null
+        profit_margin_percent: profitMarginPercent ?? null,
+        item_type: itemType || 'PRODUCT'
       })
       .select()
       .single()
@@ -217,7 +219,8 @@ export async function updateSupplierCapabilityAction(
   materialCostPercent?: number,
   laborCostPercent?: number,
   overheadCostPercent?: number,
-  profitMarginPercent?: number
+  profitMarginPercent?: number,
+  itemType?: string
 ) {
   try {
     const supabase = await createClient()
@@ -237,7 +240,8 @@ export async function updateSupplierCapabilityAction(
         material_cost_percent: materialCostPercent ?? null,
         labor_cost_percent: laborCostPercent ?? null,
         overhead_cost_percent: overheadCostPercent ?? null,
-        profit_margin_percent: profitMarginPercent ?? null
+        profit_margin_percent: profitMarginPercent ?? null,
+        item_type: itemType || 'PRODUCT'
       })
       .eq('id', capabilityId)
       .select()

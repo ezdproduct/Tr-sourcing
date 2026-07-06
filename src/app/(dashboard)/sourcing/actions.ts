@@ -2173,10 +2173,10 @@ export async function fetchEmailTemplatesAction() {
       {
         key: 'deposit_check',
         name: 'Deposit Confirmation Check',
-        subject: '[Milestone Check] Deposit Confirmation Required - Order ID: {{Order Code}}',
-        body: 'Dear {{Supplier Name}} Team,\n\nOur records show that the Purchase Order was issued 48 hours ago. Please click the button below to confirm that you have received the deposit. This will automatically transition your order to the active Production phase in our tracking system:',
-        placeholders: ['Supplier Name', 'Order Code'],
-        description: 'Sent automatically to the supplier 48 hours after PO issuance to request deposit receipt confirmation.'
+        subject: '[TR Sourcing] Deposit Transferred & Production Pending - Order ID: {{Order Code}}',
+        body: 'Dear {{Supplier Name}} Team,\n\nWe have processed and transferred the deposit for your Purchase Order ({{Order Code}}). Please click the button below to confirm receipt of the deposit. Once confirmed, production will officially start for the following item:\n\nItem: {{Item Name}}\nTarget Delivery: {{Target Delivery Date}}\nDelivery Address: {{Delivery Address}}\n\nPlease confirm receipt of the deposit below:',
+        placeholders: ['Supplier Name', 'Order Code', 'Item Name', 'Target Delivery Date', 'Delivery Address'],
+        description: 'Sent manually to the supplier to request deposit receipt confirmation, initiating the production phase.'
       },
       {
         key: 'production_pulse',
@@ -2193,6 +2193,14 @@ export async function fetchEmailTemplatesAction() {
         body: 'Dear {{Supplier Name}} Team,\n\nThank you for confirming and accepting the Purchase Order. Your order status has been updated to PO Confirmed and production has officially started. Please save this email; once the production run is complete and cargo is ready for dispatch, please use the Mark as Shipped option below:',
         placeholders: ['Supplier Name', 'Order Code', 'Item Name', 'Target Delivery Date', 'Delivery Address'],
         description: 'Sent when PO is accepted, starting production and offering a link to mark the order as shipped.'
+      },
+      {
+        key: 'shipment_reminder',
+        name: 'Shipment Reminder',
+        subject: '[Action Required] Ready to Ship? Mark Order {{Order Code}} as Shipped',
+        body: 'Dear {{Supplier Name}} Team,\n\nOur records show that the target delivery date for your order ({{Order Code}}) is approaching in 2 days. If production is completed and the cargo is ready for dispatch, please click the button below to mark it as shipped and initiate logistics processing:\n\nItem: {{Item Name}}\nTarget Delivery: {{Target Delivery Date}}\nDelivery Address: {{Delivery Address}}\n\nPlease confirm shipment below:',
+        placeholders: ['Supplier Name', 'Order Code', 'Item Name', 'Target Delivery Date', 'Delivery Address'],
+        description: 'Sent automatically to the supplier 2 days before the target delivery date to request shipment confirmation.'
       }
     ]
 
@@ -2302,8 +2310,8 @@ export async function resetEmailTemplateAction(id: string) {
         body: 'Dear {{Supplier Name}} Team,\n\nWe would like to invite you to submit a quotation for the following product requirements:\n\nItem Name: {{Item Name}}\nTarget Price: ${{Target Price}} USD\n\nPlease review the requirements and submit your best quote.'
       },
       deposit_check: {
-        subject: '[Milestone Check] Deposit Confirmation Required - Order ID: {{Order Code}}',
-        body: 'Dear {{Supplier Name}} Team,\n\nOur records show that the Purchase Order was issued 48 hours ago. Please click the button below to confirm that you have received the deposit. This will automatically transition your order to the active Production phase in our tracking system:'
+        subject: '[TR Sourcing] Deposit Transferred & Production Pending - Order ID: {{Order Code}}',
+        body: 'Dear {{Supplier Name}} Team,\n\nWe have processed and transferred the deposit for your Purchase Order ({{Order Code}}). Please click the button below to confirm receipt of the deposit. Once confirmed, production will officially start for the following item:\n\nItem: {{Item Name}}\nTarget Delivery: {{Target Delivery Date}}\nDelivery Address: {{Delivery Address}}\n\nPlease confirm receipt of the deposit below:'
       },
       production_pulse: {
         subject: '[Progress Pulse] Production Status Check - Order ID: {{Order Code}}',
@@ -2312,6 +2320,10 @@ export async function resetEmailTemplateAction(id: string) {
       production_started: {
         subject: '[TR Sourcing] Production Started & PO Confirmed - Order ID: {{Order Code}}',
         body: 'Dear {{Supplier Name}} Team,\n\nThank you for confirming and accepting the Purchase Order. Your order status has been updated to PO Confirmed and production has officially started. Please save this email; once the production run is complete and cargo is ready for dispatch, please use the Mark as Shipped option below:'
+      },
+      shipment_reminder: {
+        subject: '[Action Required] Ready to Ship? Mark Order {{Order Code}} as Shipped',
+        body: 'Dear {{Supplier Name}} Team,\n\nOur records show that the target delivery date for your order ({{Order Code}}) is approaching in 2 days. If production is completed and the cargo is ready for dispatch, please click the button below to mark it as shipped and initiate logistics processing:\n\nItem: {{Item Name}}\nTarget Delivery: {{Target Delivery Date}}\nDelivery Address: {{Delivery Address}}\n\nPlease confirm shipment below:'
       }
     }
     
@@ -2368,4 +2380,164 @@ function formatEmailSubject(
     formatted = formatted.replace(new RegExp(`{{\\s*${escapedKey}\\s*}}`, 'g'), value)
   }
   return formatted
+}
+
+export async function sendDepositEmailAction(orderId: string) {
+  try {
+    const supabase = await createClient()
+
+    // 1. Fetch order details
+    const { data: order, error: orderErr } = await supabase
+      .from('orders')
+      .select('id, order_code, selected_supplier_id, target_delivery_date, delivery_address')
+      .eq('id', orderId)
+      .single()
+
+    if (orderErr || !order) {
+      console.error('Error fetching order for deposit email:', orderErr?.message)
+      return { success: false, error: orderErr?.message || 'Order not found' }
+    }
+
+    if (!order.selected_supplier_id) {
+      return { success: false, error: 'No supplier selected for this order yet.' }
+    }
+
+    // 2. Fetch supplier details
+    const { data: supplier, error: supplierErr } = await supabase
+      .from('suppliers')
+      .select('name, email')
+      .eq('id', order.selected_supplier_id)
+      .single()
+
+    if (supplierErr || !supplier || !supplier.email) {
+      return { success: false, error: 'Supplier has no valid contact email.' }
+    }
+
+    // 3. Fetch item names for this order
+    const { data: items } = await supabase
+      .from('order_items')
+      .select('item_name')
+      .eq('order_id', orderId)
+    
+    const prodName = items?.[0]?.item_name || 'Goods'
+
+    // 4. Fetch the deposit template
+    const { data: template } = await supabase
+      .from('email_templates')
+      .select('*')
+      .eq('key', 'deposit_check')
+      .maybeSingle()
+
+    const displayOrderId = order.order_code || `PO-${orderId.substring(0, 8).toUpperCase()}`
+    const secureToken = generateToken(orderId)
+    const appUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'
+    const actionLink = `${appUrl}/api/orders/update-progress?token=${secureToken}&action=confirm_deposit`
+
+    let emailSubject = `[Milestone Check] Deposit Confirmation Required - Order ID: ${displayOrderId}`
+    let emailBodyText = `We have processed and transferred the deposit for your Purchase Order. Please click the button below to confirm that you have received the deposit. This will automatically transition your order to the active Production phase in our tracking system:`
+
+    if (template) {
+      const templateSubject = template.subject || ''
+      const templateBody = template.body || ''
+      const variables: Record<string, string> = {
+        'Supplier Name': supplier.name || 'Supplier',
+        'Order Code': displayOrderId,
+        'Item Name': prodName,
+        'Target Delivery Date': order.target_delivery_date || 'N/A',
+        'Delivery Address': order.delivery_address || 'N/A'
+      }
+
+      let parsedSubject = templateSubject
+      let parsedBody = templateBody
+
+      for (const [k, v] of Object.entries(variables)) {
+        const escapedKey = k.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&')
+        parsedSubject = parsedSubject.replace(new RegExp(`{{\\s*${escapedKey}\\s*}}`, 'g'), v)
+        parsedBody = parsedBody.replace(new RegExp(`{{\\s*${escapedKey}\\s*}}`, 'g'), v)
+      }
+      emailSubject = parsedSubject
+      emailBodyText = parsedBody
+    }
+
+    // Format paragraph breaks
+    const formattedBodyHtml = emailBodyText
+      .split('\n\n')
+      .map(para => `<p style="margin-bottom: 24px; margin-top: 0; font-size: 14px; color: #475569;">${para.replace(/\n/g, '<br/>')}</p>`)
+      .join('')
+
+    const emailHtml = `
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <meta charset="utf-8">
+        <title>Confirm Deposit & Start Production</title>
+        <style>
+          body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; line-height: 1.6; color: #1e293b; background-color: #f8fafc; padding: 20px; }
+          .container { max-width: 600px; margin: 0 auto; background: #ffffff; border-radius: 12px; border: 1px solid #e2e8f0; padding: 40px; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.05); }
+          h1 { font-size: 22px; font-weight: 700; color: #0f172a; margin-top: 0; margin-bottom: 16px; text-align: center; }
+          p { font-size: 14px; color: #475569; margin-bottom: 24px; }
+          .btn { display: inline-block; background-color: #4f46e5; color: #ffffff !important; font-size: 14px; font-weight: 700; text-decoration: none; padding: 14px 28px; border-radius: 8px; text-align: center; box-shadow: 0 4px 6px -1px rgba(79,70,229,0.2); }
+          .btn:hover { background-color: #4338ca; }
+          .footer { border-top: 1px solid #f1f5f9; padding-top: 20px; margin-top: 32px; font-size: 11px; color: #94a3b8; text-align: center; }
+        </style>
+      </head>
+      <body>
+        <div class="container">
+          <div style="border-bottom: 2px solid #f1f5f9; padding-bottom: 16px; margin-bottom: 24px; text-align: center;">
+            <div style="font-size: 18px; font-weight: 800; color: #4f46e5; text-transform: uppercase; letter-spacing: 0.05em; font-family: sans-serif;">TR Sourcing Hub</div>
+          </div>
+          <h1>Confirm Deposit Received</h1>
+          ${formattedBodyHtml}
+          
+          <div style="text-align: center; margin: 32px 0;">
+            <a href="${actionLink}" class="btn" target="_blank">Confirm Deposit Received</a>
+          </div>
+          
+          <p>Thank you for your cooperation.</p>
+          <div class="footer">
+            Automated Procurement Operations &bull; TR Sourcing Hub
+          </div>
+        </div>
+      </body>
+      </html>
+    `
+
+    const systemAgentId = process.env.GMAIL_SYSTEM_AGENT_ID ? parseInt(process.env.GMAIL_SYSTEM_AGENT_ID, 10) : 12
+
+    await sendGmail({
+      agentId: systemAgentId,
+      toEmail: supplier.email,
+      subject: emailSubject,
+      html: emailHtml,
+    })
+
+    // 5. Update order details in Supabase
+    const { error: updateErr } = await supabase
+      .from('orders')
+      .update({
+        deposit_email_sent: true,
+        deposit_email_sent_at: new Date().toISOString()
+      })
+      .eq('id', orderId)
+
+    if (updateErr) {
+      console.error('Error updating order deposit check status:', updateErr.message)
+      return { success: false, error: updateErr.message }
+    }
+
+    // 6. Log activity
+    await supabase
+      .from('order_activities')
+      .insert({
+        order_id: orderId,
+        activity_text: `Sourcing coordinator sent deposit payment notification to supplier (${supplier.email}).`
+      })
+
+    revalidatePath('/sourcing')
+    revalidatePath('/orders')
+    return { success: true }
+  } catch (err: any) {
+    console.error('sendDepositEmailAction error:', err)
+    return { success: false, error: err.message || 'An unexpected error occurred' }
+  }
 }

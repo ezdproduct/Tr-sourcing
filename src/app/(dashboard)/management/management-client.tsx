@@ -798,7 +798,7 @@ export function ManagementClient({ initialProfiles, initialSuppliers, initialLog
                                   {departmentOptions
                                     .filter(opt => {
                                       if (profile.role === 'staff') {
-                                        return opt.value !== 'dashboard'
+                                        return opt.value !== 'all' && opt.value !== 'dashboard'
                                       }
                                       if (profile.role === 'boss') {
                                         return opt.value === 'dashboard'

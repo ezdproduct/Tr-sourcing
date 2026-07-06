@@ -97,6 +97,153 @@ export async function GET(req: NextRequest) {
       if (activityError) {
         console.error('Failed to log activity:', activityError.message)
       }
+
+      // Send a new email notifying supplier that production is started and they can mark as shipped when ready
+      if (order.selected_supplier_id) {
+        const { data: supplier } = await supabase
+          .from('suppliers')
+          .select('name, email')
+          .eq('id', order.selected_supplier_id)
+          .single()
+
+        if (supplier && supplier.email) {
+          let prodName = 'Goods'
+          const { data: items } = await supabase
+            .from('order_items')
+            .select('item_name')
+            .eq('order_id', orderId)
+          prodName = items?.[0]?.item_name || 'Goods'
+
+          const systemAgentId = process.env.GMAIL_SYSTEM_AGENT_ID ? parseInt(process.env.GMAIL_SYSTEM_AGENT_ID, 10) : 12
+          const displayOrderId = order.order_code || `PO-${orderId.substring(0, 8).toUpperCase()}`
+          const secureToken = generateToken(orderId)
+          const shipmentActionUrl = `${appUrl}/api/orders/update-progress?token=${secureToken}&action=shipped`
+
+          // Load Template 5 (production_started) from database
+          const { data: template } = await supabase
+            .from('email_templates')
+            .select('*')
+            .eq('key', 'production_started')
+            .maybeSingle()
+
+          let emailSubject = `[TR Sourcing] Production Started - Order ID: ${displayOrderId}`
+          let emailBodyText = `Thank you for confirming deposit receipt. Production has officially started. Please save this email; once the production run is complete and cargo is ready for dispatch, please use the Mark as Shipped option below:`
+
+          if (template) {
+            const templateSubject = template.subject || ''
+            const templateBody = template.body || ''
+            const variables: Record<string, string> = {
+              'Supplier Name': supplier.name || 'Supplier',
+              'Order Code': displayOrderId,
+              'Item Name': prodName,
+              'Target Delivery Date': order.target_delivery_date || 'N/A',
+              'Delivery Address': order.delivery_address || 'N/A'
+            }
+
+            let parsedSubject = templateSubject
+            let parsedBody = templateBody
+
+            for (const [k, v] of Object.entries(variables)) {
+              const escapedKey = k.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&')
+              parsedSubject = parsedSubject.replace(new RegExp(`{{\\s*${escapedKey}\\s*}}`, 'g'), v)
+              parsedBody = parsedBody.replace(new RegExp(`{{\\s*${escapedKey}\\s*}}`, 'g'), v)
+            }
+            emailSubject = parsedSubject
+            emailBodyText = parsedBody
+          }
+
+          // Format paragraph breaks
+          const formattedBodyHtml = emailBodyText
+            .split('\n\n')
+            .map(para => `<p style="margin-top: 0; margin-bottom: 16px; font-size: 14px; color: #475569;">${para.replace(/\n/g, '<br/>')}</p>`)
+            .join('')
+
+          const emailHtml = `
+            <!DOCTYPE html>
+            <html>
+            <head>
+              <meta charset="utf-8">
+              <title>Production Started &amp; PO Confirmed</title>
+              <style>
+                body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; line-height: 1.6; color: #1e293b; background-color: #f8fafc; margin: 0; padding: 20px; }
+                .container { max-width: 600px; margin: 0 auto; background: #ffffff; border-radius: 16px; border: 1px solid #e2e8f0; padding: 40px; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.05); }
+                .header { border-bottom: 2px solid #f1f5f9; padding-bottom: 20px; margin-bottom: 24px; text-align: center; }
+                .logo { font-size: 20px; font-weight: 800; color: #4f46e5; text-transform: uppercase; letter-spacing: 0.05em; }
+                h1 { font-size: 22px; font-weight: 700; color: #0f172a; margin-top: 0; margin-bottom: 12px; text-align: center; }
+                p { font-size: 14px; color: #475569; margin-top: 0; margin-bottom: 16px; }
+                .details-box { background: #f8fafc; border-radius: 12px; border: 1px solid #e2e8f0; padding: 24px; margin-bottom: 24px; }
+                .detail-row { display: flex; justify-content: space-between; font-size: 13px; margin-bottom: 12px; border-bottom: 1px dashed #e2e8f0; padding-bottom: 10px; }
+                .detail-row:last-child { margin-bottom: 0; border-bottom: none; padding-bottom: 0; }
+                .detail-label { color: #64748b; font-weight: 600; }
+                .detail-value { color: #0f172a; font-weight: 700; text-align: right; }
+                .button-group { display: flex; flex-direction: column; gap: 12px; margin-top: 24px; }
+                .btn-slate { display: block; background-color: #64748b; color: #ffffff !important; font-size: 14px; font-weight: 700; text-decoration: none; padding: 14px 24px; border-radius: 8px; text-align: center; box-shadow: 0 4px 6px -1px rgba(100,116,139,0.2); }
+                .btn-slate:hover { background-color: #475569; }
+                .footer { border-top: 1px solid #f1f5f9; padding-top: 20px; margin-top: 32px; font-size: 11px; color: #94a3b8; text-align: center; }
+              </style>
+            </head>
+            <body>
+              <div class="container">
+                <div class="header">
+                  <div class="logo">TR Sourcing Hub</div>
+                </div>
+                <h1>Production Started &amp; PO Confirmed</h1>
+                <p>Dear <strong>${supplier.name}</strong> Team,</p>
+                ${formattedBodyHtml}
+                
+                <div class="details-box">
+                  <div class="detail-row">
+                    <span class="detail-label">Order ID:</span>
+                    <span class="detail-value">${displayOrderId}</span>
+                  </div>
+                  <div class="detail-row">
+                    <span class="detail-label">Product Item:</span>
+                    <span class="detail-value">${prodName}</span>
+                  </div>
+                  <div class="detail-row">
+                    <span class="detail-label">Target Delivery Date:</span>
+                    <span class="detail-value">${order.target_delivery_date || 'N/A'}</span>
+                  </div>
+                  <div class="detail-row">
+                    <span class="detail-label">Delivery Address:</span>
+                    <span class="detail-value">${order.delivery_address || 'N/A'}</span>
+                  </div>
+                </div>
+                
+                <p style="margin-bottom: 24px;">Manage your order progress and shipment using the options below:</p>
+                
+                <div class="button-group">
+                  <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="border-collapse: collapse;">
+                    <tr>
+                      <td valign="top">
+                        <a href="${shipmentActionUrl}" class="btn-slate" target="_blank">Mark as Shipped</a>
+                      </td>
+                    </tr>
+                  </table>
+                </div>
+                
+                <p style="margin-top: 28px;">Should you have any questions or require further clarification, please do not hesitate to contact our Sourcing team.</p>
+                
+                <div class="footer">
+                  This is an automated notification from TR Sourcing Hub. Please do not reply directly to this email.
+                </div>
+              </div>
+            </body>
+            </html>
+          `
+
+          try {
+            await sendGmail({
+              agentId: systemAgentId,
+              toEmail: supplier.email,
+              subject: emailSubject,
+              html: emailHtml,
+            })
+          } catch (gmailErr: any) {
+            console.error('Failed to send confirmation email to supplier:', gmailErr)
+          }
+        }
+      }
     } 
     else if (action === 'weekly_check_on_track') {
       actionDescription = 'Confirmed Production is ON-TRACK'
@@ -301,6 +448,33 @@ export async function GET(req: NextRequest) {
       if (activityError) {
         console.error('Failed to log activity:', activityError.message)
       }
+    }
+    else if (action === 'confirm_deposit') {
+      actionDescription = 'Confirmed Deposit Received'
+
+      // Update orders stage
+      const { error: updateError } = await supabase
+        .from('orders')
+        .update({
+          stage: 'PRODUCTION'
+        })
+        .eq('id', orderId)
+
+      if (updateError) {
+        throw new Error(`Failed to update order stage: ${updateError.message}`)
+      }
+
+      // Add to order_activities
+      const { error: activityError } = await supabase
+        .from('order_activities')
+        .insert({
+          order_id: orderId,
+          activity_text: 'Automated System: Deposit receipt confirmed. Stage changed to PRODUCTION.'
+        })
+
+      if (activityError) {
+        console.error('Failed to log activity:', activityError.message)
+      }
 
       // Send a new email notifying supplier that production is started and they can mark as shipped when ready
       if (order.selected_supplier_id) {
@@ -332,7 +506,6 @@ export async function GET(req: NextRequest) {
           const systemAgentId = process.env.GMAIL_SYSTEM_AGENT_ID ? parseInt(process.env.GMAIL_SYSTEM_AGENT_ID, 10) : 1
             const displayOrderId = order.order_code || `PO-${orderId.substring(0, 8).toUpperCase()}`
             const secureToken = generateToken(orderId)
-            const confirmPoActionUrl = `${appUrl}/api/orders/update-progress?token=${secureToken}&action=confirm_po&orderItemId=${orderItemId || ''}`
             const shipmentActionUrl = `${appUrl}/api/orders/update-progress?token=${secureToken}&action=shipped&orderItemId=${orderItemId || ''}`
             const fullContractUrl = order.contract_file_url ? `${appUrl}${order.contract_file_url}` : ''
 
@@ -344,7 +517,7 @@ export async function GET(req: NextRequest) {
               .maybeSingle()
 
             let emailSubject = `[TR Sourcing] Production Started - Order ID: ${displayOrderId}`
-            let emailBodyText = `Thank you for confirming and accepting the Purchase Order. Your order status has been updated to PO Confirmed and production has officially started. Please save this email; once the production run is complete and cargo is ready for dispatch, please use the Mark as Shipped option below:`
+            let emailBodyText = `Thank you for confirming the deposit. Your order status has been updated to Production and work has officially started. Please save this email; once the production run is complete and cargo is ready for dispatch, please use the Mark as Shipped option below:`
 
             if (template) {
               const templateSubject = template.subject || ''
@@ -435,29 +608,9 @@ export async function GET(req: NextRequest) {
                   <p style="margin-bottom: 24px;">Manage your order progress and shipment using the options below:</p>
                   
                   <div class="button-group">
-                    <!-- Single Table Layout ensuring strict vertical structure in all email clients -->
                     <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="border-collapse: collapse;">
-                      <!-- Row 1: Immediate Action Group -->
                       <tr>
-                        <td width="48%" valign="top">
-                          <div class="btn-disabled">Confirm & Accept PO</div>
-                        </td>
-                        <td width="4%"></td>
-                        <td width="48%" valign="top">
-                          ${fullContractUrl ? `
-                          <a href="${fullContractUrl}" class="btn-indigo" target="_blank">View Signed Contract</a>
-                          ` : `
-                          <div class="btn-disabled">View Signed Contract</div>
-                          `}
-                        </td>
-                      </tr>
-                      <!-- Spacer Row -->
-                      <tr>
-                        <td colspan="3" style="height: 16px; font-size: 16px; line-height: 16px;">&nbsp;</td>
-                      </tr>
-                      <!-- Row 2: Delayed Action Group -->
-                      <tr>
-                        <td colspan="3" valign="top">
+                        <td width="100%" valign="top">
                           <a href="${shipmentActionUrl}" class="btn-slate" target="_blank">Mark as Shipped</a>
                         </td>
                       </tr>
@@ -520,9 +673,9 @@ function renderHtmlSuccess(orderId: string, actionDescription: string, orderCode
   if (actionDescription === 'Confirmed & Accepted Purchase Order') {
     displayTitle = 'The Purchase Order has been successfully confirmed'
     stepItems = [
-      'The supplier reviews specifications and initiates production.',
-      'Sourcing team tracks weekly production metrics and delays.',
-      'Once ready, supplier uses the "Mark as Shipped" action to register cargo.'
+      'The Sourcing team processes the deposit payment.',
+      'Supplier confirms receipt of deposit to officially start production.',
+      'Once production is complete, supplier marks the cargo as shipped.'
     ]
   } else if (actionDescription === 'Confirmed Shipped / Dispatched') {
     displayTitle = 'Your Cargo has been successfully marked as shipped'

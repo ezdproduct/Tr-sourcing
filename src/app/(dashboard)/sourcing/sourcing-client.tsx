@@ -27,7 +27,8 @@ import {
   saveGmailAgentIdAction,
   fetchEmailTemplatesAction,
   updateEmailTemplateAction,
-  resetEmailTemplateAction
+  resetEmailTemplateAction,
+  sendDepositEmailAction
 } from './actions'
 import { KanbanBoard } from '@/app/(dashboard)/orders/kanban-board'
 import { updateOrderStageAction } from '@/app/(dashboard)/orders/actions'
@@ -147,6 +148,9 @@ export interface DatabaseOrder {
   estimated_delivery_date: string | null
   order_items?: DatabaseOrderItem[]
   order_stage_timelines?: any[]
+  deposit_email_sent?: boolean
+  deposit_email_sent_at?: string | null
+  shipment_reminder_sent?: boolean
 }
 
 export interface DatabaseSupplier {
@@ -236,6 +240,7 @@ export function SourcingClient({ initialOrders, initialSuppliers, initialAudits 
   const [suppliers, setSuppliers] = useState<DatabaseSupplier[]>(initialSuppliers || [])
   // Local orders list to allow optimistic updates
   const [orders, setOrders] = useState<DatabaseOrder[]>(initialOrders || [])
+  const [isSendingDepositEmail, setIsSendingDepositEmail] = useState(false)
 
   const queryClient = useQueryClient()
 
@@ -247,6 +252,23 @@ export function SourcingClient({ initialOrders, initialSuppliers, initialAudits 
       queryClient.invalidateQueries({ queryKey: ['sourcing', 'audits'] }),
     ])
     router.refresh()
+  }
+
+  const handleSendDepositEmail = async (orderId: string) => {
+    setIsSendingDepositEmail(true)
+    try {
+      const res = await sendDepositEmailAction(orderId)
+      if (res.success) {
+        await invalidateSourcingData()
+      } else {
+        alert(res.error || 'Failed to send deposit email.')
+      }
+    } catch (err) {
+      console.error(err)
+      alert('An unexpected error occurred.')
+    } finally {
+      setIsSendingDepositEmail(false)
+    }
   }
 
   const { data: suppliersData } = useQuery({
@@ -359,71 +381,201 @@ export function SourcingClient({ initialOrders, initialSuppliers, initialAudits 
   })
 
   const [selectedTemplateKey, setSelectedTemplateKey] = useState<string>('purchase_order')
+  const activeTemplate = emailTemplates?.find((t: any) => t.key === selectedTemplateKey)
   const [editedSubject, setEditedSubject] = useState<string>('')
   const [editedBody, setEditedBody] = useState<string>('')
   const [isSavingTemplate, setIsSavingTemplate] = useState<boolean>(false)
   const [isResettingTemplate, setIsResettingTemplate] = useState<boolean>(false)
   const [isResetConfirmOpen, setIsResetConfirmOpen] = useState<boolean>(false)
 
-  const textareaRef = useRef<HTMLTextAreaElement>(null)
+  const editorRef = useRef<HTMLDivElement>(null)
+
+  // Converts text with {{tag}} into HTML with visual pill spans and <br/>
+  const convertTextToHtml = (text: string) => {
+    if (!text) return ''
+    // Escape HTML characters
+    let html = text
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+    
+    // Replace {{Placeholder}} with visual pill spans
+    html = html.replace(/{{([^{}]+)}}/g, (match, tag) => {
+      const trimmedTag = tag.trim()
+      return `<span contenteditable="false" class="visual-pill inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded bg-indigo-50 dark:bg-indigo-950/40 text-[#5c59e9] dark:text-indigo-400 border border-indigo-100 dark:border-indigo-900/50 font-bold text-xs select-none mx-0.5" data-tag="${trimmedTag}">${trimmedTag}</span>`
+    })
+
+    // Convert newlines to <br/>
+    html = html.replace(/\n/g, '<br/>')
+    return html
+  }
+
+  // Converts HTML with visual pill spans and <br/>/divs back to text with {{tag}}
+  const convertHtmlToText = (html: string) => {
+    if (typeof document === 'undefined') return html
+    const temp = document.createElement('div')
+    temp.innerHTML = html
+    
+    // Find all visual-pill spans
+    const pills = temp.querySelectorAll('.visual-pill')
+    pills.forEach((pill) => {
+      const tag = pill.getAttribute('data-tag') || pill.textContent || ''
+      pill.replaceWith(`{{${tag}}}`)
+    })
+    
+    // Convert <br>, <div>, <p> to newlines
+    let text = temp.innerHTML
+    text = text.replace(/<br\s*\/?>/gi, '\n')
+    text = text.replace(/<\/div>/gi, '\n')
+    text = text.replace(/<div[^>]*>/gi, '')
+    text = text.replace(/<p[^>]*>/gi, '')
+    text = text.replace(/<\/p>/gi, '\n')
+    
+    // Decode HTML entities
+    const decoder = document.createElement('textarea')
+    decoder.innerHTML = text
+    return decoder.value
+  }
+
+  // Initialize editor HTML only when activeTemplate changes or is loaded
+  useEffect(() => {
+    if (editorRef.current && activeTemplate) {
+      const parsedHtml = convertTextToHtml(activeTemplate.body || '')
+      if (editorRef.current.innerHTML !== parsedHtml) {
+        editorRef.current.innerHTML = parsedHtml
+      }
+    }
+  }, [selectedTemplateKey, activeTemplate])
+
+  const handleEditorInput = (e: React.FormEvent<HTMLDivElement>) => {
+    const html = e.currentTarget.innerHTML
+    setEditedBody(convertHtmlToText(html))
+  }
+
+  const handlePaste = (e: React.ClipboardEvent<HTMLDivElement>) => {
+    e.preventDefault()
+    const text = e.clipboardData.getData('text/plain')
+    
+    const selection = window.getSelection()
+    if (!selection || selection.rangeCount === 0) return
+    const range = selection.getRangeAt(0)
+    
+    const editor = editorRef.current
+    if (!editor || !editor.contains(range.commonAncestorContainer)) return
+    
+    range.deleteContents()
+    const textNode = document.createTextNode(text)
+    range.insertNode(textNode)
+    
+    // Collapse range to end of inserted text
+    range.setStartAfter(textNode)
+    range.collapse(true)
+    selection.removeAllRanges()
+    selection.addRange(range)
+    
+    setEditedBody(convertHtmlToText(editor.innerHTML))
+  }
 
   const insertPlaceholder = (tag: string) => {
-    const textarea = textareaRef.current
-    if (!textarea) {
+    const editor = editorRef.current
+    if (!editor) {
       setEditedBody((prev) => prev + ` {{${tag}}}`)
       return
     }
-    const start = textarea.selectionStart
-    const end = textarea.selectionEnd
-    const text = textarea.value
-    const before = text.substring(0, start)
-    const after = text.substring(end, text.length)
-    const tagText = `{{${tag}}}`
-    setEditedBody(before + tagText + after)
-    setTimeout(() => {
-      textarea.focus()
-      textarea.setSelectionRange(start + tagText.length, start + tagText.length)
-    }, 0)
+
+    editor.focus()
+    const selection = window.getSelection()
+    if (!selection) return
+
+    let range: Range
+    if (selection.rangeCount > 0) {
+      range = selection.getRangeAt(0)
+      if (!editor.contains(range.commonAncestorContainer)) {
+        range = document.createRange()
+        range.selectNodeContents(editor)
+        range.collapse(false)
+      }
+    } else {
+      range = document.createRange()
+      range.selectNodeContents(editor)
+      range.collapse(false)
+    }
+
+    range.deleteContents()
+
+    // Create visual pill element
+    const pill = document.createElement('span')
+    pill.setAttribute('contenteditable', 'false')
+    pill.className = 'visual-pill inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded bg-indigo-50 dark:bg-indigo-950/40 text-[#5c59e9] dark:text-indigo-400 border border-indigo-100 dark:border-indigo-900/50 font-bold text-xs select-none mx-0.5'
+    pill.setAttribute('data-tag', tag)
+    pill.textContent = tag
+
+    range.insertNode(pill)
+
+    // Insert a space after the pill for easy typing
+    const space = document.createTextNode('\u00A0')
+    range.collapse(false)
+    range.insertNode(space)
+
+    // Move cursor after the space
+    const newRange = document.createRange()
+    newRange.setStartAfter(space)
+    newRange.collapse(true)
+    selection.removeAllRanges()
+    selection.addRange(newRange)
+
+    setEditedBody(convertHtmlToText(editor.innerHTML))
   }
 
   const wrapSelectionWithTag = (openTag: string, closeTag: string, defaultPlaceholder: string) => {
-    const textarea = textareaRef.current
-    if (!textarea) return
-    const start = textarea.selectionStart
-    const end = textarea.selectionEnd
-    const text = textarea.value
-    const selected = text.substring(start, end)
-    const before = text.substring(0, start)
-    const after = text.substring(end, text.length)
-    const replacement = selected ? `${openTag}${selected}${closeTag}` : `${openTag}${defaultPlaceholder}${closeTag}`
-    setEditedBody(before + replacement + after)
-    setTimeout(() => {
-      textarea.focus()
-      if (!selected) {
-        textarea.setSelectionRange(start + openTag.length, start + openTag.length + defaultPlaceholder.length)
-      } else {
-        textarea.setSelectionRange(start + replacement.length, start + replacement.length)
-      }
-    }, 0)
+    const editor = editorRef.current
+    if (!editor) return
+
+    editor.focus()
+    const selection = window.getSelection()
+    if (!selection || selection.rangeCount === 0) return
+
+    const range = selection.getRangeAt(0)
+    if (!editor.contains(range.commonAncestorContainer)) return
+
+    const selectedText = range.toString()
+    if (!selectedText) {
+      const span = document.createElement('span')
+      span.innerHTML = `${openTag}${defaultPlaceholder}${closeTag}`
+      range.insertNode(span)
+    } else {
+      const fragment = range.extractContents()
+      const wrapper = document.createElement('span')
+      wrapper.innerHTML = `${openTag}${fragment.textContent || ''}${closeTag}`
+      range.insertNode(wrapper)
+    }
+
+    setEditedBody(convertHtmlToText(editor.innerHTML))
   }
 
   const insertBulletPoint = () => {
-    const textarea = textareaRef.current
-    if (!textarea) return
-    const start = textarea.selectionStart
-    const end = textarea.selectionEnd
-    const text = textarea.value
-    const before = text.substring(0, start)
-    const after = text.substring(end, text.length)
-    const bullet = '• '
-    setEditedBody(before + bullet + after)
-    setTimeout(() => {
-      textarea.focus()
-      textarea.setSelectionRange(start + bullet.length, start + bullet.length)
-    }, 0)
-  }
+    const editor = editorRef.current
+    if (!editor) return
 
-  const activeTemplate = emailTemplates?.find((t: any) => t.key === selectedTemplateKey)
+    editor.focus()
+    const selection = window.getSelection()
+    if (!selection || selection.rangeCount === 0) return
+
+    const range = selection.getRangeAt(0)
+    if (!editor.contains(range.commonAncestorContainer)) return
+
+    range.deleteContents()
+    const bulletNode = document.createTextNode('•\u00A0')
+    range.insertNode(bulletNode)
+
+    const newRange = document.createRange()
+    newRange.setStartAfter(bulletNode)
+    newRange.collapse(true)
+    selection.removeAllRanges()
+    selection.addRange(newRange)
+
+    setEditedBody(convertHtmlToText(editor.innerHTML))
+  }
 
   useEffect(() => {
     if (activeTemplate) {
@@ -2818,9 +2970,6 @@ export function SourcingClient({ initialOrders, initialSuppliers, initialAudits 
                                 if (audit.audit_verdict === 'PASS') {
                                   badgeStyle = "bg-emerald-50 text-emerald-700 border-emerald-250 dark:bg-emerald-950/20 dark:text-emerald-450 dark:border-emerald-900"
                                   label = "QC PASS"
-                                } else if (audit.audit_verdict === 'PASS WITH CONDITIONS') {
-                                  badgeStyle = "bg-amber-50 text-amber-700 border-amber-250 dark:bg-amber-950/20 dark:text-amber-450 dark:border-amber-900"
-                                  label = "QC PASS W/ COND"
                                 } else {
                                   badgeStyle = "bg-rose-50 text-rose-700 border-rose-250 dark:bg-rose-950/20 dark:text-rose-450 dark:border-rose-900"
                                   label = "QC FAIL"
@@ -2984,7 +3133,54 @@ export function SourcingClient({ initialOrders, initialSuppliers, initialAudits 
                       })
 
                       return (
-                        <Card className="border-slate-200/60 dark:border-slate-800">
+                        <div className="space-y-6 animate-in fade-in duration-300">
+                          {selectedOrder?.stage === 'PO CONFIRMED' && (
+                            <Card className="border-indigo-150 bg-indigo-50/20 dark:border-indigo-950/30 dark:bg-indigo-950/10">
+                              <CardContent className="p-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+                                <div className="space-y-1">
+                                  <h4 className="text-sm font-bold text-slate-800 dark:text-slate-200 flex items-center gap-1.5">
+                                    {selectedOrder.deposit_email_sent ? (
+                                      <>
+                                        <Clock size={16} className="text-indigo-500" />
+                                        <span>Deposit Notification Email Sent</span>
+                                      </>
+                                    ) : (
+                                      <span>Purchase Order Confirmed by Supplier</span>
+                                    )}
+                                  </h4>
+                                  <p className="text-xs text-slate-500 max-w-xl">
+                                    {selectedOrder.deposit_email_sent ? (
+                                      <>
+                                        Email sent on {selectedOrder.deposit_email_sent_at ? new Date(selectedOrder.deposit_email_sent_at).toLocaleString() : 'N/A'}. Awaiting supplier's deposit confirmation.
+                                      </>
+                                    ) : (
+                                      <span>The supplier has accepted the PO. Next step is to pay the deposit and click below to notify the supplier and request their confirmation.</span>
+                                    )}
+                                  </p>
+                                </div>
+                                <Button
+                                  onClick={() => handleSendDepositEmail(selectedOrder.id)}
+                                  disabled={isSendingDepositEmail}
+                                  className={`font-semibold text-xs px-4 h-9 rounded-xl cursor-pointer flex items-center gap-1.5 shrink-0 ${
+                                    selectedOrder.deposit_email_sent
+                                      ? 'bg-white hover:bg-slate-50 border border-slate-200 text-slate-700 dark:bg-slate-900 dark:border-slate-800 dark:text-slate-350 dark:hover:bg-slate-800'
+                                      : 'bg-indigo-600 hover:bg-indigo-700 text-white shadow-sm'
+                                  }`}
+                                >
+                                  {isSendingDepositEmail ? (
+                                    <><Loader2 size={12} className="animate-spin" /> Sending...</>
+                                  ) : (
+                                    <>
+                                      <Send size={12} />
+                                      <span>{selectedOrder.deposit_email_sent ? 'Resend Deposit Sent Email' : 'Send Deposit Sent Email'}</span>
+                                    </>
+                                  )}
+                                </Button>
+                              </CardContent>
+                            </Card>
+                          )}
+
+                          <Card className="border-slate-200/60 dark:border-slate-800">
                           <CardHeader className="pb-3 border-b border-slate-100 dark:border-slate-800 flex flex-row items-center justify-between">
                             <div>
                               <CardTitle className="text-base font-bold flex items-center gap-2">
@@ -3162,7 +3358,7 @@ export function SourcingClient({ initialOrders, initialSuppliers, initialAudits 
                                         const audit = audits.find(a => a.supplier_id === supplier.supplier_id && a.order_id === supplier.order_id)
                                         const hasPassedQC = audit && 
                                           audit.audit_status === 'Completed' && 
-                                          (audit.audit_verdict === 'PASS' || audit.audit_verdict === 'PASS WITH CONDITIONS')
+                                          audit.audit_verdict === 'PASS'
 
                                         return (
                                           <DropdownMenuItem
@@ -3438,9 +3634,6 @@ export function SourcingClient({ initialOrders, initialSuppliers, initialAudits 
                                               if (audit.audit_verdict === 'PASS') {
                                                 badgeStyle = "bg-emerald-50 text-emerald-700 border-emerald-250 dark:bg-emerald-950/20 dark:text-emerald-450 dark:border-emerald-900"
                                                 label = "QC PASS"
-                                              } else if (audit.audit_verdict === 'PASS WITH CONDITIONS') {
-                                                badgeStyle = "bg-amber-50 text-amber-700 border-amber-250 dark:bg-amber-950/20 dark:text-amber-450 dark:border-amber-900"
-                                                label = "QC PASS W/ COND"
                                               } else {
                                                 badgeStyle = "bg-rose-50 text-rose-700 border-rose-250 dark:bg-rose-950/20 dark:text-rose-450 dark:border-rose-900"
                                                 label = "QC FAIL"
@@ -3451,7 +3644,7 @@ export function SourcingClient({ initialOrders, initialSuppliers, initialAudits 
                                             }
 
                                             const hasPassedQC = audit.audit_status === 'Completed' && 
-                                            (audit.audit_verdict === 'PASS' || audit.audit_verdict === 'PASS WITH CONDITIONS')
+                                            audit.audit_verdict === 'PASS'
                                             
                                             return (
                                               <td className="px-6 py-4 flex items-center gap-2">
@@ -3470,8 +3663,9 @@ export function SourcingClient({ initialOrders, initialSuppliers, initialAudits 
                             )}
                           </CardContent>
                         </Card>
-                      )
-                    })()}
+                      </div>
+                    )
+                  })()}
                   </>
                 )}
               </>
@@ -3691,12 +3885,14 @@ export function SourcingClient({ initialOrders, initialSuppliers, initialAudits 
 
                     {/* Editable Body Editor */}
                     <div className="relative group border border-transparent hover:border-slate-200/85 focus-within:border-[#5c59e9] dark:hover:border-slate-800 dark:focus-within:border-indigo-500 rounded-xl p-3 -mx-3 transition-all duration-200">
-                      <textarea
-                        ref={textareaRef}
-                        value={editedBody}
-                        onChange={(e) => setEditedBody(e.target.value)}
-                        className="w-full bg-transparent border-0 p-0 text-sm text-slate-650 dark:text-slate-355 focus:outline-none focus:ring-0 focus-visible:ring-0 focus-visible:outline-none resize-none font-sans leading-relaxed min-h-[180px]"
-                        placeholder="Dear {{Supplier Name}} Team, ..."
+                      <div
+                        ref={editorRef}
+                        contentEditable
+                        onInput={handleEditorInput}
+                        onPaste={handlePaste}
+                        className="w-full bg-transparent border-0 p-0 text-sm text-slate-650 dark:text-slate-355 focus:outline-none focus:ring-0 focus-visible:ring-0 focus-visible:outline-none min-h-[180px] font-sans leading-relaxed outline-none select-text before:content-[attr(data-placeholder)] before:text-slate-450 dark:before:text-slate-500 before:absolute before:pointer-events-none empty:before:block before:hidden relative"
+                        data-placeholder="Dear {{Supplier Name}} Team, ..."
+                        style={{ outline: 'none' }}
                       />
                       <div className="absolute right-3 bottom-2 opacity-0 group-hover:opacity-100 group-focus-within:opacity-100 transition-opacity text-[10px] text-slate-400 dark:text-slate-500 pointer-events-none flex items-center gap-1">
                         <span>Click to edit directly</span>
