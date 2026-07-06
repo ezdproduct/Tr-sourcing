@@ -2,7 +2,7 @@
 
 /* eslint-disable react-hooks/set-state-in-effect */
 
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useMemo } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { useSourcing } from '@/providers/sourcing-provider'
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
@@ -24,6 +24,7 @@ import {
 } from './actions'
 import { KanbanBoard } from './kanban-board'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
+import { PieChart, Pie, Cell, Tooltip, ResponsiveContainer } from 'recharts'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Input } from '@/components/ui/input'
@@ -220,6 +221,28 @@ const getUomLabel = (uom: string) => UOM_LABELS[uom] || uom
 
 export function OrdersClient({ initialOrders }: OrdersClientProps) {
   const router = useRouter()
+  
+  // Calculate order type distribution dynamically
+  const typeCounts = useMemo(() => {
+    const counts: Record<string, number> = {
+      MATERIAL: 0,
+      PRODUCT: 0,
+      MIXED: 0,
+      PENDING: 0
+    }
+    initialOrders.forEach(order => {
+      const type = getOrderTypeFromItems(order.order_items).toUpperCase()
+      const key = ['MATERIAL', 'PRODUCT', 'MIXED', 'PENDING'].includes(type) ? type : 'PENDING'
+      counts[key] = (counts[key] || 0) + 1
+    })
+    
+    return [
+      { name: 'Material', value: counts.MATERIAL, color: '#5c59e9' },
+      { name: 'Product', value: counts.PRODUCT, color: '#10b981' },
+      { name: 'Mixed', value: counts.MIXED, color: '#f59e0b' },
+      { name: 'Pending', value: counts.PENDING, color: '#94a3b8' }
+    ].filter(item => item.value > 0)
+  }, [initialOrders])
   const { userRole, searchQuery } = useSourcing()
   const searchParams = useSearchParams()
   const initialSubtab = (searchParams.get('subtab') as 'overview' | 'workplace') || 'overview'
@@ -765,30 +788,59 @@ export function OrdersClient({ initialOrders }: OrdersClientProps) {
                 </Card>
               </div>
 
-              {/* Workflow progress or Distribution chart */}
+              {/* Recent Active Updates */}
+              {/* Distribution & Recent updates */}
               <div className="grid gap-6 md:grid-cols-2">
                 <Card className="border-slate-200/60 dark:border-slate-800">
-                  <CardHeader>
-                    <CardTitle className="text-sm font-bold text-slate-900 dark:text-white">Order Pipeline Distribution</CardTitle>
-                    <CardDescription className="text-xs">Workflow division of running campaigns</CardDescription>
+                  <CardHeader className="pb-2">
+                    <CardTitle className="text-sm font-bold text-slate-900 dark:text-white">Order Type Distribution</CardTitle>
+                    <CardDescription className="text-xs">Breakdown of active campaigns by category</CardDescription>
                   </CardHeader>
-                  <CardContent className="space-y-4">
-                    {[
-                      { label: 'Draft / Definition', pct: '85%' },
-                      { label: 'Sourcing Phase', pct: '60%' },
-                      { label: 'Audit / QC', pct: '45%' },
-                      { label: 'Shipped / Inbound', pct: '70%' }
-                    ].map((item, idx) => (
-                      <div key={idx} className="space-y-1.5">
-                        <div className="flex items-center justify-between text-xs font-semibold">
-                          <span className="text-slate-700 dark:text-slate-300">{item.label}</span>
-                          <span className="text-indigo-600 dark:text-indigo-400">{item.pct}</span>
+                  <CardContent className="h-[200px] flex flex-col justify-between">
+                    {typeCounts.length === 0 ? (
+                      <div className="h-full flex items-center justify-center text-slate-400 text-xs italic">No orders available</div>
+                    ) : (
+                      <>
+                        <div className="h-[130px] w-full">
+                          <ResponsiveContainer width="100%" height="100%">
+                            <PieChart>
+                              <Pie
+                                data={typeCounts}
+                                cx="50%"
+                                cy="50%"
+                                innerRadius={40}
+                                outerRadius={55}
+                                paddingAngle={3}
+                                dataKey="value"
+                              >
+                                {typeCounts.map((entry, index) => (
+                                  <Cell key={`cell-${index}`} fill={entry.color} />
+                                ))}
+                              </Pie>
+                              <Tooltip 
+                                contentStyle={{
+                                  backgroundColor: 'rgba(255, 255, 255, 0.95)',
+                                  borderRadius: '6px',
+                                  border: '1px solid #e2e8f0',
+                                  fontSize: '11px',
+                                }}
+                                formatter={(value) => [`${value} orders`, 'Quantity']} 
+                              />
+                            </PieChart>
+                          </ResponsiveContainer>
                         </div>
-                        <div className="h-1.5 w-full bg-slate-100 rounded-full dark:bg-slate-900">
-                          <div className="h-full bg-indigo-500 rounded-full" style={{ width: item.pct }} />
+                        <div className="flex flex-wrap gap-x-4 gap-y-2 justify-center pb-2">
+                          {typeCounts.map((entry) => (
+                            <div key={entry.name} className="flex items-center gap-1.5 text-[10px] font-semibold">
+                              <span className="h-2 w-2 rounded-full" style={{ backgroundColor: entry.color }} />
+                              <span className="text-slate-600 dark:text-slate-400">
+                                {entry.name}: {entry.value} ({Math.round((entry.value / initialOrders.length) * 100)}%)
+                              </span>
+                            </div>
+                          ))}
                         </div>
-                      </div>
-                    ))}
+                      </>
+                    )}
                   </CardContent>
                 </Card>
 
