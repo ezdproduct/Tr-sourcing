@@ -44,7 +44,9 @@ BEGIN
     aud,
     role,
     confirmation_token,
-    recovery_token
+    recovery_token,
+    email_change,
+    email_change_token_new
   ) VALUES (
     new_user_id,
     '00000000-0000-0000-0000-000000000000',
@@ -58,6 +60,8 @@ BEGIN
     now(),
     'authenticated',
     'authenticated',
+    '',
+    '',
     '',
     ''
   );
