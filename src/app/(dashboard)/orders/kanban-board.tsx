@@ -207,7 +207,7 @@ export function KanbanBoard({ orders, isStaffOrAdmin, onCardClick, onStageChange
 
   return (
     <div className="w-full overflow-x-auto pb-4 scrollbar-thin scrollbar-thumb-slate-200">
-      <div className="flex gap-4 min-w-[1200px] h-[calc(100vh-16rem)] min-h-[500px]">
+      <div className="flex gap-4 w-max h-[calc(100vh-16rem)] min-h-[500px] pr-4">
         {COLUMNS.map(col => {
           const colKey = col.key
           const colOrders = groupedOrders[colKey] || []
@@ -220,7 +220,7 @@ export function KanbanBoard({ orders, isStaffOrAdmin, onCardClick, onStageChange
               onDragOver={(e) => handleDragOver(e, colKey)}
               onDragLeave={handleDragLeave}
               onDrop={(e) => handleDrop(e, colKey)}
-              className={`flex-1 flex flex-col rounded-xl border border-dashed p-3 transition-all duration-200 ${
+              className={`w-[280px] shrink-0 flex flex-col rounded-xl border border-dashed p-3 transition-all duration-200 ${
                 col.colorClass
               } ${isOver ? 'ring-2 ring-indigo-500/50 scale-[1.01] border-indigo-400 bg-indigo-500/5' : ''}`}
             >
