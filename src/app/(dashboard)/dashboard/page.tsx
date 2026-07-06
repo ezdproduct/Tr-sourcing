@@ -271,24 +271,24 @@ async function DashboardLoader({ searchParams }: { searchParams: SearchParams | 
   )
   const qaPassRate = completedAudits.length > 0 
     ? (passedAudits.length / completedAudits.length) * 100 
-    : 85.0
+    : 0.0
 
   const totalInspections = filteredInspections.length
   const passedInspections = filteredInspections.filter(i => i.quality_status === 'PASS' || i.verdict === 'Approved')
   const inspectionComplianceRate = totalInspections > 0 
     ? (passedInspections.length / totalInspections) * 100 
-    : 96.8
+    : 0.0
 
   const inspectionsWithDefects = filteredInspections.filter(i => typeof i.defect_rate === 'number')
   const avgDefectRate = inspectionsWithDefects.length > 0
     ? inspectionsWithDefects.reduce((acc, i) => acc + Number(i.defect_rate), 0) / inspectionsWithDefects.length
-    : 1.4
+    : 0.0
 
   const totalTargetQty = filteredBatches.reduce((acc, b) => acc + (b.target_output_quantity || 0), 0)
   const totalAssembledQty = filteredBatches.reduce((acc, b) => acc + (b.current_assembled_quantity || 0), 0)
   const mfgCompletionRate = totalTargetQty > 0 
     ? (totalAssembledQty / totalTargetQty) * 100 
-    : 92.5
+    : 0.0
 
   // --- 2. Module Health Setup ---
   const ordersHealth = totalActiveOrders > 10 ? 'Warning' : 'Healthy'
