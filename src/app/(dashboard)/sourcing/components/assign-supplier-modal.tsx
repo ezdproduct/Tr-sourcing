@@ -1041,8 +1041,8 @@ export function AssignSupplierModal({
                         <div className="grid grid-cols-2 gap-2 text-xs text-slate-600 dark:text-slate-400">
                           <div className="flex flex-col gap-0.5 border-r border-indigo-50/20 pr-1.5">
                             <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider">Type</span>
-                            <span className="text-slate-800 dark:text-slate-200 font-bold truncate">
-                              {cap.business_type || '—'}
+                            <span className="text-slate-800 dark:text-slate-200 font-bold truncate capitalize">
+                              {(cap.item_type || 'Product').toLowerCase()}
                             </span>
                           </div>
                           <div className="flex flex-col gap-0.5 pl-1.5">
