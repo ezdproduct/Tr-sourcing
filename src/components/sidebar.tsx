@@ -403,7 +403,10 @@ export function Sidebar() {
         {/* Navigation Menus */}
         <nav className="flex-1 space-y-1.5 px-3 pt-3 pb-6 overflow-y-auto">
           {filteredNavItems.map((item) => {
-            const isActive = pathname === item.href || (item.href !== '/' && pathname.startsWith(item.href))
+            const isSupplierDetail = pathname.startsWith('/management/supplier/')
+            const isActive = isSupplierDetail
+              ? item.href === '/sourcing'
+              : pathname === item.href || (item.href !== '/' && pathname.startsWith(item.href))
             const Icon = item.icon
             const hasSubtabs = ['/orders', '/sourcing', '/audit', '/inspection', '/logistics', '/production', '/management'].includes(item.href)
 
@@ -450,8 +453,10 @@ export function Sidebar() {
                           { label: 'Workplace', subtabVal: 'workplace' }
                         ]
                     ).map((sub, idx, arr) => {
-                      const isSubActive = subtabParam === sub.subtabVal || 
-                        (!subtabParam && sub.subtabVal === (item.href === '/management' ? 'system' : 'overview'))
+                      const isSubActive = isSupplierDetail
+                        ? item.href === '/sourcing' && sub.subtabVal === 'suppliers'
+                        : subtabParam === sub.subtabVal || 
+                          (!subtabParam && sub.subtabVal === (item.href === '/management' ? 'system' : 'overview'))
                       return (
                         <Link
                           key={sub.subtabVal}
