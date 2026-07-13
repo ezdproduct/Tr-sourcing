@@ -6,7 +6,7 @@ import { useState, useEffect } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { 
   X, Phone, Mail, MapPin, Globe, ArrowUpRight, ArrowLeft, Edit, Trash2, Plus, Loader2, Check, CheckCircle2, AlertCircle, Calendar, Shield,
-  Upload, FileText, File, Copy, ExternalLink, TrendingUp, MoreHorizontal, SlidersHorizontal, Cpu, BarChart3, Database, Info
+  Upload, FileText, File, Copy, ExternalLink, TrendingUp, MoreHorizontal, SlidersHorizontal, Cpu, BarChart3, Database, Info, Package
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -82,6 +82,7 @@ export function SupplierDetailClient({ supplier }: SupplierDetailClientProps) {
     }
     return 'overview'
   })
+  const [lightboxImage, setLightboxImage] = useState<string | null>(null)
 
   useEffect(() => {
     if (tabParam && ['overview', 'sourcing', 'financials', 'documents', 'product', 'library', 'logs'].includes(tabParam)) {
@@ -159,6 +160,9 @@ export function SupplierDetailClient({ supplier }: SupplierDetailClientProps) {
   const [productLaborPercent, setProductLaborPercent] = useState('')
   const [productOverheadPercent, setProductOverheadPercent] = useState('')
   const [productProfitPercent, setProductProfitPercent] = useState('')
+  const [productImageUrl, setProductImageUrl] = useState<string | null>(null)
+  const [productDrawingUrls, setProductDrawingUrls] = useState<string[]>([])
+  const [isUploadingDrawing, setIsUploadingDrawing] = useState(false)
   const [isSavingProduct, setIsSavingProduct] = useState(false)
   const [isDeletingProduct, setIsDeletingProduct] = useState<string | null>(null)
   const [productError, setProductError] = useState<string | null>(null)
@@ -903,7 +907,9 @@ export function SupplierDetailClient({ supplier }: SupplierDetailClientProps) {
       productLaborPercent ? lab : undefined,
       productOverheadPercent ? over : undefined,
       productProfitPercent ? prof : undefined,
-      productItemType
+      productItemType,
+      productImageUrl || undefined,
+      productDrawingUrls.length > 0 ? JSON.stringify(productDrawingUrls) : undefined
     )
     setIsSavingProduct(false)
 
@@ -921,6 +927,8 @@ export function SupplierDetailClient({ supplier }: SupplierDetailClientProps) {
       setProductLaborPercent('')
       setProductOverheadPercent('')
       setProductProfitPercent('')
+      setProductImageUrl(null)
+      setProductDrawingUrls([])
       setProductItemType('PRODUCT')
       setSelectedCapIds([])
       router.refresh()
@@ -967,7 +975,9 @@ export function SupplierDetailClient({ supplier }: SupplierDetailClientProps) {
       productLaborPercent ? lab : undefined,
       productOverheadPercent ? over : undefined,
       productProfitPercent ? prof : undefined,
-      productItemType
+      productItemType,
+      productImageUrl || undefined,
+      productDrawingUrls.length > 0 ? JSON.stringify(productDrawingUrls) : undefined
     )
     setIsSavingProduct(false)
 
@@ -990,6 +1000,8 @@ export function SupplierDetailClient({ supplier }: SupplierDetailClientProps) {
       setProductLaborPercent('')
       setProductOverheadPercent('')
       setProductProfitPercent('')
+      setProductImageUrl(null)
+      setProductDrawingUrls([])
       setProductItemType('PRODUCT')
       setSelectedCapIds([])
       router.refresh()
@@ -1694,6 +1706,8 @@ export function SupplierDetailClient({ supplier }: SupplierDetailClientProps) {
                     setProductLaborPercent('')
                     setProductOverheadPercent('')
                     setProductProfitPercent('')
+                    setProductImageUrl(null)
+                    setProductDrawingUrls([])
                     setProductError(null)
                     setIsAddProductOpen(true)
                   }}
@@ -1762,13 +1776,30 @@ export function SupplierDetailClient({ supplier }: SupplierDetailClientProps) {
                           />
                         </td>
                         <td className="px-5 py-3.5 font-bold text-slate-800 dark:text-slate-200">
-                          <div>
-                            <span className="text-slate-800 dark:text-slate-200 font-bold">{cap.product_name}</span>
-                            {cap.description && (
-                              <span className="block text-[10px] text-slate-400 dark:text-slate-500 font-medium mt-0.5 max-w-xs truncate">
-                                {cap.description}
-                              </span>
+                          <div className="flex items-center gap-2">
+                            {cap.image_url ? (
+                              <img
+                                src={cap.image_url}
+                                alt={cap.product_name}
+                                onClick={(e) => {
+                                  e.stopPropagation()
+                                  setLightboxImage(cap.image_url)
+                                }}
+                                className="h-8 w-8 rounded-lg object-cover cursor-zoom-in hover:scale-105 transition-transform duration-200 border border-slate-200/50"
+                              />
+                            ) : (
+                              <div className="h-8 w-8 rounded-lg bg-slate-100 dark:bg-slate-800/80 flex items-center justify-center text-slate-400">
+                                <Package size={14} />
+                              </div>
                             )}
+                            <div>
+                              <span className="text-slate-800 dark:text-slate-200 font-bold">{cap.product_name}</span>
+                              {cap.description && (
+                                <span className="block text-[10px] text-slate-400 dark:text-slate-500 font-medium mt-0.5 max-w-xs truncate">
+                                  {cap.description}
+                                </span>
+                              )}
+                            </div>
                           </div>
                         </td>
                         {productColumnVisibility.itemType && (
@@ -2228,7 +2259,7 @@ export function SupplierDetailClient({ supplier }: SupplierDetailClientProps) {
             className="absolute inset-0 bg-black/40 backdrop-blur-sm"
             onClick={() => { setIsAddProductOpen(false); setProductError(null) }}
           />
-          <div className="relative z-10 w-full max-w-md bg-white dark:bg-slate-900 rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-800 animate-in zoom-in-95 duration-150">
+          <div className="relative z-10 w-full max-w-4xl bg-white dark:bg-slate-900 rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-800 animate-in zoom-in-95 duration-150">
             <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100 dark:border-slate-800">
               <div>
                 <h3 className="text-sm font-bold text-slate-900 dark:text-white">
@@ -2250,207 +2281,323 @@ export function SupplierDetailClient({ supplier }: SupplierDetailClientProps) {
                 </div>
               )}
 
-              {/* Item Type Selector */}
-              <div className="space-y-1.5">
-                <Label className="text-xs font-semibold text-slate-700 dark:text-slate-300">
-                  Item Classification <span className="text-red-500">*</span>
-                </Label>
-                <div className="grid grid-cols-2 gap-2 bg-slate-50 dark:bg-slate-950/40 p-1 rounded-xl border border-slate-200/60 dark:border-slate-800">
-                  <button
-                    type="button"
-                    onClick={() => setProductItemType('PRODUCT')}
-                    className={`text-xs py-1.5 font-bold rounded-lg transition-all cursor-pointer ${
-                      productItemType === 'PRODUCT'
-                        ? 'bg-white dark:bg-slate-900 text-[#5c59e9] dark:text-indigo-400 shadow-sm border border-slate-100 dark:border-slate-800'
-                        : 'text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200 border border-transparent'
-                    }`}
-                  >
-                    Product
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setProductItemType('MATERIAL')}
-                    className={`text-xs py-1.5 font-bold rounded-lg transition-all cursor-pointer ${
-                      productItemType === 'MATERIAL'
-                        ? 'bg-white dark:bg-slate-900 text-[#5c59e9] dark:text-indigo-400 shadow-sm border border-slate-100 dark:border-slate-800'
-                        : 'text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200 border border-transparent'
-                    }`}
-                  >
-                    Material
-                  </button>
-                </div>
-              </div>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+                {/* Left Column */}
+                <div className="space-y-4">
+                  {/* Item Type Selector */}
+                  <div className="space-y-1.5">
+                    <Label className="text-xs font-semibold text-slate-700 dark:text-slate-300">
+                      Item Classification <span className="text-red-500">*</span>
+                    </Label>
+                    <div className="grid grid-cols-2 gap-2 bg-slate-50 dark:bg-slate-950/40 p-1 rounded-xl border border-slate-200/60 dark:border-slate-800">
+                      <button
+                        type="button"
+                        onClick={() => setProductItemType('PRODUCT')}
+                        className={`text-xs py-1.5 font-bold rounded-lg transition-all cursor-pointer ${
+                          productItemType === 'PRODUCT'
+                            ? 'bg-white dark:bg-slate-900 text-[#5c59e9] dark:text-indigo-400 shadow-sm border border-slate-100 dark:border-slate-800'
+                            : 'text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200 border border-transparent'
+                        }`}
+                      >
+                        Product
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setProductItemType('MATERIAL')}
+                        className={`text-xs py-1.5 font-bold rounded-lg transition-all cursor-pointer ${
+                          productItemType === 'MATERIAL'
+                            ? 'bg-white dark:bg-slate-900 text-[#5c59e9] dark:text-indigo-400 shadow-sm border border-slate-100 dark:border-slate-800'
+                            : 'text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200 border border-transparent'
+                        }`}
+                      >
+                        Material
+                      </button>
+                    </div>
+                  </div>
 
-              {/* Product Name */}
-              <div className="space-y-1.5">
-                <Label htmlFor="product-name" className="text-xs font-semibold text-slate-700 dark:text-slate-300">
-                  {productItemType === 'PRODUCT' ? 'Product Name' : 'Material Name'} <span className="text-red-500">*</span>
-                </Label>
-                <Input
-                  id="product-name"
-                  placeholder="e.g. Oak Dining Table"
-                  value={productName}
-                  onChange={e => setProductName(e.target.value)}
-                  className="text-xs h-9 rounded-xl border-slate-200 bg-white/50 focus:bg-white dark:border-slate-800 dark:bg-slate-950/50"
-                  required
-                />
-              </div>
-
-              {/* SKU & MOQ */}
-              <div className="grid grid-cols-2 gap-3.5">
-                <div className="space-y-1.5">
-                  <Label htmlFor="product-sku" className="text-xs font-semibold text-slate-700 dark:text-slate-300">
-                    {productItemType === 'PRODUCT' ? 'Product SKU' : 'Material SKU'}
-                  </Label>
-                  <Input
-                    id="product-sku"
-                    placeholder="e.g. ODT-042"
-                    value={productSku}
-                    onChange={e => setProductSku(e.target.value)}
-                    className="text-xs h-9 rounded-xl border-slate-200 bg-white/50 focus:bg-white dark:border-slate-800 dark:bg-slate-950/50"
-                  />
-                </div>
-                <div className="space-y-1.5">
-                  <Label htmlFor="product-moq" className="text-xs font-semibold text-slate-700 dark:text-slate-300">
-                    Min Order Qty (MOQ)
-                  </Label>
-                  <Input
-                    id="product-moq"
-                    type="number"
-                    placeholder="e.g. 50"
-                    value={productMoq}
-                    onChange={e => setProductMoq(e.target.value)}
-                    className="text-xs h-9 rounded-xl border-slate-200 bg-white/50 focus:bg-white dark:border-slate-800 dark:bg-slate-955/50"
-                  />
-                </div>
-              </div>
-
-              {/* Price & Leadtime */}
-              <div className="grid grid-cols-2 gap-3.5">
-                <div className="space-y-1.5">
-                  <Label htmlFor="product-price" className="text-xs font-semibold text-slate-700 dark:text-slate-300">
-                    Default Price ($) <span className="text-red-500">*</span>
-                  </Label>
-                  <Input
-                    id="product-price"
-                    type="number"
-                    step="0.01"
-                    placeholder="120.00"
-                    value={defaultPrice}
-                    onChange={e => setDefaultPrice(e.target.value)}
-                    className="text-xs h-9 rounded-xl border-slate-200 bg-white/50 focus:bg-white dark:border-slate-800 dark:bg-slate-955/50"
-                    required
-                  />
-                </div>
-                <div className="space-y-1.5">
-                  <Label htmlFor="product-leadtime" className="text-xs font-semibold text-slate-700 dark:text-slate-300">
-                    Lead Time (days)
-                  </Label>
-                  <Input
-                    id="product-leadtime"
-                    type="text"
-                    placeholder="e.g. 7-10"
-                    value={leadTime}
-                    onChange={e => setLeadTime(e.target.value)}
-                    className="text-xs h-9 rounded-xl border-slate-200 bg-white/50 focus:bg-white dark:border-slate-800 dark:bg-slate-955/50"
-                  />
-                </div>
-              </div>
-
-              {/* Production Capacity */}
-              <div className="space-y-1.5">
-                <Label htmlFor="product-capacity" className="text-xs font-semibold text-slate-700 dark:text-slate-300">
-                  Production Capacity
-                </Label>
-                <Input
-                  id="product-capacity"
-                  placeholder="e.g. 1,000 units / month"
-                  value={productMonthlyCapacity}
-                  onChange={e => setProductMonthlyCapacity(e.target.value)}
-                  className="text-xs h-9 rounded-xl border-slate-200 bg-white/50 focus:bg-white dark:border-slate-800 dark:bg-slate-950/50"
-                />
-              </div>
-
-              {/* Description */}
-              <div className="space-y-1.5">
-                <Label htmlFor="product-desc" className="text-xs font-semibold text-slate-700 dark:text-slate-300">
-                  {productItemType === 'PRODUCT' ? 'Product Description' : 'Material Description'}
-                </Label>
-                <textarea
-                  id="product-desc"
-                  placeholder="Describe material, specifications, quality details..."
-                  rows={2}
-                  value={productDescription}
-                  onChange={e => setProductDescription(e.target.value)}
-                  className="flex w-full rounded-xl border border-slate-200 bg-white/50 px-3 py-2 text-xs shadow-sm transition-colors placeholder:text-slate-400 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[#5c59e9] dark:border-slate-800 dark:bg-slate-955 resize-none animate-in fade-in duration-200"
-                />
-              </div>
-
-              {/* Cost Breakdown (%) */}
-              <div className="space-y-2 bg-slate-50/50 dark:bg-slate-950/20 p-3 rounded-xl border border-slate-200 dark:border-slate-800">
-                <div className="flex justify-between items-center text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">
-                  <span>Cost Breakdown (%)</span>
-                  {(() => {
-                    const m = parseFloat(productMaterialPercent) || 0
-                    const l = parseFloat(productLaborPercent) || 0
-                    const o = parseFloat(productOverheadPercent) || 0
-                    const p = parseFloat(productProfitPercent) || 0
-                    const total = m + l + o + p
-                    if (total === 0) return <span className="text-[9px] font-normal text-slate-450 normal-case">(Optional)</span>
-                    return (
-                      <span className={`text-[9px] font-bold ${total === 100 ? 'text-emerald-600 dark:text-emerald-400' : 'text-amber-500'}`}>
-                        Total: {total}% {total === 100 ? '✓' : '(Must sum to 100%)'}
-                      </span>
-                    )
-                  })()}
-                </div>
-                <div className="grid grid-cols-4 gap-2">
-                  <div className="space-y-1">
-                    <span className="text-[9px] text-slate-450 dark:text-slate-500 font-bold uppercase block text-center">Mat %</span>
+                  {/* Product Name */}
+                  <div className="space-y-1.5">
+                    <Label htmlFor="product-name" className="text-xs font-semibold text-slate-700 dark:text-slate-300">
+                      {productItemType === 'PRODUCT' ? 'Product Name' : 'Material Name'} <span className="text-red-500">*</span>
+                    </Label>
                     <Input
-                      type="number"
-                      min="0"
-                      max="100"
-                      placeholder="%"
-                      value={productMaterialPercent}
-                      onChange={e => setProductMaterialPercent(e.target.value)}
-                      className="h-8 text-xs rounded-lg bg-white dark:bg-slate-950 text-center font-bold border-slate-200 dark:border-slate-800"
+                      id="product-name"
+                      placeholder="e.g. Oak Dining Table"
+                      value={productName}
+                      onChange={e => setProductName(e.target.value)}
+                      className="text-xs h-9 rounded-xl border-slate-200 bg-white/50 focus:bg-white dark:border-slate-800 dark:bg-slate-950/50"
+                      required
                     />
                   </div>
-                  <div className="space-y-1">
-                    <span className="text-[9px] text-slate-450 dark:text-slate-500 font-bold uppercase block text-center">Lab %</span>
+
+                  {/* SKU & MOQ */}
+                  <div className="grid grid-cols-2 gap-3.5">
+                    <div className="space-y-1.5">
+                      <Label htmlFor="product-sku" className="text-xs font-semibold text-slate-700 dark:text-slate-300">
+                        {productItemType === 'PRODUCT' ? 'Product SKU' : 'Material SKU'}
+                      </Label>
+                      <Input
+                        id="product-sku"
+                        placeholder="e.g. ODT-042"
+                        value={productSku}
+                        onChange={e => setProductSku(e.target.value)}
+                        className="text-xs h-9 rounded-xl border-slate-200 bg-white/50 focus:bg-white dark:border-slate-800 dark:bg-slate-955/50"
+                      />
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label htmlFor="product-moq" className="text-xs font-semibold text-slate-700 dark:text-slate-300">
+                        Min Order Qty (MOQ)
+                      </Label>
+                      <Input
+                        id="product-moq"
+                        type="number"
+                        placeholder="e.g. 50"
+                        value={productMoq}
+                        onChange={e => setProductMoq(e.target.value)}
+                        className="text-xs h-9 rounded-xl border-slate-200 bg-white/50 focus:bg-white dark:border-slate-800 dark:bg-slate-955/50"
+                      />
+                    </div>
+                  </div>
+
+                  {/* Product Image Upload */}
+                  <div className="space-y-1.5">
+                    <Label className="text-xs font-semibold text-slate-700 dark:text-slate-300">Product Image</Label>
+                    <div className="flex items-center gap-3">
+                      {productImageUrl ? (
+                        <div className="relative h-16 w-16 rounded-xl border border-slate-200 dark:border-slate-800 overflow-hidden group">
+                          <img src={productImageUrl} alt="Preview" className="h-full w-full object-cover" />
+                          <button
+                            type="button"
+                            onClick={() => setProductImageUrl(null)}
+                            className="absolute inset-0 bg-rose-600/80 opacity-0 group-hover:opacity-100 flex items-center justify-center text-white transition-opacity cursor-pointer"
+                          >
+                            <X size={14} />
+                          </button>
+                        </div>
+                      ) : (
+                        <label className="h-16 w-16 rounded-xl border border-dashed border-slate-300 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-850 flex flex-col items-center justify-center text-slate-400 hover:text-slate-650 cursor-pointer transition-colors">
+                          <Upload size={16} />
+                          <span className="text-[9px] font-medium mt-1">Upload</span>
+                          <input
+                            type="file"
+                            accept="image/*"
+                            className="hidden"
+                            onChange={async (e) => {
+                              const file = e.target.files?.[0]
+                              if (file) {
+                                try {
+                                  const url = await uploadFile(file, supplier.id)
+                                  setProductImageUrl(url)
+                                  triggerToast('Product image uploaded successfully.')
+                                } catch (err: any) {
+                                  triggerToast(err.message || 'Failed to upload image.', 'error')
+                                }
+                              }
+                            }}
+                          />
+                        </label>
+                      )}
+                      <div className="text-[10px] text-slate-400 dark:text-slate-500 leading-normal max-w-[200px]">
+                        Choose a high-resolution photo. PNG, JPG or WEBP formats are supported.
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Technical Drawings Upload */}
+                  <div className="space-y-1.5 pt-1">
+                    <Label className="text-xs font-semibold text-slate-700 dark:text-slate-300">Technical Drawings</Label>
+                    <div className="space-y-2">
+                      <div className="flex items-center gap-3">
+                        <label className="h-10 px-4 rounded-xl border border-dashed border-slate-300 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-850 flex items-center justify-center gap-1.5 text-slate-500 hover:text-slate-750 cursor-pointer transition-colors text-xs font-semibold">
+                          {isUploadingDrawing ? (
+                            <Loader2 size={14} className="animate-spin text-indigo-500" />
+                          ) : (
+                            <Upload size={14} />
+                          )}
+                          <span>{isUploadingDrawing ? 'Uploading...' : 'Choose drawings...'}</span>
+                          <input
+                            type="file"
+                            multiple={true}
+                            disabled={isUploadingDrawing}
+                            className="hidden"
+                            onChange={async (e) => {
+                              const files = Array.from(e.target.files || [])
+                              if (files.length > 0) {
+                                setIsUploadingDrawing(true)
+                                try {
+                                  const urls = await Promise.all(
+                                    files.map(file => uploadFile(file, supplier.id))
+                                  )
+                                  setProductDrawingUrls(prev => [...prev, ...urls])
+                                  triggerToast('Technical drawings uploaded successfully.')
+                                } catch (err: any) {
+                                  triggerToast(err.message || 'Failed to upload drawings.', 'error')
+                                } finally {
+                                  setIsUploadingDrawing(false)
+                                }
+                              }
+                            }}
+                          />
+                        </label>
+                        <div className="text-[10px] text-slate-400 dark:text-slate-500 leading-normal max-w-[240px]">
+                          Upload technical drawings. PDF, images, CAD (.dwg, .dxf) or Excel formats are supported. Supports multiple selection.
+                        </div>
+                      </div>
+
+                      {/* Display list of uploaded drawings */}
+                      {productDrawingUrls.length > 0 && (
+                        <div className="flex flex-wrap gap-1.5 mt-2 max-h-32 overflow-y-auto p-1 border border-slate-100 dark:border-slate-850 rounded-xl bg-slate-50/20">
+                          {productDrawingUrls.map((url, urlIdx) => (
+                            <div key={urlIdx} className="flex items-center gap-1 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 px-2 py-1 rounded-lg text-[10px] text-slate-700 dark:text-slate-300 shadow-sm">
+                              <FileText size={12} className="text-indigo-500 shrink-0" />
+                              <span className="truncate max-w-[150px]" title={getCleanFileName(url, 'Drawing File')}>
+                                {getCleanFileName(url, 'Drawing File')}
+                              </span>
+                              <button
+                                type="button"
+                                onClick={() => setProductDrawingUrls(prev => prev.filter((_, idx) => idx !== urlIdx))}
+                                className="text-slate-400 hover:text-rose-500 p-0.5 rounded cursor-pointer transition-colors"
+                              >
+                                <X size={12} />
+                              </button>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+
+                {/* Right Column */}
+                <div className="space-y-4">
+                  {/* Price & Leadtime */}
+                  <div className="grid grid-cols-2 gap-3.5">
+                    <div className="space-y-1.5">
+                      <Label htmlFor="product-price" className="text-xs font-semibold text-slate-700 dark:text-slate-300">
+                        Default Price ($) <span className="text-red-500">*</span>
+                      </Label>
+                      <Input
+                        id="product-price"
+                        type="number"
+                        step="0.01"
+                        placeholder="120.00"
+                        value={defaultPrice}
+                        onChange={e => setDefaultPrice(e.target.value)}
+                        className="text-xs h-9 rounded-xl border-slate-200 bg-white/50 focus:bg-white dark:border-slate-800 dark:bg-slate-955/50"
+                        required
+                      />
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label htmlFor="product-leadtime" className="text-xs font-semibold text-slate-700 dark:text-slate-300">
+                        Lead Time (days)
+                      </Label>
+                      <Input
+                        id="product-leadtime"
+                        type="text"
+                        placeholder="e.g. 7-10"
+                        value={leadTime}
+                        onChange={e => setLeadTime(e.target.value)}
+                        className="text-xs h-9 rounded-xl border-slate-200 bg-white/50 focus:bg-white dark:border-slate-800 dark:bg-slate-955/50"
+                      />
+                    </div>
+                  </div>
+
+                  {/* Production Capacity */}
+                  <div className="space-y-1.5">
+                    <Label htmlFor="product-capacity" className="text-xs font-semibold text-slate-700 dark:text-slate-300">
+                      Production Capacity
+                    </Label>
                     <Input
-                      type="number"
-                      min="0"
-                      max="100"
-                      placeholder="%"
-                      value={productLaborPercent}
-                      onChange={e => setProductLaborPercent(e.target.value)}
-                      className="h-8 text-xs rounded-lg bg-white dark:bg-slate-950 text-center font-bold border-slate-200 dark:border-slate-800"
+                      id="product-capacity"
+                      placeholder="e.g. 1,000 units / month"
+                      value={productMonthlyCapacity}
+                      onChange={e => setProductMonthlyCapacity(e.target.value)}
+                      className="text-xs h-9 rounded-xl border-slate-200 bg-white/50 focus:bg-white dark:border-slate-800 dark:bg-slate-950/50"
                     />
                   </div>
-                  <div className="space-y-1">
-                    <span className="text-[9px] text-slate-450 dark:text-slate-500 font-bold uppercase block text-center">Over %</span>
-                    <Input
-                      type="number"
-                      min="0"
-                      max="100"
-                      placeholder="%"
-                      value={productOverheadPercent}
-                      onChange={e => setProductOverheadPercent(e.target.value)}
-                      className="h-8 text-xs rounded-lg bg-white dark:bg-slate-950 text-center font-bold border-slate-200 dark:border-slate-800"
-                    />
+
+                  {/* Cost Breakdown (%) */}
+                  <div className="space-y-2 bg-slate-50/50 dark:bg-slate-950/20 p-3 rounded-xl border border-slate-200 dark:border-slate-800">
+                    <div className="flex justify-between items-center text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">
+                      <span>Cost Breakdown (%)</span>
+                      {(() => {
+                        const m = parseFloat(productMaterialPercent) || 0
+                        const l = parseFloat(productLaborPercent) || 0
+                        const o = parseFloat(productOverheadPercent) || 0
+                        const p = parseFloat(productProfitPercent) || 0
+                        const total = m + l + o + p
+                        if (total === 0) return <span className="text-[9px] font-normal text-slate-450 normal-case">(Optional)</span>
+                        return (
+                          <span className={`text-[9px] font-bold ${total === 100 ? 'text-emerald-600 dark:text-emerald-400' : 'text-amber-500'}`}>
+                            Total: {total}% {total === 100 ? '✓' : '(Must sum to 100%)'}
+                          </span>
+                        )
+                      })()}
+                    </div>
+                    <div className="grid grid-cols-4 gap-2">
+                      <div className="space-y-1">
+                        <span className="text-[9px] text-slate-450 dark:text-slate-500 font-bold uppercase block text-center">Mat %</span>
+                        <Input
+                          type="number"
+                          min="0"
+                          max="100"
+                          placeholder="%"
+                          value={productMaterialPercent}
+                          onChange={e => setProductMaterialPercent(e.target.value)}
+                          className="h-8 text-xs rounded-lg bg-white dark:bg-slate-950 text-center font-bold border-slate-200 dark:border-slate-800"
+                        />
+                      </div>
+                      <div className="space-y-1">
+                        <span className="text-[9px] text-slate-450 dark:text-slate-500 font-bold uppercase block text-center">Lab %</span>
+                        <Input
+                          type="number"
+                          min="0"
+                          max="100"
+                          placeholder="%"
+                          value={productLaborPercent}
+                          onChange={e => setProductLaborPercent(e.target.value)}
+                          className="h-8 text-xs rounded-lg bg-white dark:bg-slate-950 text-center font-bold border-slate-200 dark:border-slate-800"
+                        />
+                      </div>
+                      <div className="space-y-1">
+                        <span className="text-[9px] text-slate-450 dark:text-slate-500 font-bold uppercase block text-center">Over %</span>
+                        <Input
+                          type="number"
+                          min="0"
+                          max="100"
+                          placeholder="%"
+                          value={productOverheadPercent}
+                          onChange={e => setProductOverheadPercent(e.target.value)}
+                          className="h-8 text-xs rounded-lg bg-white dark:bg-slate-950 text-center font-bold border-slate-200 dark:border-slate-800"
+                        />
+                      </div>
+                      <div className="space-y-1">
+                        <span className="text-[9px] text-slate-450 dark:text-slate-500 font-bold uppercase block text-center">Prof %</span>
+                        <Input
+                          type="number"
+                          min="0"
+                          max="100"
+                          placeholder="%"
+                          value={productProfitPercent}
+                          onChange={e => setProductProfitPercent(e.target.value)}
+                          className="h-8 text-xs rounded-lg bg-white dark:bg-slate-950 text-center font-bold border-slate-200 dark:border-slate-800"
+                        />
+                      </div>
+                    </div>
                   </div>
-                  <div className="space-y-1">
-                    <span className="text-[9px] text-slate-450 dark:text-slate-500 font-bold uppercase block text-center">Prof %</span>
-                    <Input
-                      type="number"
-                      min="0"
-                      max="100"
-                      placeholder="%"
-                      value={productProfitPercent}
-                      onChange={e => setProductProfitPercent(e.target.value)}
-                      className="h-8 text-xs rounded-lg bg-white dark:bg-slate-950 text-center font-bold border-slate-200 dark:border-slate-800"
+
+                  {/* Description */}
+                  <div className="space-y-1.5">
+                    <Label htmlFor="product-desc" className="text-xs font-semibold text-slate-700 dark:text-slate-300">
+                      {productItemType === 'PRODUCT' ? 'Product Description' : 'Material Description'}
+                    </Label>
+                    <textarea
+                      id="product-desc"
+                      placeholder="Describe material, specifications, quality details..."
+                      rows={2}
+                      value={productDescription}
+                      onChange={e => setProductDescription(e.target.value)}
+                      className="flex w-full rounded-xl border border-slate-200 bg-white/50 px-3 py-2 text-xs shadow-sm transition-colors placeholder:text-slate-400 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[#5c59e9] dark:border-slate-800 dark:bg-slate-955 resize-none animate-in fade-in duration-200"
                     />
                   </div>
                 </div>
@@ -2487,7 +2634,7 @@ export function SupplierDetailClient({ supplier }: SupplierDetailClientProps) {
             className="absolute inset-0 bg-black/40 backdrop-blur-sm"
             onClick={closeEditModal}
           />
-          <div className="relative z-10 w-full max-w-md bg-white dark:bg-slate-900 rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-800 animate-in zoom-in-95 duration-150">
+          <div className="relative z-10 w-full max-w-4xl bg-white dark:bg-slate-900 rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-800 animate-in zoom-in-95 duration-150">
             <div className="flex items-center justify-between px-5 py-4 border-b border-slate-100 dark:border-slate-800">
               <div>
                 <h3 className="text-sm font-bold text-slate-900 dark:text-white">
@@ -2509,207 +2656,323 @@ export function SupplierDetailClient({ supplier }: SupplierDetailClientProps) {
                 </div>
               )}
 
-              {/* Item Type Selector */}
-              <div className="space-y-1.5">
-                <Label className="text-xs font-semibold text-slate-700 dark:text-slate-300">
-                  Item Classification <span className="text-red-500">*</span>
-                </Label>
-                <div className="grid grid-cols-2 gap-2 bg-slate-50 dark:bg-slate-950/40 p-1 rounded-xl border border-slate-200/60 dark:border-slate-800">
-                  <button
-                    type="button"
-                    onClick={() => setProductItemType('PRODUCT')}
-                    className={`text-xs py-1.5 font-bold rounded-lg transition-all cursor-pointer ${
-                      productItemType === 'PRODUCT'
-                        ? 'bg-white dark:bg-slate-900 text-[#5c59e9] dark:text-indigo-400 shadow-sm border border-slate-100 dark:border-slate-800'
-                        : 'text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200 border border-transparent'
-                    }`}
-                  >
-                    Product
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setProductItemType('MATERIAL')}
-                    className={`text-xs py-1.5 font-bold rounded-lg transition-all cursor-pointer ${
-                      productItemType === 'MATERIAL'
-                        ? 'bg-white dark:bg-slate-900 text-[#5c59e9] dark:text-indigo-400 shadow-sm border border-slate-100 dark:border-slate-800'
-                        : 'text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200 border border-transparent'
-                    }`}
-                  >
-                    Material
-                  </button>
-                </div>
-              </div>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+                {/* Left Column */}
+                <div className="space-y-4">
+                  {/* Item Type Selector */}
+                  <div className="space-y-1.5">
+                    <Label className="text-xs font-semibold text-slate-700 dark:text-slate-300">
+                      Item Classification <span className="text-red-500">*</span>
+                    </Label>
+                    <div className="grid grid-cols-2 gap-2 bg-slate-50 dark:bg-slate-950/40 p-1 rounded-xl border border-slate-200/60 dark:border-slate-800">
+                      <button
+                        type="button"
+                        onClick={() => setProductItemType('PRODUCT')}
+                        className={`text-xs py-1.5 font-bold rounded-lg transition-all cursor-pointer ${
+                          productItemType === 'PRODUCT'
+                            ? 'bg-white dark:bg-slate-900 text-[#5c59e9] dark:text-indigo-400 shadow-sm border border-slate-100 dark:border-slate-800'
+                            : 'text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200 border border-transparent'
+                        }`}
+                      >
+                        Product
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setProductItemType('MATERIAL')}
+                        className={`text-xs py-1.5 font-bold rounded-lg transition-all cursor-pointer ${
+                          productItemType === 'MATERIAL'
+                            ? 'bg-white dark:bg-slate-900 text-[#5c59e9] dark:text-indigo-400 shadow-sm border border-slate-100 dark:border-slate-800'
+                            : 'text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200 border border-transparent'
+                        }`}
+                      >
+                        Material
+                      </button>
+                    </div>
+                  </div>
 
-              {/* Product Name */}
-              <div className="space-y-1.5">
-                <Label htmlFor="edit-product-name" className="text-xs font-semibold text-slate-700 dark:text-slate-300">
-                  {productItemType === 'PRODUCT' ? 'Product Name' : 'Material Name'} <span className="text-red-500">*</span>
-                </Label>
-                <Input
-                  id="edit-product-name"
-                  placeholder="e.g. Oak Dining Table"
-                  value={productName}
-                  onChange={e => setProductName(e.target.value)}
-                  className="text-xs h-9 rounded-xl border-slate-200 bg-white/50 focus:bg-white dark:border-slate-800 dark:bg-slate-950/50"
-                  required
-                />
-              </div>
-
-              {/* SKU & MOQ */}
-              <div className="grid grid-cols-2 gap-3.5">
-                <div className="space-y-1.5">
-                  <Label htmlFor="edit-product-sku" className="text-xs font-semibold text-slate-700 dark:text-slate-300">
-                    {productItemType === 'PRODUCT' ? 'Product SKU' : 'Material SKU'}
-                  </Label>
-                  <Input
-                    id="edit-product-sku"
-                    placeholder="e.g. ODT-042"
-                    value={productSku}
-                    onChange={e => setProductSku(e.target.value)}
-                    className="text-xs h-9 rounded-xl border-slate-200 bg-white/50 focus:bg-white dark:border-slate-800 dark:bg-slate-950/50"
-                  />
-                </div>
-                <div className="space-y-1.5">
-                  <Label htmlFor="edit-product-moq" className="text-xs font-semibold text-slate-700 dark:text-slate-300">
-                    Min Order Qty (MOQ)
-                  </Label>
-                  <Input
-                    id="edit-product-moq"
-                    type="number"
-                    placeholder="e.g. 50"
-                    value={productMoq}
-                    onChange={e => setProductMoq(e.target.value)}
-                    className="text-xs h-9 rounded-xl border-slate-200 bg-white/50 focus:bg-white dark:border-slate-855 dark:bg-slate-950/50"
-                  />
-                </div>
-              </div>
-
-              {/* Price & Leadtime */}
-              <div className="grid grid-cols-2 gap-3.5">
-                <div className="space-y-1.5">
-                  <Label htmlFor="edit-product-price" className="text-xs font-semibold text-slate-700 dark:text-slate-300">
-                    Default Price ($) <span className="text-red-500">*</span>
-                  </Label>
-                  <Input
-                    id="edit-product-price"
-                    type="number"
-                    step="0.01"
-                    placeholder="120.00"
-                    value={defaultPrice}
-                    onChange={e => setDefaultPrice(e.target.value)}
-                    className="text-xs h-9 rounded-xl border-slate-200 bg-white/50 focus:bg-white dark:border-slate-855 dark:bg-slate-950/50"
-                    required
-                  />
-                </div>
-                <div className="space-y-1.5">
-                  <Label htmlFor="edit-product-leadtime" className="text-xs font-semibold text-slate-700 dark:text-slate-300">
-                    Lead Time (days)
-                  </Label>
-                  <Input
-                    id="edit-product-leadtime"
-                    type="text"
-                    placeholder="e.g. 7-10"
-                    value={leadTime}
-                    onChange={e => setLeadTime(e.target.value)}
-                    className="text-xs h-9 rounded-xl border-slate-200 bg-white/50 focus:bg-white dark:border-slate-800 dark:bg-slate-955/50"
-                  />
-                </div>
-              </div>
-
-              {/* Production Capacity */}
-              <div className="space-y-1.5">
-                <Label htmlFor="edit-product-capacity" className="text-xs font-semibold text-slate-700 dark:text-slate-300">
-                  Production Capacity
-                </Label>
-                <Input
-                  id="edit-product-capacity"
-                  placeholder="e.g. 1,000 units / month"
-                  value={productMonthlyCapacity}
-                  onChange={e => setProductMonthlyCapacity(e.target.value)}
-                  className="text-xs h-9 rounded-xl border-slate-200 bg-white/50 focus:bg-white dark:border-slate-800 dark:bg-slate-950/50"
-                />
-              </div>
-
-              {/* Description */}
-              <div className="space-y-1.5">
-                <Label htmlFor="edit-product-desc" className="text-xs font-semibold text-slate-700 dark:text-slate-300">
-                  {productItemType === 'PRODUCT' ? 'Product Description' : 'Material Description'}
-                </Label>
-                <textarea
-                  id="edit-product-desc"
-                  placeholder="Describe material, specifications, quality details..."
-                  rows={2}
-                  value={productDescription}
-                  onChange={e => setProductDescription(e.target.value)}
-                  className="flex w-full rounded-xl border border-slate-200 bg-white/50 px-3 py-2 text-xs shadow-sm transition-colors placeholder:text-slate-400 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[#5c59e9] dark:border-slate-800 dark:bg-slate-955 resize-none animate-in fade-in duration-200"
-                />
-              </div>
-
-              {/* Cost Breakdown (%) */}
-              <div className="space-y-2 bg-slate-50/50 dark:bg-slate-955/20 p-3 rounded-xl border border-slate-200 dark:border-slate-800">
-                <div className="flex justify-between items-center text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">
-                  <span>Cost Breakdown (%)</span>
-                  {(() => {
-                    const m = parseFloat(productMaterialPercent) || 0
-                    const l = parseFloat(productLaborPercent) || 0
-                    const o = parseFloat(productOverheadPercent) || 0
-                    const p = parseFloat(productProfitPercent) || 0
-                    const total = m + l + o + p
-                    if (total === 0) return <span className="text-[9px] font-normal text-slate-450 normal-case">(Optional)</span>
-                    return (
-                      <span className={`text-[9px] font-bold ${total === 100 ? 'text-emerald-600 dark:text-emerald-400' : 'text-amber-500'}`}>
-                        Total: {total}% {total === 100 ? '✓' : '(Must sum to 100%)'}
-                      </span>
-                    )
-                  })()}
-                </div>
-                <div className="grid grid-cols-4 gap-2">
-                  <div className="space-y-1">
-                    <span className="text-[9px] text-slate-450 dark:text-slate-500 font-bold uppercase block text-center">Mat %</span>
+                  {/* Product Name */}
+                  <div className="space-y-1.5">
+                    <Label htmlFor="edit-product-name" className="text-xs font-semibold text-slate-700 dark:text-slate-300">
+                      {productItemType === 'PRODUCT' ? 'Product Name' : 'Material Name'} <span className="text-red-500">*</span>
+                    </Label>
                     <Input
-                      type="number"
-                      min="0"
-                      max="100"
-                      placeholder="%"
-                      value={productMaterialPercent}
-                      onChange={e => setProductMaterialPercent(e.target.value)}
-                      className="h-8 text-xs rounded-lg bg-white dark:bg-slate-950 text-center font-bold border-slate-200 dark:border-slate-800"
+                      id="edit-product-name"
+                      placeholder="e.g. Oak Dining Table"
+                      value={productName}
+                      onChange={e => setProductName(e.target.value)}
+                      className="text-xs h-9 rounded-xl border-slate-200 bg-white/50 focus:bg-white dark:border-slate-800 dark:bg-slate-950/50"
+                      required
                     />
                   </div>
-                  <div className="space-y-1">
-                    <span className="text-[9px] text-slate-450 dark:text-slate-500 font-bold uppercase block text-center">Lab %</span>
+
+                  {/* SKU & MOQ */}
+                  <div className="grid grid-cols-2 gap-3.5">
+                    <div className="space-y-1.5">
+                      <Label htmlFor="edit-product-sku" className="text-xs font-semibold text-slate-700 dark:text-slate-300">
+                        {productItemType === 'PRODUCT' ? 'Product SKU' : 'Material SKU'}
+                      </Label>
+                      <Input
+                        id="edit-product-sku"
+                        placeholder="e.g. ODT-042"
+                        value={productSku}
+                        onChange={e => setProductSku(e.target.value)}
+                        className="text-xs h-9 rounded-xl border-slate-200 bg-white/50 focus:bg-white dark:border-slate-800 dark:bg-slate-950/50"
+                      />
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label htmlFor="edit-product-moq" className="text-xs font-semibold text-slate-700 dark:text-slate-300">
+                        Min Order Qty (MOQ)
+                      </Label>
+                      <Input
+                        id="edit-product-moq"
+                        type="number"
+                        placeholder="e.g. 50"
+                        value={productMoq}
+                        onChange={e => setProductMoq(e.target.value)}
+                        className="text-xs h-9 rounded-xl border-slate-200 bg-white/50 focus:bg-white dark:border-slate-855 dark:bg-slate-950/50"
+                      />
+                    </div>
+                  </div>
+
+                  {/* Product Image Upload */}
+                  <div className="space-y-1.5">
+                    <Label className="text-xs font-semibold text-slate-700 dark:text-slate-300">Product Image</Label>
+                    <div className="flex items-center gap-3">
+                      {productImageUrl ? (
+                        <div className="relative h-16 w-16 rounded-xl border border-slate-200 dark:border-slate-800 overflow-hidden group">
+                          <img src={productImageUrl} alt="Preview" className="h-full w-full object-cover" />
+                          <button
+                            type="button"
+                            onClick={() => setProductImageUrl(null)}
+                            className="absolute inset-0 bg-rose-600/80 opacity-0 group-hover:opacity-100 flex items-center justify-center text-white transition-opacity cursor-pointer"
+                          >
+                            <X size={14} />
+                          </button>
+                        </div>
+                      ) : (
+                        <label className="h-16 w-16 rounded-xl border border-dashed border-slate-300 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-850 flex flex-col items-center justify-center text-slate-400 hover:text-slate-650 cursor-pointer transition-colors">
+                          <Upload size={16} />
+                          <span className="text-[9px] font-medium mt-1">Upload</span>
+                          <input
+                            type="file"
+                            accept="image/*"
+                            className="hidden"
+                            onChange={async (e) => {
+                              const file = e.target.files?.[0]
+                              if (file) {
+                                try {
+                                  const url = await uploadFile(file, supplier.id)
+                                  setProductImageUrl(url)
+                                  triggerToast('Product image uploaded successfully.')
+                                } catch (err: any) {
+                                  triggerToast(err.message || 'Failed to upload image.', 'error')
+                                }
+                              }
+                            }}
+                          />
+                        </label>
+                      )}
+                      <div className="text-[10px] text-slate-400 dark:text-slate-500 leading-normal max-w-[200px]">
+                        Choose a high-resolution photo. PNG, JPG or WEBP formats are supported.
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Technical Drawings Upload */}
+                  <div className="space-y-1.5 pt-1">
+                    <Label className="text-xs font-semibold text-slate-700 dark:text-slate-300">Technical Drawings</Label>
+                    <div className="space-y-2">
+                      <div className="flex items-center gap-3">
+                        <label className="h-10 px-4 rounded-xl border border-dashed border-slate-300 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-850 flex items-center justify-center gap-1.5 text-slate-500 hover:text-slate-750 cursor-pointer transition-colors text-xs font-semibold">
+                          {isUploadingDrawing ? (
+                            <Loader2 size={14} className="animate-spin text-indigo-500" />
+                          ) : (
+                            <Upload size={14} />
+                          )}
+                          <span>{isUploadingDrawing ? 'Uploading...' : 'Choose drawings...'}</span>
+                          <input
+                            type="file"
+                            multiple={true}
+                            disabled={isUploadingDrawing}
+                            className="hidden"
+                            onChange={async (e) => {
+                              const files = Array.from(e.target.files || [])
+                              if (files.length > 0) {
+                                setIsUploadingDrawing(true)
+                                try {
+                                  const urls = await Promise.all(
+                                    files.map(file => uploadFile(file, supplier.id))
+                                  )
+                                  setProductDrawingUrls(prev => [...prev, ...urls])
+                                  triggerToast('Technical drawings uploaded successfully.')
+                                } catch (err: any) {
+                                  triggerToast(err.message || 'Failed to upload drawings.', 'error')
+                                } finally {
+                                  setIsUploadingDrawing(false)
+                                }
+                              }
+                            }}
+                          />
+                        </label>
+                        <div className="text-[10px] text-slate-400 dark:text-slate-500 leading-normal max-w-[240px]">
+                          Upload technical drawings. PDF, images, CAD (.dwg, .dxf) or Excel formats are supported. Supports multiple selection.
+                        </div>
+                      </div>
+
+                      {/* Display list of uploaded drawings */}
+                      {productDrawingUrls.length > 0 && (
+                        <div className="flex flex-wrap gap-1.5 mt-2 max-h-32 overflow-y-auto p-1 border border-slate-100 dark:border-slate-850 rounded-xl bg-slate-50/20">
+                          {productDrawingUrls.map((url, urlIdx) => (
+                            <div key={urlIdx} className="flex items-center gap-1 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 px-2 py-1 rounded-lg text-[10px] text-slate-700 dark:text-slate-300 shadow-sm">
+                              <FileText size={12} className="text-indigo-500 shrink-0" />
+                              <span className="truncate max-w-[150px]" title={getCleanFileName(url, 'Drawing File')}>
+                                {getCleanFileName(url, 'Drawing File')}
+                              </span>
+                              <button
+                                type="button"
+                                onClick={() => setProductDrawingUrls(prev => prev.filter((_, idx) => idx !== urlIdx))}
+                                className="text-slate-400 hover:text-rose-500 p-0.5 rounded cursor-pointer transition-colors"
+                              >
+                                <X size={12} />
+                              </button>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+
+                {/* Right Column */}
+                <div className="space-y-4">
+                  {/* Price & Leadtime */}
+                  <div className="grid grid-cols-2 gap-3.5">
+                    <div className="space-y-1.5">
+                      <Label htmlFor="edit-product-price" className="text-xs font-semibold text-slate-700 dark:text-slate-300">
+                        Default Price ($) <span className="text-red-500">*</span>
+                      </Label>
+                      <Input
+                        id="edit-product-price"
+                        type="number"
+                        step="0.01"
+                        placeholder="120.00"
+                        value={defaultPrice}
+                        onChange={e => setDefaultPrice(e.target.value)}
+                        className="text-xs h-9 rounded-xl border-slate-200 bg-white/50 focus:bg-white dark:border-slate-855 dark:bg-slate-950/50"
+                        required
+                      />
+                    </div>
+                    <div className="space-y-1.5">
+                      <Label htmlFor="edit-product-leadtime" className="text-xs font-semibold text-slate-700 dark:text-slate-300">
+                        Lead Time (days)
+                      </Label>
+                      <Input
+                        id="edit-product-leadtime"
+                        type="text"
+                        placeholder="e.g. 7-10"
+                        value={leadTime}
+                        onChange={e => setLeadTime(e.target.value)}
+                        className="text-xs h-9 rounded-xl border-slate-200 bg-white/50 focus:bg-white dark:border-slate-800 dark:bg-slate-955/50"
+                      />
+                    </div>
+                  </div>
+
+                  {/* Production Capacity */}
+                  <div className="space-y-1.5">
+                    <Label htmlFor="edit-product-capacity" className="text-xs font-semibold text-slate-700 dark:text-slate-300">
+                      Production Capacity
+                    </Label>
                     <Input
-                      type="number"
-                      min="0"
-                      max="100"
-                      placeholder="%"
-                      value={productLaborPercent}
-                      onChange={e => setProductLaborPercent(e.target.value)}
-                      className="h-8 text-xs rounded-lg bg-white dark:bg-slate-950 text-center font-bold border-slate-200 dark:border-slate-800"
+                      id="edit-product-capacity"
+                      placeholder="e.g. 1,000 units / month"
+                      value={productMonthlyCapacity}
+                      onChange={e => setProductMonthlyCapacity(e.target.value)}
+                      className="text-xs h-9 rounded-xl border-slate-200 bg-white/50 focus:bg-white dark:border-slate-800 dark:bg-slate-950/50"
                     />
                   </div>
-                  <div className="space-y-1">
-                    <span className="text-[9px] text-slate-450 dark:text-slate-500 font-bold uppercase block text-center">Over %</span>
-                    <Input
-                      type="number"
-                      min="0"
-                      max="100"
-                      placeholder="%"
-                      value={productOverheadPercent}
-                      onChange={e => setProductOverheadPercent(e.target.value)}
-                      className="h-8 text-xs rounded-lg bg-white dark:bg-slate-950 text-center font-bold border-slate-200 dark:border-slate-800"
-                    />
+
+                  {/* Cost Breakdown (%) */}
+                  <div className="space-y-2 bg-slate-50/50 dark:bg-slate-955/20 p-3 rounded-xl border border-slate-200 dark:border-slate-800">
+                    <div className="flex justify-between items-center text-[10px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider">
+                      <span>Cost Breakdown (%)</span>
+                      {(() => {
+                        const m = parseFloat(productMaterialPercent) || 0
+                        const l = parseFloat(productLaborPercent) || 0
+                        const o = parseFloat(productOverheadPercent) || 0
+                        const p = parseFloat(productProfitPercent) || 0
+                        const total = m + l + o + p
+                        if (total === 0) return <span className="text-[9px] font-normal text-slate-450 normal-case">(Optional)</span>
+                        return (
+                          <span className={`text-[9px] font-bold ${total === 100 ? 'text-emerald-600 dark:text-emerald-400' : 'text-amber-500'}`}>
+                            Total: {total}% {total === 100 ? '✓' : '(Must sum to 100%)'}
+                          </span>
+                        )
+                      })()}
+                    </div>
+                    <div className="grid grid-cols-4 gap-2">
+                      <div className="space-y-1">
+                        <span className="text-[9px] text-slate-450 dark:text-slate-500 font-bold uppercase block text-center">Mat %</span>
+                        <Input
+                          type="number"
+                          min="0"
+                          max="100"
+                          placeholder="%"
+                          value={productMaterialPercent}
+                          onChange={e => setProductMaterialPercent(e.target.value)}
+                          className="h-8 text-xs rounded-lg bg-white dark:bg-slate-950 text-center font-bold border-slate-200 dark:border-slate-800"
+                        />
+                      </div>
+                      <div className="space-y-1">
+                        <span className="text-[9px] text-slate-450 dark:text-slate-500 font-bold uppercase block text-center">Lab %</span>
+                        <Input
+                          type="number"
+                          min="0"
+                          max="100"
+                          placeholder="%"
+                          value={productLaborPercent}
+                          onChange={e => setProductLaborPercent(e.target.value)}
+                          className="h-8 text-xs rounded-lg bg-white dark:bg-slate-950 text-center font-bold border-slate-200 dark:border-slate-800"
+                        />
+                      </div>
+                      <div className="space-y-1">
+                        <span className="text-[9px] text-slate-450 dark:text-slate-500 font-bold uppercase block text-center">Over %</span>
+                        <Input
+                          type="number"
+                          min="0"
+                          max="100"
+                          placeholder="%"
+                          value={productOverheadPercent}
+                          onChange={e => setProductOverheadPercent(e.target.value)}
+                          className="h-8 text-xs rounded-lg bg-white dark:bg-slate-950 text-center font-bold border-slate-200 dark:border-slate-800"
+                        />
+                      </div>
+                      <div className="space-y-1">
+                        <span className="text-[9px] text-slate-450 dark:text-slate-500 font-bold uppercase block text-center">Prof %</span>
+                        <Input
+                          type="number"
+                          min="0"
+                          max="100"
+                          placeholder="%"
+                          value={productProfitPercent}
+                          onChange={e => setProductProfitPercent(e.target.value)}
+                          className="h-8 text-xs rounded-lg bg-white dark:bg-slate-950 text-center font-bold border-slate-200 dark:border-slate-800"
+                        />
+                      </div>
+                    </div>
                   </div>
-                  <div className="space-y-1">
-                    <span className="text-[9px] text-slate-450 dark:text-slate-500 font-bold uppercase block text-center">Prof %</span>
-                    <Input
-                      type="number"
-                      min="0"
-                      max="100"
-                      placeholder="%"
-                      value={productProfitPercent}
-                      onChange={e => setProductProfitPercent(e.target.value)}
-                      className="h-8 text-xs rounded-lg bg-white dark:bg-slate-950 text-center font-bold border-slate-200 dark:border-slate-800"
+
+                  {/* Description */}
+                  <div className="space-y-1.5">
+                    <Label htmlFor="edit-product-desc" className="text-xs font-semibold text-slate-700 dark:text-slate-300">
+                      {productItemType === 'PRODUCT' ? 'Product Description' : 'Material Description'}
+                    </Label>
+                    <textarea
+                      id="edit-product-desc"
+                      placeholder="Describe material, specifications, quality details..."
+                      rows={2}
+                      value={productDescription}
+                      onChange={e => setProductDescription(e.target.value)}
+                      className="flex w-full rounded-xl border border-slate-200 bg-white/50 px-3 py-2 text-xs shadow-sm transition-colors placeholder:text-slate-400 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-[#5c59e9] dark:border-slate-800 dark:bg-slate-955 resize-none animate-in fade-in duration-200"
                     />
                   </div>
                 </div>
@@ -2960,11 +3223,49 @@ export function SupplierDetailClient({ supplier }: SupplierDetailClientProps) {
                         {viewingProduct.moq != null ? `${Number(viewingProduct.moq).toLocaleString()}` : '—'}
                       </span>
                     </div>
-                    <div className="col-span-2 md:col-span-4">
+                    <div className="col-span-2 md:col-span-2">
                       <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider block mb-0.5">Monthly Capacity</span>
                       <span className="text-xs font-semibold text-slate-700 dark:text-slate-355">
                         {viewingProduct.monthly_capacity || '—'}
                       </span>
+                    <div className="col-span-2 md:col-span-2">
+                      <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider block mb-0.5">Technical Drawings</span>
+                      {(() => {
+                        let urls: string[] = []
+                        if (viewingProduct.drawing_url) {
+                          if (viewingProduct.drawing_url.startsWith('[')) {
+                            try {
+                              urls = JSON.parse(viewingProduct.drawing_url)
+                            } catch (e) {
+                              urls = [viewingProduct.drawing_url]
+                            }
+                          } else {
+                            urls = [viewingProduct.drawing_url]
+                          }
+                        }
+                        if (urls.length === 0) {
+                          return <span className="text-xs font-semibold text-slate-350 dark:text-slate-655 italic mt-1 block">No drawings uploaded</span>
+                        }
+                        return (
+                          <div className="flex flex-col gap-1.5 mt-1" onClick={(e) => e.stopPropagation()}>
+                            {urls.map((url, urlIdx) => (
+                              <a
+                                key={urlIdx}
+                                href={url}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="inline-flex items-center gap-1 text-xs text-indigo-650 hover:text-indigo-800 dark:text-indigo-400 dark:hover:text-indigo-300 hover:underline font-bold"
+                              >
+                                <FileText size={12} className="text-indigo-500 shrink-0" />
+                                <span className="truncate max-w-[120px]" title={getCleanFileName(url, 'Drawing File')}>
+                                  {getCleanFileName(url, 'Drawing File')}
+                                </span>
+                              </a>
+                            ))}
+                          </div>
+                        )
+                      })()}
+                    </div>
                     </div>
                   </div>
 
@@ -3246,6 +3547,20 @@ export function SupplierDetailClient({ supplier }: SupplierDetailClientProps) {
                     setProductLaborPercent(viewingProduct.labor_cost_percent != null ? String(viewingProduct.labor_cost_percent) : '')
                     setProductOverheadPercent(viewingProduct.overhead_cost_percent != null ? String(viewingProduct.overhead_cost_percent) : '')
                     setProductProfitPercent(viewingProduct.profit_margin_percent != null ? String(viewingProduct.profit_margin_percent) : '')
+                    setProductImageUrl(viewingProduct.image_url || null)
+                    let parsedUrls: string[] = []
+                    if (viewingProduct.drawing_url) {
+                      if (viewingProduct.drawing_url.startsWith('[')) {
+                        try {
+                          parsedUrls = JSON.parse(viewingProduct.drawing_url)
+                        } catch (e) {
+                          parsedUrls = [viewingProduct.drawing_url]
+                        }
+                      } else {
+                        parsedUrls = [viewingProduct.drawing_url]
+                      }
+                    }
+                    setProductDrawingUrls(parsedUrls)
                     setProductItemType(viewingProduct.item_type || 'PRODUCT')
                     setProductError(null)
                     setReopenDetailsOnClose(viewingProduct)
@@ -3290,6 +3605,27 @@ export function SupplierDetailClient({ supplier }: SupplierDetailClientProps) {
           </div>
         ))}
       </div>
+
+      {/* Product Image Lightbox Modal */}
+      {lightboxImage && (
+        <div 
+          className="fixed inset-0 z-[130] flex items-center justify-center bg-black/70 backdrop-blur-sm transition-all duration-300 animate-in fade-in"
+          onClick={() => setLightboxImage(null)}
+        >
+          <div 
+            className="relative max-w-3xl max-h-[85vh] p-2 bg-white dark:bg-slate-900 rounded-3xl shadow-2xl border border-slate-200 dark:border-slate-800 animate-in zoom-in-95 duration-200" 
+            onClick={e => e.stopPropagation()}
+          >
+            <img src={lightboxImage} alt="Product Zoom" className="max-w-full max-h-[80vh] rounded-2xl object-contain shadow-sm" />
+            <button 
+              onClick={() => setLightboxImage(null)}
+              className="absolute -top-3 -right-3 h-8 w-8 flex items-center justify-center bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 rounded-full hover:bg-slate-100 dark:hover:bg-slate-700 transition-all cursor-pointer shadow-lg"
+            >
+              <X size={15} />
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

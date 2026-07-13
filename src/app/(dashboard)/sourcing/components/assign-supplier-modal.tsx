@@ -17,7 +17,7 @@ interface AssignSupplierModalProps {
   uniqueSuppliers: UniqueSupplier[]
   selectedOrderId: string | null
   viewMode: 'order' | 'all'
-  subtab: 'overview' | 'suppliers' | 'workplace'
+  subtab: 'overview' | 'suppliers' | 'workplace' | 'launches'
   onSuccess: () => Promise<void>
   addSupplierNormalizedAction: (payload: any, resolution?: 'skip' | 'overwrite' | null, isProfilesTab?: boolean) => Promise<any>
   onDuplicateDetected?: (duplicates: any[], payload: any) => void
@@ -26,7 +26,7 @@ interface AssignSupplierModalProps {
 
 // Helper function to match product names using Keyword Intersection matching with a 60% threshold
 // Incorporates a fallback to general category matching (e.g. matching "Round Chair" with any "Chair")
-const matchProductNames = (nameA: string, nameB: string): boolean => {
+export const matchProductNames = (nameA: string, nameB: string): boolean => {
   const cleanA = (nameA || '').toLowerCase().trim()
   const cleanB = (nameB || '').toLowerCase().trim()
   
@@ -374,6 +374,21 @@ export function AssignSupplierModal({
 
       if (result.success) {
         await onSuccess()
+        onClose()
+      } else if (result.duplicateDetected && onDuplicateDetected) {
+        onDuplicateDetected(result.duplicates, {
+          supplierName,
+          email,
+          phone,
+          address,
+          orderId: orderId || null,
+          items: bids,
+          capabilities: caps,
+          website,
+          contactPerson,
+          taxId,
+          mainProducts
+        })
         onClose()
       } else {
         setErrorMessage(result.error || 'Failed to add supplier.')
@@ -944,7 +959,8 @@ export function AssignSupplierModal({
                     {matchingCapabilities.map((cap: any) => {
                       const mappingItem = orders.find(o => o.id === manualForm.orderId)?.order_items?.find(item => {
                         const bid = itemBids[item.id]
-                        return bid?.checked && bid.selectedCapId === (cap.id || cap.product_name)
+                        const isAssigned = isAlreadyAssigned(matchedSupplier?.id || '', item.id, Number(cap.target_price))
+                        return bid?.checked && !isAssigned && bid.selectedCapId === (cap.id || cap.product_name)
                       })
                       const isSelected = !!mappingItem
 

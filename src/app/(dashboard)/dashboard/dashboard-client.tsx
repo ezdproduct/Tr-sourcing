@@ -2,6 +2,7 @@
 
 import React, { useState } from 'react'
 import { useRouter } from 'next/navigation'
+import Link from 'next/link'
 import { useSourcing } from '@/providers/sourcing-provider'
 import { KanbanBoard } from '@/app/(dashboard)/orders/kanban-board'
 import { updateOrderStageAction } from '@/app/(dashboard)/orders/actions'
@@ -231,111 +232,129 @@ export function DashboardClient(props: DashboardClientProps) {
           <div>
             <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-3">Volume & Pipeline</h3>
             <div className="grid gap-4 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-5 mb-6">
-              <Card className="border-slate-200/60 dark:border-slate-800/80 bg-white/50 dark:bg-slate-900/40 shadow-xs">
-                <CardHeader className="flex flex-row items-center justify-between pb-2">
-                  <CardTitle className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Total Active Orders</CardTitle>
-                  <div className="p-1.5 bg-indigo-50 dark:bg-indigo-950/40 rounded-lg"><Package className="h-4 w-4 text-indigo-500" /></div>
-                </CardHeader>
-                <CardContent>
-                  <div className="text-2xl font-black text-slate-900 dark:text-white">{props.totalActiveOrders}</div>
-                  <p className="text-[10px] text-slate-400 mt-1 font-medium">Orders in workflow</p>
-                </CardContent>
-              </Card>
+              <Link href="/orders" className="block cursor-pointer">
+                <Card className="border-slate-200/60 dark:border-slate-800/80 bg-white/50 dark:bg-slate-900/40 shadow-xs hover:border-indigo-300 dark:hover:border-indigo-800 hover:shadow-md transition-all duration-300 h-full">
+                  <CardHeader className="flex flex-row items-center justify-between pb-2">
+                    <CardTitle className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Total Active Orders</CardTitle>
+                    <div className="p-1.5 bg-indigo-50 dark:bg-indigo-950/40 rounded-lg"><Package className="h-4 w-4 text-indigo-500" /></div>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="text-2xl font-black text-slate-900 dark:text-white">{props.totalActiveOrders}</div>
+                    <p className="text-[10px] text-slate-400 mt-1 font-medium">Orders in workflow</p>
+                  </CardContent>
+                </Card>
+              </Link>
 
-              <Card className="border-slate-200/60 dark:border-slate-800/80 bg-white/50 dark:bg-slate-900/40 shadow-xs">
-                <CardHeader className="flex flex-row items-center justify-between pb-2">
-                  <CardTitle className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Total Suppliers</CardTitle>
-                  <div className="p-1.5 bg-indigo-50 dark:bg-indigo-950/40 rounded-lg"><Handshake className="h-4 w-4 text-indigo-500" /></div>
-                </CardHeader>
-                <CardContent>
-                  <div className="text-2xl font-black text-slate-900 dark:text-white">{props.masterSuppliers.length}</div>
-                  <p className="text-[10px] text-slate-400 mt-1 font-medium">
-                    {props.filteredMasterSuppliers.length !== props.masterSuppliers.length 
-                      ? `${props.filteredMasterSuppliers.length} added in timeframe`
-                      : 'Master database'}
-                  </p>
-                </CardContent>
-              </Card>
+              <Link href="/sourcing?subtab=suppliers" className="block cursor-pointer">
+                <Card className="border-slate-200/60 dark:border-slate-800/80 bg-white/50 dark:bg-slate-900/40 shadow-xs hover:border-indigo-300 dark:hover:border-indigo-800 hover:shadow-md transition-all duration-300 h-full">
+                  <CardHeader className="flex flex-row items-center justify-between pb-2">
+                    <CardTitle className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Total Suppliers</CardTitle>
+                    <div className="p-1.5 bg-indigo-50 dark:bg-indigo-950/40 rounded-lg"><Handshake className="h-4 w-4 text-indigo-500" /></div>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="text-2xl font-black text-slate-900 dark:text-white">{props.masterSuppliers.length}</div>
+                    <p className="text-[10px] text-slate-400 mt-1 font-medium">
+                      {props.filteredMasterSuppliers.length !== props.masterSuppliers.length 
+                        ? `${props.filteredMasterSuppliers.length} added in timeframe`
+                        : 'Master database'}
+                    </p>
+                  </CardContent>
+                </Card>
+              </Link>
 
-              <Card className="border-slate-200/60 dark:border-slate-800/80 bg-white/50 dark:bg-slate-900/40 shadow-xs">
-                <CardHeader className="flex flex-row items-center justify-between pb-2">
-                  <CardTitle className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Suppliers Evaluated</CardTitle>
-                  <div className="p-1.5 bg-indigo-50 dark:bg-indigo-950/40 rounded-lg"><ShoppingBag className="h-4 w-4 text-indigo-500" /></div>
-                </CardHeader>
-                <CardContent>
-                  <div className="text-2xl font-black text-slate-900 dark:text-white">{props.suppliersEvaluated}</div>
-                  <p className="text-[10px] text-slate-400 mt-1 font-medium">Bids in system</p>
-                </CardContent>
-              </Card>
+              <Link href="/sourcing?subtab=workplace" className="block cursor-pointer">
+                <Card className="border-slate-200/60 dark:border-slate-800/80 bg-white/50 dark:bg-slate-900/40 shadow-xs hover:border-indigo-300 dark:hover:border-indigo-800 hover:shadow-md transition-all duration-300 h-full">
+                  <CardHeader className="flex flex-row items-center justify-between pb-2">
+                    <CardTitle className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Suppliers Evaluated</CardTitle>
+                    <div className="p-1.5 bg-indigo-50 dark:bg-indigo-950/40 rounded-lg"><ShoppingBag className="h-4 w-4 text-indigo-500" /></div>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="text-2xl font-black text-slate-900 dark:text-white">{props.suppliersEvaluated}</div>
+                    <p className="text-[10px] text-slate-400 mt-1 font-medium">Bids in system</p>
+                  </CardContent>
+                </Card>
+              </Link>
 
-              <Card className="border-slate-200/60 dark:border-slate-800/80 bg-white/50 dark:bg-slate-900/40 shadow-xs">
-                <CardHeader className="flex flex-row items-center justify-between pb-2">
-                  <CardTitle className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Shortlisted Suppliers</CardTitle>
-                  <div className="p-1.5 bg-emerald-50 dark:bg-emerald-950/40 rounded-lg"><CheckCircle2 className="h-4 w-4 text-emerald-500" /></div>
-                </CardHeader>
-                <CardContent>
-                  <div className="text-2xl font-black text-slate-900 dark:text-white">{props.shortlistedSuppliers}</div>
-                  <p className="text-[10px] text-slate-400 mt-1 font-medium">Qualified candidates</p>
-                </CardContent>
-              </Card>
+              <Link href="/sourcing?subtab=workplace" className="block cursor-pointer">
+                <Card className="border-slate-200/60 dark:border-slate-800/80 bg-white/50 dark:bg-slate-900/40 shadow-xs hover:border-indigo-300 dark:hover:border-indigo-800 hover:shadow-md transition-all duration-300 h-full">
+                  <CardHeader className="flex flex-row items-center justify-between pb-2">
+                    <CardTitle className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Shortlisted Suppliers</CardTitle>
+                    <div className="p-1.5 bg-emerald-50 dark:bg-emerald-950/40 rounded-lg"><CheckCircle2 className="h-4 w-4 text-emerald-500" /></div>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="text-2xl font-black text-slate-900 dark:text-white">{props.shortlistedSuppliers}</div>
+                    <p className="text-[10px] text-slate-400 mt-1 font-medium">Qualified candidates</p>
+                  </CardContent>
+                </Card>
+              </Link>
 
-              <Card className="border-slate-200/60 dark:border-slate-800/80 bg-white/50 dark:bg-slate-900/40 shadow-xs">
-                <CardHeader className="flex flex-row items-center justify-between pb-2">
-                  <CardTitle className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">POs Confirmed</CardTitle>
-                  <div className="p-1.5 bg-emerald-50 dark:bg-emerald-950/40 rounded-lg"><CheckCircle2 className="h-4 w-4 text-emerald-500" /></div>
-                </CardHeader>
-                <CardContent>
-                  <div className="text-2xl font-black text-slate-900 dark:text-white">{props.posConfirmed}</div>
-                  <p className="text-[10px] text-slate-400 mt-1 font-medium">Purchase orders active</p>
-                </CardContent>
-              </Card>
+              <Link href="/orders" className="block cursor-pointer">
+                <Card className="border-slate-200/60 dark:border-slate-800/80 bg-white/50 dark:bg-slate-900/40 shadow-xs hover:border-indigo-300 dark:hover:border-indigo-800 hover:shadow-md transition-all duration-300 h-full">
+                  <CardHeader className="flex flex-row items-center justify-between pb-2">
+                    <CardTitle className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">POs Confirmed</CardTitle>
+                    <div className="p-1.5 bg-emerald-50 dark:bg-emerald-950/40 rounded-lg"><CheckCircle2 className="h-4 w-4 text-emerald-500" /></div>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="text-2xl font-black text-slate-900 dark:text-white">{props.posConfirmed}</div>
+                    <p className="text-[10px] text-slate-400 mt-1 font-medium">Purchase orders active</p>
+                  </CardContent>
+                </Card>
+              </Link>
             </div>
 
             <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-3">Quality & Operations</h3>
             <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-              <Card className="border-slate-200/60 dark:border-slate-800/80 bg-white/50 dark:bg-slate-900/40 shadow-xs">
-                <CardHeader className="flex flex-row items-center justify-between pb-2">
-                  <CardTitle className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">QA Factory Pass Rate</CardTitle>
-                  <div className="p-1.5 bg-teal-50 dark:bg-teal-950/40 rounded-lg"><ShieldCheck className="h-4 w-4 text-teal-500" /></div>
-                </CardHeader>
-                <CardContent>
-                  <div className="text-2xl font-black text-slate-900 dark:text-white">{props.qaPassRate.toFixed(1)}%</div>
-                  <p className="text-[10px] text-slate-400 mt-1 font-medium">Audit clearance score</p>
-                </CardContent>
-              </Card>
+              <Link href="/audit" className="block cursor-pointer">
+                <Card className="border-slate-200/60 dark:border-slate-800/80 bg-white/50 dark:bg-slate-900/40 shadow-xs hover:border-teal-300 dark:hover:border-teal-850 hover:shadow-md transition-all duration-300 h-full">
+                  <CardHeader className="flex flex-row items-center justify-between pb-2">
+                    <CardTitle className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">QA Factory Pass Rate</CardTitle>
+                    <div className="p-1.5 bg-teal-50 dark:bg-teal-950/40 rounded-lg"><ShieldCheck className="h-4 w-4 text-teal-500" /></div>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="text-2xl font-black text-slate-900 dark:text-white">{props.qaPassRate.toFixed(1)}%</div>
+                    <p className="text-[10px] text-slate-400 mt-1 font-medium">Audit clearance score</p>
+                  </CardContent>
+                </Card>
+              </Link>
 
-              <Card className="border-slate-200/60 dark:border-slate-800/80 bg-white/50 dark:bg-slate-900/40 shadow-xs">
-                <CardHeader className="flex flex-row items-center justify-between pb-2">
-                  <CardTitle className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Inbound Compliance</CardTitle>
-                  <div className="p-1.5 bg-teal-50 dark:bg-teal-950/40 rounded-lg"><ShieldCheck className="h-4 w-4 text-teal-500" /></div>
-                </CardHeader>
-                <CardContent>
-                  <div className="text-2xl font-black text-slate-900 dark:text-white">{props.inspectionComplianceRate.toFixed(1)}%</div>
-                  <p className="text-[10px] text-slate-400 mt-1 font-medium">Compliance at port</p>
-                </CardContent>
-              </Card>
+              <Link href="/inspection" className="block cursor-pointer">
+                <Card className="border-slate-200/60 dark:border-slate-800/80 bg-white/50 dark:bg-slate-900/40 shadow-xs hover:border-teal-300 dark:hover:border-teal-850 hover:shadow-md transition-all duration-300 h-full">
+                  <CardHeader className="flex flex-row items-center justify-between pb-2">
+                    <CardTitle className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Inbound Compliance</CardTitle>
+                    <div className="p-1.5 bg-teal-50 dark:bg-teal-950/40 rounded-lg"><ShieldCheck className="h-4 w-4 text-teal-500" /></div>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="text-2xl font-black text-slate-900 dark:text-white">{props.inspectionComplianceRate.toFixed(1)}%</div>
+                    <p className="text-[10px] text-slate-400 mt-1 font-medium">Compliance at port</p>
+                  </CardContent>
+                </Card>
+              </Link>
 
-              <Card className="border-slate-200/60 dark:border-slate-800/80 bg-white/50 dark:bg-slate-900/40 shadow-xs">
-                <CardHeader className="flex flex-row items-center justify-between pb-2">
-                  <CardTitle className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Avg Defect Rate</CardTitle>
-                  <div className="p-1.5 bg-rose-50 dark:bg-rose-950/40 rounded-lg"><TrendingDown className="h-4 w-4 text-rose-500" /></div>
-                </CardHeader>
-                <CardContent>
-                  <div className="text-2xl font-black text-slate-900 dark:text-white">{props.avgDefectRate.toFixed(2)}%</div>
-                  <p className="text-[10px] text-slate-400 mt-1 font-medium">Lower is better (target &lt; 2.5%)</p>
-                </CardContent>
-              </Card>
+              <Link href="/inspection" className="block cursor-pointer">
+                <Card className="border-slate-200/60 dark:border-slate-800/80 bg-white/50 dark:bg-slate-900/40 shadow-xs hover:border-rose-300 dark:hover:border-rose-850 hover:shadow-md transition-all duration-300 h-full">
+                  <CardHeader className="flex flex-row items-center justify-between pb-2">
+                    <CardTitle className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Avg Defect Rate</CardTitle>
+                    <div className="p-1.5 bg-rose-50 dark:bg-rose-950/40 rounded-lg"><TrendingDown className="h-4 w-4 text-rose-500" /></div>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="text-2xl font-black text-slate-900 dark:text-white">{props.avgDefectRate.toFixed(2)}%</div>
+                    <p className="text-[10px] text-slate-400 mt-1 font-medium">Lower is better (target &lt; 2.5%)</p>
+                  </CardContent>
+                </Card>
+              </Link>
 
-              <Card className="border-slate-200/60 dark:border-slate-800/80 bg-white/50 dark:bg-slate-900/40 shadow-xs">
-                <CardHeader className="flex flex-row items-center justify-between pb-2">
-                  <CardTitle className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Mfg Assembly Progress</CardTitle>
-                  <div className="p-1.5 bg-indigo-50 dark:bg-indigo-950/40 rounded-lg"><Activity className="h-4 w-4 text-indigo-500" /></div>
-                </CardHeader>
-                <CardContent>
-                  <div className="text-2xl font-black text-slate-900 dark:text-white">{props.mfgCompletionRate.toFixed(1)}%</div>
-                  <p className="text-[10px] text-slate-400 mt-1 font-medium">Units assembled vs target</p>
-                </CardContent>
-              </Card>
+              <Link href="/production" className="block cursor-pointer">
+                <Card className="border-slate-200/60 dark:border-slate-800/80 bg-white/50 dark:bg-slate-900/40 shadow-xs hover:border-indigo-300 dark:hover:border-indigo-850 hover:shadow-md transition-all duration-300 h-full">
+                  <CardHeader className="flex flex-row items-center justify-between pb-2">
+                    <CardTitle className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Mfg Assembly Progress</CardTitle>
+                    <div className="p-1.5 bg-indigo-50 dark:bg-indigo-950/40 rounded-lg"><Activity className="h-4 w-4 text-indigo-500" /></div>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="text-2xl font-black text-slate-900 dark:text-white">{props.mfgCompletionRate.toFixed(1)}%</div>
+                    <p className="text-[10px] text-slate-400 mt-1 font-medium">Units assembled vs target</p>
+                  </CardContent>
+                </Card>
+              </Link>
             </div>
           </div>
 
@@ -344,119 +363,131 @@ export function DashboardClient(props: DashboardClientProps) {
             <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-3">Module Status & Health Overview</h3>
             <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
               {/* Orders */}
-              <Card className="border-slate-200/60 dark:border-slate-800/80 bg-white/70 dark:bg-slate-900/60 shadow-xs">
-                <CardHeader className="pb-2">
-                  <div className="flex items-center justify-between">
-                    <span className="text-[11px] font-black text-slate-700 dark:text-slate-200 uppercase tracking-wider flex items-center gap-1.5">
-                      <Package size={14} className="text-indigo-500" />
-                      <span>Order Management</span>
-                    </span>
-                    <Badge variant="outline" className={`text-[9px] font-bold rounded-full border-0 px-2 py-0.5 ${props.ordersHealth === 'Healthy' ? 'bg-emerald-500/10 text-emerald-600' : 'bg-amber-500/10 text-amber-600'}`}>
-                      {props.ordersHealth}
-                    </Badge>
-                  </div>
-                </CardHeader>
-                <CardContent className="text-xs text-slate-600 dark:text-slate-400 space-y-1">
-                  <div className="flex justify-between"><span className="font-semibold">Total Orders:</span> <span>{props.orders.length}</span></div>
-                  <div className="flex justify-between"><span className="font-semibold">Active Orders:</span> <span>{props.totalActiveOrders}</span></div>
-                </CardContent>
-              </Card>
+              <Link href="/orders" className="block cursor-pointer">
+                <Card className="border-slate-200/60 dark:border-slate-800/80 bg-white/70 dark:bg-slate-900/60 shadow-xs hover:border-indigo-300 dark:hover:border-indigo-850 hover:shadow-md transition-all duration-300 h-full">
+                  <CardHeader className="pb-2">
+                    <div className="flex items-center justify-between">
+                      <span className="text-[11px] font-black text-slate-700 dark:text-slate-200 uppercase tracking-wider flex items-center gap-1.5">
+                        <Package size={14} className="text-indigo-500" />
+                        <span>Order Management</span>
+                      </span>
+                      <Badge variant="outline" className={`text-[9px] font-bold rounded-full border-0 px-2 py-0.5 ${props.ordersHealth === 'Healthy' ? 'bg-emerald-500/10 text-emerald-600' : 'bg-amber-500/10 text-amber-600'}`}>
+                        {props.ordersHealth}
+                      </Badge>
+                    </div>
+                  </CardHeader>
+                  <CardContent className="text-xs text-slate-600 dark:text-slate-400 space-y-1">
+                    <div className="flex justify-between"><span className="font-semibold">Total Orders:</span> <span>{props.orders.length}</span></div>
+                    <div className="flex justify-between"><span className="font-semibold">Active Orders:</span> <span>{props.totalActiveOrders}</span></div>
+                  </CardContent>
+                </Card>
+              </Link>
 
               {/* Sourcing */}
-              <Card className="border-slate-200/60 dark:border-slate-800/80 bg-white/70 dark:bg-slate-900/60 shadow-xs">
-                <CardHeader className="pb-2">
-                  <div className="flex items-center justify-between">
-                    <span className="text-[11px] font-black text-slate-700 dark:text-slate-200 uppercase tracking-wider flex items-center gap-1.5">
-                      <ShoppingBag size={14} className="text-indigo-500" />
-                      <span>Sourcing Management</span>
-                    </span>
-                    <Badge variant="outline" className={`text-[9px] font-bold rounded-full border-0 px-2 py-0.5 ${props.sourcingHealth === 'Healthy' ? 'bg-emerald-500/10 text-emerald-600' : 'bg-amber-500/10 text-amber-600'}`}>
-                      {props.sourcingHealth}
-                    </Badge>
-                  </div>
-                </CardHeader>
-                <CardContent className="text-xs text-slate-600 dark:text-slate-400 space-y-1">
-                  <div className="flex justify-between"><span className="font-semibold">Total Suppliers:</span> <span>{props.masterSuppliers.length}</span></div>
-                  <div className="flex justify-between"><span className="font-semibold">Bids Evaluated:</span> <span>{props.suppliersEvaluated}</span></div>
-                  <div className="flex justify-between"><span className="font-semibold">Shortlisted:</span> <span>{props.shortlistedSuppliers}</span></div>
-                </CardContent>
-              </Card>
+              <Link href="/sourcing?subtab=suppliers" className="block cursor-pointer">
+                <Card className="border-slate-200/60 dark:border-slate-800/80 bg-white/70 dark:bg-slate-900/60 shadow-xs hover:border-indigo-300 dark:hover:border-indigo-850 hover:shadow-md transition-all duration-300 h-full">
+                  <CardHeader className="pb-2">
+                    <div className="flex items-center justify-between">
+                      <span className="text-[11px] font-black text-slate-700 dark:text-slate-200 uppercase tracking-wider flex items-center gap-1.5">
+                        <ShoppingBag size={14} className="text-indigo-500" />
+                        <span>Sourcing Management</span>
+                      </span>
+                      <Badge variant="outline" className={`text-[9px] font-bold rounded-full border-0 px-2 py-0.5 ${props.sourcingHealth === 'Healthy' ? 'bg-emerald-500/10 text-emerald-600' : 'bg-amber-500/10 text-amber-600'}`}>
+                        {props.sourcingHealth}
+                      </Badge>
+                    </div>
+                  </CardHeader>
+                  <CardContent className="text-xs text-slate-600 dark:text-slate-400 space-y-1">
+                    <div className="flex justify-between"><span className="font-semibold">Total Suppliers:</span> <span>{props.masterSuppliers.length}</span></div>
+                    <div className="flex justify-between"><span className="font-semibold">Bids Evaluated:</span> <span>{props.suppliersEvaluated}</span></div>
+                    <div className="flex justify-between"><span className="font-semibold">Shortlisted:</span> <span>{props.shortlistedSuppliers}</span></div>
+                  </CardContent>
+                </Card>
+              </Link>
 
               {/* Quality Audit */}
-              <Card className="border-slate-200/60 dark:border-slate-800/80 bg-white/70 dark:bg-slate-900/60 shadow-xs">
-                <CardHeader className="pb-2">
-                  <div className="flex items-center justify-between">
-                    <span className="text-[11px] font-black text-slate-700 dark:text-slate-200 uppercase tracking-wider flex items-center gap-1.5">
-                      <ShieldCheck size={14} className="text-teal-500" />
-                      <span>Quality Control</span>
-                    </span>
-                    <Badge variant="outline" className={`text-[9px] font-bold rounded-full border-0 px-2 py-0.5 ${props.auditsHealth === 'Healthy' ? 'bg-emerald-500/10 text-emerald-600' : 'bg-rose-500/10 text-rose-600'}`}>
-                      {props.auditsHealth}
-                    </Badge>
-                  </div>
-                </CardHeader>
-                <CardContent className="text-xs text-slate-600 dark:text-slate-400 space-y-1">
-                  <div className="flex justify-between"><span className="font-semibold">Scheduled Audits:</span> <span>{props.filteredAudits.filter(a => a.audit_status === 'Scheduled').length}</span></div>
-                  <div className="flex justify-between"><span className="font-semibold">Completed Audits:</span> <span>{props.filteredAudits.filter(a => a.audit_status === 'Completed').length}</span></div>
-                </CardContent>
-              </Card>
+              <Link href="/audit" className="block cursor-pointer">
+                <Card className="border-slate-200/60 dark:border-slate-800/80 bg-white/70 dark:bg-slate-900/60 shadow-xs hover:border-teal-300 dark:hover:border-teal-850 hover:shadow-md transition-all duration-300 h-full">
+                  <CardHeader className="pb-2">
+                    <div className="flex items-center justify-between">
+                      <span className="text-[11px] font-black text-slate-700 dark:text-slate-200 uppercase tracking-wider flex items-center gap-1.5">
+                        <ShieldCheck size={14} className="text-teal-500" />
+                        <span>Quality Control</span>
+                      </span>
+                      <Badge variant="outline" className={`text-[9px] font-bold rounded-full border-0 px-2 py-0.5 ${props.auditsHealth === 'Healthy' ? 'bg-emerald-500/10 text-emerald-600' : 'bg-rose-500/10 text-rose-600'}`}>
+                        {props.auditsHealth}
+                      </Badge>
+                    </div>
+                  </CardHeader>
+                  <CardContent className="text-xs text-slate-600 dark:text-slate-400 space-y-1">
+                    <div className="flex justify-between"><span className="font-semibold">Scheduled Audits:</span> <span>{props.filteredAudits.filter(a => a.audit_status === 'Scheduled').length}</span></div>
+                    <div className="flex justify-between"><span className="font-semibold">Completed Audits:</span> <span>{props.filteredAudits.filter(a => a.audit_status === 'Completed').length}</span></div>
+                  </CardContent>
+                </Card>
+              </Link>
 
               {/* Port Inspection */}
-              <Card className="border-slate-200/60 dark:border-slate-800/80 bg-white/70 dark:bg-slate-900/60 shadow-xs">
-                <CardHeader className="pb-2">
-                  <div className="flex items-center justify-between">
-                    <span className="text-[11px] font-black text-slate-700 dark:text-slate-200 uppercase tracking-wider flex items-center gap-1.5">
-                      <Warehouse size={14} className="text-teal-500" />
-                      <span>Inspection</span>
-                    </span>
-                    <Badge variant="outline" className={`text-[9px] font-bold rounded-full border-0 px-2 py-0.5 ${props.inspectionsHealth === 'Healthy' ? 'bg-emerald-500/10 text-emerald-600' : 'bg-rose-500/10 text-rose-600'}`}>
-                      {props.inspectionsHealth}
-                    </Badge>
-                  </div>
-                </CardHeader>
-                <CardContent className="text-xs text-slate-600 dark:text-slate-400 space-y-1">
-                  <div className="flex justify-between"><span className="font-semibold">Total Inspected:</span> <span>{props.filteredInspections.length}</span></div>
-                  <div className="flex justify-between"><span className="font-semibold">Defects (AQL):</span> <span>{props.avgDefectRate.toFixed(2)}%</span></div>
-                </CardContent>
-              </Card>
+              <Link href="/inspection" className="block cursor-pointer">
+                <Card className="border-slate-200/60 dark:border-slate-800/80 bg-white/70 dark:bg-slate-900/60 shadow-xs hover:border-teal-300 dark:hover:border-teal-850 hover:shadow-md transition-all duration-300 h-full">
+                  <CardHeader className="pb-2">
+                    <div className="flex items-center justify-between">
+                      <span className="text-[11px] font-black text-slate-700 dark:text-slate-200 uppercase tracking-wider flex items-center gap-1.5">
+                        <Warehouse size={14} className="text-teal-500" />
+                        <span>Inspection</span>
+                      </span>
+                      <Badge variant="outline" className={`text-[9px] font-bold rounded-full border-0 px-2 py-0.5 ${props.inspectionsHealth === 'Healthy' ? 'bg-emerald-500/10 text-emerald-600' : 'bg-rose-500/10 text-rose-600'}`}>
+                        {props.inspectionsHealth}
+                      </Badge>
+                    </div>
+                  </CardHeader>
+                  <CardContent className="text-xs text-slate-600 dark:text-slate-400 space-y-1">
+                    <div className="flex justify-between"><span className="font-semibold">Total Inspected:</span> <span>{props.filteredInspections.length}</span></div>
+                    <div className="flex justify-between"><span className="font-semibold">Defects (AQL):</span> <span>{props.avgDefectRate.toFixed(2)}%</span></div>
+                  </CardContent>
+                </Card>
+              </Link>
 
               {/* Logistics */}
-              <Card className="border-slate-200/60 dark:border-slate-800/80 bg-white/70 dark:bg-slate-900/60 shadow-xs">
-                <CardHeader className="pb-2">
-                  <div className="flex items-center justify-between">
-                    <span className="text-[11px] font-black text-slate-700 dark:text-slate-200 uppercase tracking-wider flex items-center gap-1.5">
-                      <Truck size={14} className="text-amber-500" />
-                      <span>Logistics & Inventory</span>
-                    </span>
-                    <Badge variant="outline" className={`text-[9px] font-bold rounded-full border-0 px-2 py-0.5 ${props.logisticsHealth === 'Healthy' ? 'bg-emerald-500/10 text-emerald-600' : props.logisticsHealth === 'Warning' ? 'bg-amber-500/10 text-amber-600' : 'bg-rose-500/10 text-rose-600'}`}>
-                      {props.logisticsHealth}
-                    </Badge>
-                  </div>
-                </CardHeader>
-                <CardContent className="text-xs text-slate-600 dark:text-slate-400 space-y-1">
-                  <div className="flex justify-between"><span className="font-semibold">Matched Matches:</span> <span>{props.filteredLogistics.filter(l => l.status === 'matched').length}</span></div>
-                  <div className="flex justify-between"><span className="font-semibold">Discrepancies:</span> <span>{props.filteredLogistics.filter(l => l.status === 'mismatched').length}</span></div>
-                </CardContent>
-              </Card>
+              <Link href="/logistics" className="block cursor-pointer">
+                <Card className="border-slate-200/60 dark:border-slate-800/80 bg-white/70 dark:bg-slate-900/60 shadow-xs hover:border-amber-300 dark:hover:border-amber-850 hover:shadow-md transition-all duration-300 h-full">
+                  <CardHeader className="pb-2">
+                    <div className="flex items-center justify-between">
+                      <span className="text-[11px] font-black text-slate-700 dark:text-slate-200 uppercase tracking-wider flex items-center gap-1.5">
+                        <Truck size={14} className="text-amber-500" />
+                        <span>Logistics & Inventory</span>
+                      </span>
+                      <Badge variant="outline" className={`text-[9px] font-bold rounded-full border-0 px-2 py-0.5 ${props.logisticsHealth === 'Healthy' ? 'bg-emerald-500/10 text-emerald-600' : props.logisticsHealth === 'Warning' ? 'bg-amber-500/10 text-amber-600' : 'bg-rose-500/10 text-rose-600'}`}>
+                        {props.logisticsHealth}
+                      </Badge>
+                    </div>
+                  </CardHeader>
+                  <CardContent className="text-xs text-slate-600 dark:text-slate-400 space-y-1">
+                    <div className="flex justify-between"><span className="font-semibold">Matched Matches:</span> <span>{props.filteredLogistics.filter(l => l.status === 'matched').length}</span></div>
+                    <div className="flex justify-between"><span className="font-semibold">Discrepancies:</span> <span>{props.filteredLogistics.filter(l => l.status === 'mismatched').length}</span></div>
+                  </CardContent>
+                </Card>
+              </Link>
 
               {/* Production */}
-              <Card className="border-slate-200/60 dark:border-slate-800/80 bg-white/70 dark:bg-slate-900/60 shadow-xs">
-                <CardHeader className="pb-2">
-                  <div className="flex items-center justify-between">
-                    <span className="text-[11px] font-black text-slate-700 dark:text-slate-200 uppercase tracking-wider flex items-center gap-1.5">
-                      <Activity size={14} className="text-indigo-500" />
-                      <span>Production</span>
-                    </span>
-                    <Badge variant="outline" className="text-[9px] font-bold rounded-full border-0 px-2 py-0.5 bg-emerald-500/10 text-emerald-600">
-                      {props.productionHealth}
-                    </Badge>
-                  </div>
-                </CardHeader>
-                <CardContent className="text-xs text-slate-600 dark:text-slate-400 space-y-1">
-                  <div className="flex justify-between"><span className="font-semibold">Running Lines:</span> <span>{props.filteredBatches.filter(b => b.production_status === 'IN_PROGRESS').length}</span></div>
-                  <div className="flex justify-between"><span className="font-semibold">Completed Runs:</span> <span>{props.filteredBatches.filter(b => b.production_status === 'COMPLETED').length}</span></div>
-                </CardContent>
-              </Card>
+              <Link href="/production" className="block cursor-pointer">
+                <Card className="border-slate-200/60 dark:border-slate-800/80 bg-white/70 dark:bg-slate-900/60 shadow-xs hover:border-indigo-300 dark:hover:border-indigo-850 hover:shadow-md transition-all duration-300 h-full">
+                  <CardHeader className="pb-2">
+                    <div className="flex items-center justify-between">
+                      <span className="text-[11px] font-black text-slate-700 dark:text-slate-200 uppercase tracking-wider flex items-center gap-1.5">
+                        <Activity size={14} className="text-indigo-500" />
+                        <span>Production</span>
+                      </span>
+                      <Badge variant="outline" className="text-[9px] font-bold rounded-full border-0 px-2 py-0.5 bg-emerald-500/10 text-emerald-600">
+                        {props.productionHealth}
+                      </Badge>
+                    </div>
+                  </CardHeader>
+                  <CardContent className="text-xs text-slate-600 dark:text-slate-400 space-y-1">
+                    <div className="flex justify-between"><span className="font-semibold">Running Lines:</span> <span>{props.filteredBatches.filter(b => b.production_status === 'IN_PROGRESS').length}</span></div>
+                    <div className="flex justify-between"><span className="font-semibold">Completed Runs:</span> <span>{props.filteredBatches.filter(b => b.production_status === 'COMPLETED').length}</span></div>
+                  </CardContent>
+                </Card>
+              </Link>
             </div>
           </div>
 

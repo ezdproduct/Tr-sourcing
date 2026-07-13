@@ -12,6 +12,7 @@ interface OrderSidebarProps {
   setViewMode: (mode: 'order' | 'all') => void
   setSelectedOrderId: (id: string | null) => void
   allSuppliersCount: number
+  hideAllButton?: boolean
 }
 
 export function OrderSidebar({
@@ -20,7 +21,8 @@ export function OrderSidebar({
   selectedOrderId,
   setViewMode,
   setSelectedOrderId,
-  allSuppliersCount
+  allSuppliersCount,
+  hideAllButton = false
 }: OrderSidebarProps) {
   const [sidebarOrderSearch, setSidebarOrderSearch] = useState('')
 
@@ -55,34 +57,36 @@ export function OrderSidebar({
       </div>
       <div className="flex-1 overflow-y-auto">
         {/* All Suppliers button */}
-        <div className="border-b border-slate-100 dark:border-slate-800/80">
-          <button
-            id="btn-all-suppliers"
-            onClick={() => {
-              setSelectedOrderId(null)
-              setViewMode('all')
-            }}
-            className={`w-full text-left px-2.5 py-3 flex items-center justify-between gap-1 transition-colors cursor-pointer ${
-              viewMode === 'all'
-                ? 'bg-indigo-50 dark:bg-indigo-950/30'
-                : 'hover:bg-slate-50/80 dark:hover:bg-slate-900/20'
-            }`}
-          >
-            <div className="flex items-center gap-2 min-w-0">
-              <Globe size={13} className={viewMode === 'all' ? 'text-indigo-600 dark:text-indigo-400' : 'text-slate-400 dark:text-slate-500'} />
-              <span className={`text-xs font-bold ${viewMode === 'all' ? 'text-indigo-700 dark:text-indigo-400' : 'text-slate-800 dark:text-slate-200'}`}>
-                All Suppliers
+        {!hideAllButton && (
+          <div className="border-b border-slate-100 dark:border-slate-800/80">
+            <button
+              id="btn-all-suppliers"
+              onClick={() => {
+                setSelectedOrderId(null)
+                setViewMode('all')
+              }}
+              className={`w-full text-left px-2.5 py-3 flex items-center justify-between gap-1 transition-colors cursor-pointer ${
+                viewMode === 'all'
+                  ? 'bg-indigo-50 dark:bg-indigo-950/30'
+                  : 'hover:bg-slate-50/80 dark:hover:bg-slate-900/20'
+              }`}
+            >
+              <div className="flex items-center gap-2 min-w-0">
+                <Globe size={13} className={viewMode === 'all' ? 'text-indigo-600 dark:text-indigo-400' : 'text-slate-400 dark:text-slate-500'} />
+                <span className={`text-xs font-bold ${viewMode === 'all' ? 'text-indigo-700 dark:text-indigo-400' : 'text-slate-800 dark:text-slate-200'}`}>
+                  All Suppliers
+                </span>
+              </div>
+              <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-md ${
+                viewMode === 'all'
+                  ? 'bg-indigo-200/50 dark:bg-indigo-900/50 text-indigo-700 dark:text-indigo-400'
+                  : 'bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400'
+              }`}>
+                {allSuppliersCount}
               </span>
-            </div>
-            <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded-md ${
-              viewMode === 'all'
-                ? 'bg-indigo-200/50 dark:bg-indigo-900/50 text-indigo-700 dark:text-indigo-400'
-                : 'bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400'
-            }`}>
-              {allSuppliersCount}
-            </span>
-          </button>
-        </div>
+            </button>
+          </div>
+        )}
 
         {filteredOrders.length === 0 ? (
           <div className="p-3 text-center text-xs text-slate-400">

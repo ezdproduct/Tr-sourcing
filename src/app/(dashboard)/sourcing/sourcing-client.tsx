@@ -131,6 +131,50 @@ function parseCSV(text: string): string[][] {
   return lines.filter(r => r.length > 0 && r.some(cell => cell !== ''))
 }
 
+// Helper to compute ordering gap risk alerts for Launches
+function computeGapAlert(order: any, allSuppliers: any[]) {
+  const sourcingTimeline = order.order_stage_timelines?.find((t: any) => t.stage_name === 'Sourcing')
+  const orderBids = allSuppliers.filter(s => s.order_id === order.id)
+  const hasShortlisted = orderBids.some(s => s.is_shortlisted)
+  
+  const postSourcingStages = ['Create PO', 'Supplier Production', 'QC', 'Logistics', 'Final Production', 'Completed', 'Done']
+  const isPOConfirmed = postSourcingStages.includes(order.stage)
+  
+  if (isPOConfirmed) {
+    return { status: 'po-confirmed', label: 'PO Confirmed', color: 'bg-indigo-500/10 text-indigo-600 dark:bg-indigo-950/30 border-indigo-200/50' }
+  }
+  
+  if (hasShortlisted) {
+    return { status: 'on-track', label: 'On Track (Shortlisted)', color: 'bg-emerald-500/10 text-emerald-600 dark:bg-emerald-955/20 border-emerald-200/50' }
+  }
+  
+  if (sourcingTimeline?.estimated_end_date) {
+    const deadline = new Date(sourcingTimeline.estimated_end_date)
+    const today = new Date()
+    const diffTime = deadline.getTime() - today.getTime()
+    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24))
+    
+    if (diffDays < 0) {
+      return { status: 'gap-risk', label: 'Gap Risk (Deadline Passed)', color: 'bg-rose-500/10 text-rose-600 dark:bg-rose-955/20 border-rose-200/50 animate-pulse' }
+    } else if (diffDays <= 5) {
+      return { status: 'at-risk', label: `At Risk (${diffDays} days left)`, color: 'bg-amber-500/10 text-amber-600 dark:bg-amber-955/20 border-amber-200/50' }
+    }
+  }
+  
+  return { status: 'on-track', label: 'On Track', color: 'bg-emerald-500/10 text-emerald-600 dark:bg-emerald-955/20 border-emerald-200/50' }
+}
+
+function formatDateShort(dateStr: string | null) {
+  if (!dateStr) return ''
+  const d = new Date(dateStr)
+  if (isNaN(d.getTime())) return ''
+  const m = String(d.getMonth() + 1).padStart(2, '0')
+  const r = String(d.getDate()).padStart(2, '0')
+  return `${m}/${r}`
+}
+
+
+
 
 export interface DatabaseOrderItem {
   id: string
@@ -314,10 +358,11 @@ export function SourcingClient({ initialOrders, initialSuppliers, initialAudits 
   }, [orders, selectedOrderId])
 
   const searchParams = useSearchParams()
-  const initialSubtab = (searchParams.get('subtab') as 'overview' | 'suppliers' | 'workplace' | 'email-templates') || 'overview'
-  const [subtab, setSubtab] = useState<'overview' | 'suppliers' | 'workplace' | 'email-templates'>(initialSubtab)
+  const initialSubtab = (searchParams.get('subtab') as 'overview' | 'suppliers' | 'workplace' | 'email-templates' | 'launches') || 'overview'
+  const [subtab, setSubtab] = useState<'overview' | 'suppliers' | 'workplace' | 'email-templates' | 'launches'>(initialSubtab)
   const [supplierSearch, setSupplierSearch] = useState('')
-  const [supplierSort, setSupplierSort] = useState<{ field: 'name' | 'created_by' | null; order: 'asc' | 'desc' }>({
+  const [lightboxImage, setLightboxImage] = useState<string | null>(null)
+  const [supplierSort, setSupplierSort] = useState<{ field: 'name' | 'created_by' | 'reliability' | 'quality' | 'leadTime' | null; order: 'asc' | 'desc' }>({
     field: null,
     order: 'asc'
   })
@@ -342,7 +387,7 @@ export function SourcingClient({ initialOrders, initialSuppliers, initialAudits 
   const subtabParam = searchParams.get('subtab')
 
   useEffect(() => {
-    if (subtabParam === 'overview' || subtabParam === 'suppliers' || subtabParam === 'workplace' || subtabParam === 'email-templates') {
+    if (subtabParam === 'overview' || subtabParam === 'suppliers' || subtabParam === 'workplace' || subtabParam === 'email-templates' || subtabParam === 'launches') {
       setSubtab(subtabParam)
       setIsInlineAdding(false)
     } else {
@@ -350,7 +395,7 @@ export function SourcingClient({ initialOrders, initialSuppliers, initialAudits 
     }
   }, [subtabParam])
 
-  const handleTabChange = (val: 'overview' | 'suppliers' | 'workplace' | 'email-templates') => {
+  const handleTabChange = (val: 'overview' | 'suppliers' | 'workplace' | 'email-templates' | 'launches') => {
     setSubtab(val)
     setSelectedSupplierIds([])
     setIsManageMode(false)
@@ -1110,23 +1155,29 @@ export function SourcingClient({ initialOrders, initialSuppliers, initialAudits 
   // Column Visibility State for Supplier Profiles tab
   const [supplierColumnVisibility, setSupplierColumnVisibility] = useState<Record<string, boolean>>({
     supplierName: true,
-    email: true,
-    phone: true,
+    email: false,
+    phone: false,
     contactPerson: true,
-    website: true,
-    address: true,
+    website: false,
+    address: false,
     mainProducts: true,
-    uploadedBy: true
+    reliability: true,
+    quality: true,
+    leadTime: true,
+    uploadedBy: false
   })
 
   const supplierToggleableColumns = [
     { key: 'supplierName', label: 'Supplier Name' },
+    { key: 'mainProducts', label: 'Products & Pricing' },
+    { key: 'reliability', label: 'Reliability Score' },
+    { key: 'quality', label: 'Quality Rating' },
+    { key: 'leadTime', label: 'Avg Lead Time' },
+    { key: 'contactPerson', label: 'Contact Person' },
     { key: 'email', label: 'Email' },
     { key: 'phone', label: 'Phone' },
-    { key: 'contactPerson', label: 'Contact Person' },
     { key: 'website', label: 'Website' },
     { key: 'address', label: 'Address' },
-    { key: 'mainProducts', label: 'Main Products' },
     { key: 'uploadedBy', label: 'Uploaded By' }
   ]
 
@@ -1330,6 +1381,9 @@ export function SourcingClient({ initialOrders, initialSuppliers, initialAudits 
           bidsCount: suppliers.filter(x => x.supplier_id === s.supplier_id && x.order_id).length,
           auditsCount: audits.filter(x => x.supplier_id === s.supplier_id).length,
           created_by: s.suppliers!.created_by || s.created_by || 'System',
+          reliability_score: s.suppliers!.reliability_score,
+          quality_rating: s.suppliers!.quality_rating,
+          lead_time_average: s.suppliers!.lead_time_average,
           supplier_capabilities: s.suppliers!.supplier_capabilities || [],
           rawRecord: s
         }])
@@ -1348,14 +1402,31 @@ export function SourcingClient({ initialOrders, initialSuppliers, initialAudits 
   const sortedUniqueSuppliers = React.useMemo(() => {
     if (!supplierSort.field) return filteredUniqueSuppliers
     return [...filteredUniqueSuppliers].sort((a, b) => {
-      let valA = ''
-      let valB = ''
+      let valA: any = ''
+      let valB: any = ''
+      let isNumeric = false
       if (supplierSort.field === 'name') {
         valA = (a.name || '').toLowerCase().trim()
         valB = (b.name || '').toLowerCase().trim()
       } else if (supplierSort.field === 'created_by') {
         valA = (a.created_by || '').toLowerCase().trim()
         valB = (b.created_by || '').toLowerCase().trim()
+      } else if (supplierSort.field === 'reliability') {
+        valA = a.reliability_score ?? -1
+        valB = b.reliability_score ?? -1
+        isNumeric = true
+      } else if (supplierSort.field === 'quality') {
+        valA = parseFloat(a.quality_rating || '0')
+        valB = parseFloat(b.quality_rating || '0')
+        isNumeric = true
+      } else if (supplierSort.field === 'leadTime') {
+        valA = a.lead_time_average ?? 999999
+        valB = b.lead_time_average ?? 999999
+        isNumeric = true
+      }
+      
+      if (isNumeric) {
+        return supplierSort.order === 'asc' ? valA - valB : valB - valA
       }
       if (supplierSort.order === 'asc') {
         return valA.localeCompare(valB)
@@ -1365,7 +1436,7 @@ export function SourcingClient({ initialOrders, initialSuppliers, initialAudits 
     })
   }, [filteredUniqueSuppliers, supplierSort])
 
-  const handleSort = (field: 'name' | 'created_by') => {
+  const handleSort = (field: 'name' | 'created_by' | 'reliability' | 'quality' | 'leadTime') => {
     setSupplierSort(prev => {
       if (prev.field !== field) {
         return { field, order: 'asc' }
@@ -2238,7 +2309,7 @@ export function SourcingClient({ initialOrders, initialSuppliers, initialAudits 
                       )}
                       {supplierColumnVisibility.supplierName && (
                         <th 
-                          className="px-6 py-4 w-[20%] min-w-[220px] cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors select-none"
+                          className="px-6 py-4 w-[15%] min-w-[180px] cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors select-none"
                           onClick={() => handleSort('name')}
                         >
                           <div className="flex items-center gap-1">
@@ -2247,12 +2318,45 @@ export function SourcingClient({ initialOrders, initialSuppliers, initialAudits 
                           </div>
                         </th>
                       )}
+                      {supplierColumnVisibility.mainProducts && <th className="px-6 py-4 w-[25%] min-w-[250px]">Products & Pricing</th>}
+                      {supplierColumnVisibility.reliability && (
+                        <th 
+                          className="px-6 py-4 w-[10%] min-w-[110px] text-center cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors select-none"
+                          onClick={() => handleSort('reliability')}
+                        >
+                          <div className="flex items-center justify-center gap-1 w-full">
+                            <span>Reliability</span>
+                            <ArrowUpDown size={12} className={supplierSort.field === 'reliability' ? 'text-indigo-600 dark:text-indigo-400' : 'text-slate-400 dark:text-slate-600 opacity-50'} />
+                          </div>
+                        </th>
+                      )}
+                      {supplierColumnVisibility.quality && (
+                        <th 
+                          className="px-6 py-4 w-[10%] min-w-[110px] text-center cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors select-none"
+                          onClick={() => handleSort('quality')}
+                        >
+                          <div className="flex items-center justify-center gap-1 w-full">
+                            <span>Quality</span>
+                            <ArrowUpDown size={12} className={supplierSort.field === 'quality' ? 'text-indigo-600 dark:text-indigo-400' : 'text-slate-400 dark:text-slate-600 opacity-50'} />
+                          </div>
+                        </th>
+                      )}
+                      {supplierColumnVisibility.leadTime && (
+                        <th 
+                          className="px-6 py-4 w-[10%] min-w-[110px] text-center cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors select-none"
+                          onClick={() => handleSort('leadTime')}
+                        >
+                          <div className="flex items-center justify-center gap-1 w-full">
+                            <span>Avg Lead Time</span>
+                            <ArrowUpDown size={12} className={supplierSort.field === 'leadTime' ? 'text-indigo-600 dark:text-indigo-400' : 'text-slate-400 dark:text-slate-600 opacity-50'} />
+                          </div>
+                        </th>
+                      )}
+                      {supplierColumnVisibility.contactPerson && <th className="px-6 py-4 w-[12%] min-w-[150px]">Contact Person</th>}
                       {supplierColumnVisibility.email && <th className="px-6 py-4 w-[15%] min-w-[180px]">Email</th>}
                       {supplierColumnVisibility.phone && <th className="px-6 py-4 w-[10%] min-w-[130px]">Phone</th>}
-                      {supplierColumnVisibility.contactPerson && <th className="px-6 py-4 w-[12%] min-w-[150px]">Contact Person</th>}
                       {supplierColumnVisibility.website && <th className="px-6 py-4 w-[12%] min-w-[150px]">Website</th>}
                       {supplierColumnVisibility.address && <th className="px-6 py-4 w-[15%] min-w-[200px]">Address</th>}
-                      {supplierColumnVisibility.mainProducts && <th className="px-6 py-4 w-[16%] min-w-[200px]">Main Products</th>}
                       {supplierColumnVisibility.uploadedBy && (
                         <th 
                           className="px-6 py-4 w-[10%] min-w-[110px] text-center cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors select-none"
@@ -2286,6 +2390,44 @@ export function SourcingClient({ initialOrders, initialSuppliers, initialAudits 
                           </td>
                         )}
                         
+                        {/* Main Products */}
+                        {supplierColumnVisibility.mainProducts && (
+                          <td className="px-6 py-3 w-[16%] min-w-[200px]">
+                            <div className="relative">
+                              <Input
+                                type="text"
+                                readOnly
+                                placeholder="Click to configure..."
+                                value={inlineSupplier.mainProducts || (inlineCapabilities.filter(c => c.productName.trim() !== '').map(c => c.productName.trim()).join(', '))}
+                                onClick={() => setIsInlineProductsModalOpen(true)}
+                                className="h-8 text-xs pl-2 pr-8 focus-visible:ring-[#5c59e9] border-slate-200 dark:border-slate-800 cursor-pointer bg-slate-50/50 hover:bg-slate-50 truncate"
+                              />
+                              <Edit 
+                                size={12} 
+                                className="absolute right-2.5 top-2.5 text-slate-400 pointer-events-none" 
+                              />
+                            </div>
+                          </td>
+                        )}
+
+                        {/* Performance columns (render empty cells to keep alignment) */}
+                        {supplierColumnVisibility.reliability && <td className="px-6 py-3" />}
+                        {supplierColumnVisibility.quality && <td className="px-6 py-3" />}
+                        {supplierColumnVisibility.leadTime && <td className="px-6 py-3" />}
+                        
+                        {/* Contact Person */}
+                        {supplierColumnVisibility.contactPerson && (
+                          <td className="px-6 py-3 w-[12%] min-w-[150px]">
+                            <Input
+                              type="text"
+                              placeholder="Contact Person"
+                              value={inlineSupplier.contactPerson}
+                              onChange={(e) => setInlineSupplier(prev => ({ ...prev, contactPerson: e.target.value }))}
+                              className="h-8 text-xs px-2 focus-visible:ring-[#5c59e9] border-slate-200 dark:border-slate-800"
+                            />
+                          </td>
+                        )}
+
                         {/* Email */}
                         {supplierColumnVisibility.email && (
                           <td className="px-6 py-3 w-[15%] min-w-[180px]">
@@ -2307,19 +2449,6 @@ export function SourcingClient({ initialOrders, initialSuppliers, initialAudits 
                               placeholder="Phone"
                               value={inlineSupplier.phone}
                               onChange={(e) => setInlineSupplier(prev => ({ ...prev, phone: e.target.value }))}
-                              className="h-8 text-xs px-2 focus-visible:ring-[#5c59e9] border-slate-200 dark:border-slate-800"
-                            />
-                          </td>
-                        )}
-                        
-                        {/* Contact Person */}
-                        {supplierColumnVisibility.contactPerson && (
-                          <td className="px-6 py-3 w-[12%] min-w-[150px]">
-                            <Input
-                              type="text"
-                              placeholder="Contact Person"
-                              value={inlineSupplier.contactPerson}
-                              onChange={(e) => setInlineSupplier(prev => ({ ...prev, contactPerson: e.target.value }))}
                               className="h-8 text-xs px-2 focus-visible:ring-[#5c59e9] border-slate-200 dark:border-slate-800"
                             />
                           </td>
@@ -2348,26 +2477,6 @@ export function SourcingClient({ initialOrders, initialSuppliers, initialAudits 
                               onChange={(e) => setInlineSupplier(prev => ({ ...prev, address: e.target.value }))}
                               className="h-8 text-xs px-2 focus-visible:ring-[#5c59e9] border-slate-200 dark:border-slate-800"
                             />
-                          </td>
-                        )}
-                        
-                        {/* Main Products */}
-                        {supplierColumnVisibility.mainProducts && (
-                          <td className="px-6 py-3 w-[16%] min-w-[200px]">
-                            <div className="relative">
-                              <Input
-                                type="text"
-                                readOnly
-                                placeholder="Click to configure..."
-                                value={inlineSupplier.mainProducts || (inlineCapabilities.filter(c => c.productName.trim() !== '').map(c => c.productName.trim()).join(', '))}
-                                onClick={() => setIsInlineProductsModalOpen(true)}
-                                className="h-8 text-xs pl-2 pr-8 focus-visible:ring-[#5c59e9] border-slate-200 dark:border-slate-800 cursor-pointer bg-slate-50/50 hover:bg-slate-50 truncate"
-                              />
-                              <Edit 
-                                size={12} 
-                                className="absolute right-2.5 top-2.5 text-slate-400 pointer-events-none" 
-                              />
-                            </div>
                           </td>
                         )}
                         
@@ -2441,6 +2550,7 @@ export function SourcingClient({ initialOrders, initialSuppliers, initialAudits 
                               />
                             </td>
                           )}
+                          
                           {/* Supplier Name */}
                           {supplierColumnVisibility.supplierName && (
                             <td className="px-6 py-4 font-semibold text-slate-800 dark:text-slate-200 w-[20%] min-w-[220px]">
@@ -2455,6 +2565,98 @@ export function SourcingClient({ initialOrders, initialSuppliers, initialAudits 
                             </td>
                           )}
 
+                          {/* Products & Pricing */}
+                          {supplierColumnVisibility.mainProducts && (
+                            <td className="px-6 py-4 w-[25%] min-w-[250px]">
+                              <div className="flex flex-wrap gap-1.5 max-h-[100px] overflow-y-auto no-scrollbar">
+                                {supplier.supplier_capabilities && supplier.supplier_capabilities.length > 0 ? (
+                                  supplier.supplier_capabilities.map((cap: any) => (
+                                    <div key={cap.id} className="flex items-center gap-1.5 px-2 py-1 bg-slate-50 dark:bg-slate-800/40 border border-slate-100 dark:border-slate-800/60 rounded-lg text-[10px] font-bold shadow-2xs">
+                                      {cap.image_url ? (
+                                        <img
+                                          src={cap.image_url}
+                                          alt={cap.product_name}
+                                          onClick={(e) => {
+                                            e.stopPropagation()
+                                            setLightboxImage(cap.image_url || null)
+                                          }}
+                                          className="h-6 w-6 rounded-md object-cover cursor-zoom-in hover:scale-110 transition-transform duration-200 border border-slate-200/50"
+                                        />
+                                      ) : (
+                                        <div className="h-6 w-6 rounded-md bg-slate-150 dark:bg-slate-800 flex items-center justify-center text-slate-400">
+                                          <Package size={12} />
+                                        </div>
+                                      )}
+                                      <div className="flex flex-col">
+                                        <span className="text-slate-700 dark:text-slate-350 truncate max-w-[80px]" title={cap.product_name}>{cap.product_name}</span>
+                                        <span className="text-[#5c59e9] dark:text-indigo-400 font-extrabold">${parseFloat(String(cap.target_price || 0)).toFixed(2)}</span>
+                                      </div>
+                                    </div>
+                                  ))
+                                ) : (
+                                  <span className="text-slate-400 italic font-normal text-[11px]">— No products</span>
+                                )}
+                              </div>
+                            </td>
+                          )}
+
+                          {/* Reliability Score */}
+                          {supplierColumnVisibility.reliability && (
+                            <td className="px-6 py-4 text-center w-[10%] min-w-[110px]">
+                              {supplier.reliability_score != null ? (
+                                <div className="flex flex-col items-center gap-1">
+                                  <Badge className={`text-[10px] font-bold rounded-lg px-2 py-0.5 border-0 ${
+                                    supplier.reliability_score >= 90 
+                                      ? 'bg-emerald-500/10 text-emerald-600 dark:bg-emerald-955/20' 
+                                      : supplier.reliability_score >= 75 
+                                      ? 'bg-amber-500/10 text-amber-600 dark:bg-amber-955/20' 
+                                      : 'bg-rose-500/10 text-rose-600 dark:bg-rose-955/20'
+                                  }`}>
+                                    {supplier.reliability_score}%
+                                  </Badge>
+                                  <div className="w-12 h-1 bg-slate-100 dark:bg-slate-800 rounded-full overflow-hidden">
+                                    <div 
+                                      className={`h-full rounded-full ${
+                                        supplier.reliability_score >= 90 ? 'bg-emerald-500' : supplier.reliability_score >= 75 ? 'bg-amber-500' : 'bg-rose-500'
+                                      }`}
+                                      style={{ width: `${supplier.reliability_score}%` }}
+                                    />
+                                  </div>
+                                </div>
+                              ) : (
+                                <span className="text-slate-400">—</span>
+                              )}
+                            </td>
+                          )}
+
+                          {/* Quality Rating */}
+                          {supplierColumnVisibility.quality && (
+                            <td className="px-6 py-4 text-center w-[10%] min-w-[110px]">
+                              {supplier.quality_rating ? (
+                                <div className="flex items-center justify-center gap-0.5 text-amber-500 dark:text-amber-400 font-extrabold text-[11px] bg-amber-500/5 px-2 py-1 rounded-md border border-amber-500/10 max-w-fit mx-auto">
+                                  <Star size={11} className="fill-current text-amber-500" />
+                                  <span>{parseFloat(supplier.quality_rating).toFixed(1)}</span>
+                                </div>
+                              ) : (
+                                <span className="text-slate-400">—</span>
+                              )}
+                            </td>
+                          )}
+
+                          {/* Avg Lead Time */}
+                          {supplierColumnVisibility.leadTime && (
+                            <td className="px-6 py-4 text-center w-[10%] min-w-[110px] font-bold text-slate-700 dark:text-slate-300">
+                              {supplier.lead_time_average != null ? `${supplier.lead_time_average} days` : '—'}
+                            </td>
+                          )}
+
+                          {/* Contact Person */}
+                          {supplierColumnVisibility.contactPerson && (
+                            <td className="px-6 py-4 text-slate-700 dark:text-slate-355 font-semibold w-[12%] min-w-[150px]">
+                              {supplier.contact_person || '—'}
+                            </td>
+                          )}
+
                           {/* Email */}
                           {supplierColumnVisibility.email && (
                             <td className="px-6 py-4 text-slate-600 dark:text-slate-450 w-[15%] min-w-[180px]">
@@ -2464,15 +2666,8 @@ export function SourcingClient({ initialOrders, initialSuppliers, initialAudits 
 
                           {/* Phone */}
                           {supplierColumnVisibility.phone && (
-                            <td className="px-6 py-4 text-slate-600 dark:text-slate-450 w-[10%] min-w-[130px]">
+                            <td className="px-6 py-4 text-slate-600 dark:text-slate-455 w-[10%] min-w-[130px]">
                               {supplier.phone || '—'}
-                            </td>
-                          )}
-
-                          {/* Contact Person */}
-                          {supplierColumnVisibility.contactPerson && (
-                            <td className="px-6 py-4 text-slate-700 dark:text-slate-355 font-semibold w-[12%] min-w-[150px]">
-                              {supplier.contact_person || '—'}
                             </td>
                           )}
 
@@ -2499,24 +2694,6 @@ export function SourcingClient({ initialOrders, initialSuppliers, initialAudits 
                           {supplierColumnVisibility.address && (
                             <td className="px-6 py-4 text-slate-500 dark:text-slate-400 truncate max-w-xs w-[15%] min-w-[200px]" title={supplier.address || ''}>
                               {supplier.address || '—'}
-                            </td>
-                          )}
-
-                          {/* Main Products */}
-                          {supplierColumnVisibility.mainProducts && (
-                            <td className="px-6 py-4 text-slate-650 dark:text-slate-400 truncate max-w-xs font-medium w-[16%] min-w-[200px]" title={supplier.main_products ? supplier.main_products.join(', ') : ''}>
-                              {supplier.main_products && supplier.main_products.length > 0 ? (
-                                <a
-                                  href={`/management/supplier/${supplier.id}?tab=product`}
-                                  target="_blank"
-                                  rel="noopener noreferrer"
-                                  className="inline-flex items-center px-2.5 py-1 rounded bg-slate-100 dark:bg-slate-800/80 text-slate-700 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors font-semibold max-w-full truncate"
-                                >
-                                  {supplier.main_products.join(', ')}
-                                </a>
-                              ) : (
-                                <span className="text-slate-400">—</span>
-                              )}
                             </td>
                           )}
 
@@ -4013,6 +4190,249 @@ export function SourcingClient({ initialOrders, initialSuppliers, initialAudits 
                 </div>
               )}
             </Card>
+          </div>
+        </div>
+      </TabsContent>
+
+      <TabsContent value="launches" className="space-y-6 mt-0 border-none p-0 focus-visible:ring-0 focus-visible:ring-offset-0">
+        <div className="grid lg:grid-cols-[280px_1fr] -mx-8 -mt-8 -mb-8 h-[calc(100vh-4rem)] overflow-hidden">
+          
+          {/* Left column: Purchase Orders sidebar */}
+          <OrderSidebar
+            orders={orders}
+            viewMode={viewMode}
+            selectedOrderId={selectedOrderId}
+            setViewMode={setViewMode}
+            setSelectedOrderId={setSelectedOrderId}
+            allSuppliersCount={suppliers.filter(s => s.is_bid).length}
+            hideAllButton={true}
+          />
+
+          {/* Right column: main launches panel */}
+          <div className="flex flex-col h-full overflow-y-auto p-6 space-y-6">
+            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+              <div>
+                <h3 className="text-base font-extrabold text-slate-800 dark:text-white">Launches &amp; Sourcing Timelines</h3>
+                <p className="text-xs text-slate-500 mt-1">Track stage gates and prevent gaps in raw material ordering for new launches.</p>
+              </div>
+              
+              <div className="relative w-full sm:w-64">
+                <Search className="absolute top-2.5 left-3 h-4 w-4 text-slate-400" />
+                <Input
+                  type="text"
+                  placeholder="Search launches by code or item..."
+                  value={supplierSearch}
+                  onChange={e => setSupplierSearch(e.target.value)}
+                  className="h-9 w-full rounded-lg pl-9 pr-4 text-xs bg-slate-50 border-slate-200 focus:bg-white dark:bg-slate-900 dark:border-slate-800"
+                />
+              </div>
+            </div>
+
+            {/* Launches list */}
+            <div className="space-y-4">
+              {orders
+                .filter(order => {
+                  if (viewMode === 'order') {
+                    return order.id === selectedOrderId
+                  }
+                  return (
+                    supplierSearch === '' ||
+                    order.order_code.toLowerCase().includes(supplierSearch.toLowerCase()) ||
+                    order.order_items?.some(item => item.item_name.toLowerCase().includes(supplierSearch.toLowerCase()))
+                  )
+                })
+                .map(order => {
+                  const alert = computeGapAlert(order, suppliers)
+                  const stages = [
+                    { name: 'Order' },
+                    { name: 'Sourcing' },
+                    { name: 'QC' },
+                    { name: 'Create PO' },
+                    { name: 'Supplier Production' },
+                    { name: 'Inspection' },
+                    { name: 'Logistic' },
+                    { name: 'Production' },
+                    { name: 'Order Done' }
+                  ]
+                  
+                  const getStageIndex = (stg: string) => {
+                    const s = stg ? stg.toLowerCase() : ''
+                    if (s.includes('definition') || s.includes('draft') || s.includes('order')) return 0
+                    if (s.includes('sourcing')) return 1
+                    if (s.includes('audit') || s.includes('qc')) return 2
+                    if (s.includes('ready') || s.includes('po')) return 3
+                    if (s.includes('supplier production') || s.includes('supplier_production')) return 4
+                    if (s.includes('inspection passed') || s.includes('inspection_passed')) return 6
+                    if (s.includes('inspection') || s.includes('port')) return 5
+                    if (s.includes('logistics') || s.includes('inbound') || s.includes('logistic')) return 6
+                    if (s.includes('production') || s.includes('run') || s.includes('stock') || s.includes('assemble')) return 7
+                    if (s.includes('closed') || s.includes('completed') || s.includes('done')) return 8
+                    return 1
+                  }
+                  
+                  const activeIdx = getStageIndex(order.stage)
+                  const stageProgressPct = (activeIdx / (stages.length - 1)) * 100
+
+                  return (
+                    <Card key={order.id} className="rounded-2xl border-slate-200/60 dark:border-slate-800/80 bg-white dark:bg-slate-900 shadow-sm hover:shadow-md transition-shadow duration-300">
+                      <CardContent className="p-6">
+                        {/* Header */}
+                        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-slate-100 dark:border-slate-800">
+                          <div className="space-y-1">
+                            <div className="flex items-center gap-2">
+                              <span className="text-base font-extrabold text-slate-900 dark:text-white">{order.order_code}</span>
+                              <Badge className="text-[9px] px-2 py-0.5 border-0 font-bold bg-slate-100 text-slate-700 dark:bg-slate-800 dark:text-slate-300">
+                                {order.order_type === 'MATERIAL' ? 'Material' : 'Finished Product'}
+                              </Badge>
+                            </div>
+                            <p className="text-xs font-semibold text-slate-400">
+                              Launch Date: {new Date(order.order_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+                            </p>
+                          </div>
+
+                          <div className="flex items-center gap-2">
+                            <Badge className={`text-xs px-2.5 py-1 font-extrabold border rounded-lg ${alert.color}`}>
+                              {alert.label}
+                            </Badge>
+                          </div>
+                        </div>
+
+                        {/* Progress visualizer */}
+                        <div className="py-6 overflow-x-auto no-scrollbar">
+                          <span className="text-slate-450 block mb-6 font-bold text-[10px] uppercase tracking-wider">Order Sourcing &amp; Delivery Timeline</span>
+                          
+                          <div className="space-y-4 py-2 px-1 min-w-[700px]">
+                            <div className="relative flex items-start justify-between w-full h-auto pb-4">
+                              <div className="absolute left-[40px] right-[40px] top-[22px] h-1 bg-slate-100 dark:bg-slate-800 z-0 rounded-full border border-slate-200/20" />
+                              <div 
+                                className="absolute left-[40px] top-[22px] h-1 bg-[#5c59e9] transition-all duration-500 z-0 rounded-full"
+                                style={{ width: `calc((100% - 80px) * (${stageProgressPct} / 100))` }}
+                              />
+                              
+                              {stages.map((stage, idx) => {
+                                const isCompleted = idx < activeIdx
+                                const isActive = idx === activeIdx
+                                
+                                const timelines = order.order_stage_timelines
+                                
+                                const matchingTimeline = timelines ? timelines.find(
+                                  t => t.stage_name.toLowerCase() === stage.name.toLowerCase()
+                                ) : null
+
+                                return (
+                                  <div key={idx} className="relative flex flex-col items-center z-10 w-20 pt-2">
+                                    {matchingTimeline && matchingTimeline.estimated_start_date && matchingTimeline.estimated_end_date && (
+                                      <span className="absolute -top-4 text-[9px] font-extrabold text-indigo-600 dark:text-indigo-405 whitespace-nowrap bg-indigo-50/80 dark:bg-indigo-950/80 px-1 py-0.5 rounded border border-indigo-100/50 dark:border-indigo-900/50 scale-90">
+                                        {formatDateShort(matchingTimeline.estimated_start_date)} - {formatDateShort(matchingTimeline.estimated_end_date)}
+                                      </span>
+                                    )}
+                                    <div 
+                                      className={`h-7 w-7 rounded-full flex items-center justify-center text-[10px] font-bold border transition-all duration-300 ${
+                                        isCompleted 
+                                          ? 'bg-[#5c59e9] border-[#5c59e9] text-white shadow-sm'
+                                          : isActive
+                                          ? 'bg-[#5c59e9] border-2 border-white text-white dark:border-slate-900 shadow-md ring-4 ring-indigo-100 dark:ring-indigo-950/40 scale-105'
+                                          : 'bg-white border-2 border-slate-200 text-slate-400 dark:bg-slate-900 dark:border-slate-800'
+                                      }`}
+                                    >
+                                      {isCompleted ? (
+                                        <svg xmlns="http://www.w3.org/2000/svg" className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3.5}>
+                                          <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+                                        </svg>
+                                      ) : isActive ? (
+                                        <span>{idx + 1}</span>
+                                      ) : (
+                                        <span className="opacity-40">{idx + 1}</span>
+                                      )}
+                                    </div>
+                                    <div className="mt-2 text-center w-24 flex flex-col items-center">
+                                      <span 
+                                        className={`block text-[10px] font-bold tracking-tight transition-colors duration-300 ${
+                                          isActive 
+                                            ? 'text-[#5c59e9]' 
+                                            : isCompleted 
+                                            ? 'text-slate-800 dark:text-slate-200 font-bold' 
+                                            : 'text-slate-400'
+                                        }`}
+                                      >
+                                        {stage.name}
+                                      </span>
+                                    </div>
+                                  </div>
+                                )
+                              })}
+                            </div>
+                          </div>
+                        </div>
+
+                        {/* Sourcing details & milestones */}
+                        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 pt-4 border-t border-slate-100 dark:border-slate-800 text-xs">
+                          <div>
+                            <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider block mb-2">Launch Items</span>
+                            <div className="space-y-1.5">
+                              {order.order_items && order.order_items.length > 0 ? (
+                                order.order_items.map(item => (
+                                  <div key={item.id} className="flex items-center justify-between bg-slate-50 dark:bg-slate-950/20 p-2.5 rounded-xl border border-slate-100/50 dark:border-slate-850/60 font-semibold text-slate-700 dark:text-slate-355">
+                                    <span>{item.item_name}</span>
+                                    <span className="text-[10px] bg-slate-200/50 dark:bg-slate-800 px-2 py-0.5 rounded-md text-slate-500">Qty: {item.quantity}</span>
+                                  </div>
+                                ))
+                              ) : (
+                                <span className="text-slate-400 italic text-[11px]">— No items</span>
+                              )}
+                            </div>
+                          </div>
+
+                          <div className="lg:col-span-2">
+                            <span className="text-[10px] text-slate-400 font-bold uppercase tracking-wider block mb-2">Stage Gate Milestones</span>
+                            <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                              {['Order', 'Sourcing', 'QC', 'Create PO', 'Supplier Production', 'Inspection', 'Logistic', 'Production', 'Order Done'].map(stg => {
+                                const t = order.order_stage_timelines?.find((x: any) => x.stage_name.toLowerCase() === stg.toLowerCase())
+                                const isPast = activeIdx > getStageIndex(stg)
+                                const isNow = getStageIndex(order.stage) === getStageIndex(stg)
+
+                                return (
+                                  <div key={stg} className={`p-2.5 rounded-xl border ${
+                                    isNow 
+                                      ? 'border-indigo-150 bg-indigo-50/20 dark:border-indigo-900/20 dark:bg-indigo-950/10' 
+                                      : isPast 
+                                      ? 'border-emerald-100 bg-emerald-50/5 dark:border-emerald-955/10' 
+                                      : 'border-slate-100 bg-slate-50/20 dark:border-slate-800/40'
+                                  }`}>
+                                    <div className="flex items-center justify-between mb-1">
+                                      <span className="font-bold text-slate-700 dark:text-slate-300">{stg}</span>
+                                      {isPast && <CheckCircle2 size={11} className="text-emerald-500" />}
+                                      {isNow && <Loader2 size={11} className="animate-spin text-[#5c59e9]" />}
+                                    </div>
+                                    <div className="space-y-0.5 text-[10px]">
+                                      <div className="flex justify-between text-slate-450">
+                                        <span>Target:</span>
+                                        <span className="font-semibold text-slate-600 dark:text-slate-400">
+                                          {t?.estimated_end_date 
+                                            ? new Date(t.estimated_end_date).toLocaleDateString('en-US', { month: '2-digit', day: '2-digit' }) 
+                                            : '—'}
+                                        </span>
+                                      </div>
+                                      <div className="flex justify-between text-slate-450">
+                                        <span>Actual:</span>
+                                        <span className={`font-semibold ${t?.actual_end_date ? 'text-emerald-600 font-bold' : ''}`}>
+                                          {t?.actual_end_date 
+                                            ? new Date(t.actual_end_date).toLocaleDateString('en-US', { month: '2-digit', day: '2-digit' }) 
+                                            : '—'}
+                                        </span>
+                                      </div>
+                                    </div>
+                                  </div>
+                                )
+                              })}
+                            </div>
+                          </div>
+                        </div>
+                      </CardContent>
+                    </Card>
+                  )
+                })}
+            </div>
           </div>
         </div>
       </TabsContent>
@@ -5811,6 +6231,26 @@ export function SourcingClient({ initialOrders, initialSuppliers, initialAudits 
             >
               Close
             </Button>
+          </div>
+        </div>
+      )}
+      {/* Product Image Lightbox Modal */}
+      {lightboxImage && (
+        <div 
+          className="fixed inset-0 z-[130] flex items-center justify-center bg-black/70 backdrop-blur-sm transition-all duration-300 animate-in fade-in"
+          onClick={() => setLightboxImage(null)}
+        >
+          <div 
+            className="relative max-w-3xl max-h-[85vh] p-2 bg-white dark:bg-slate-900 rounded-3xl shadow-2xl border border-slate-200 dark:border-slate-800 animate-in zoom-in-95 duration-200" 
+            onClick={e => e.stopPropagation()}
+          >
+            <img src={lightboxImage} alt="Product Zoom" className="max-w-full max-h-[80vh] rounded-2xl object-contain shadow-sm" />
+            <button 
+              onClick={() => setLightboxImage(null)}
+              className="absolute -top-3 -right-3 h-8 w-8 flex items-center justify-center bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 rounded-full hover:bg-slate-100 dark:hover:bg-slate-700 transition-all cursor-pointer shadow-lg"
+            >
+              <X size={15} />
+            </button>
           </div>
         </div>
       )}

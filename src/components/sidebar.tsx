@@ -446,6 +446,7 @@ export function Sidebar() {
                           { label: 'Overview', subtabVal: 'overview' },
                           { label: 'Supplier Profiles', subtabVal: 'suppliers' },
                           { label: 'Workplace', subtabVal: 'workplace' },
+                          { label: 'Launches & Timelines', subtabVal: 'launches' },
                           { label: 'Email Templates', subtabVal: 'email-templates' }
                         ]
                       : [

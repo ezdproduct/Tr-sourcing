@@ -402,6 +402,7 @@ function normalizeProductName(name: string | null | undefined): string {
 
 export interface DuplicateRecord {
   id: string
+  supplierId?: string
   supplierName: string
   email: string
   orderCode: string
@@ -413,12 +414,42 @@ export interface DuplicateRecord {
 
 async function detectDuplicates(
   supabase: any,
-  incomingRows: { email: string; orderCode: string; productName: string }[]
+  incomingRows: { email: string; orderCode: string; productName: string; orderItemId?: string }[]
 ): Promise<DuplicateRecord[]> {
+  const orderCodes = Array.from(
+    new Set(
+      incomingRows
+        .flatMap(r => {
+          if (!r.orderCode) return []
+          const c = r.orderCode.trim()
+          return [c, c.toLowerCase(), c.toUpperCase()]
+        })
+    )
+  )
+
+  if (orderCodes.length === 0) {
+    return []
+  }
+
+  // 1. Fetch matching order IDs
+  const { data: orders } = await supabase
+    .from('orders')
+    .select('id, order_code')
+    .in('order_code', orderCodes)
+
+  const orderIds = orders?.map((o: any) => o.id) || []
+
+  if (orderIds.length === 0) {
+    return []
+  }
+
+  // 2. Query bids for these orders only
   const { data: existingBids, error } = await supabase
     .from('order_suppliers')
     .select(`
       id,
+      supplier_id,
+      order_item_id,
       supplier_name,
       quoted_price,
       lead_time_days,
@@ -426,6 +457,7 @@ async function detectDuplicates(
       orders(order_code),
       order_items(item_name)
     `)
+    .in('order_id', orderIds)
 
   if (error || !existingBids) {
     console.error('Error fetching bids for duplicate check:', error?.message)
@@ -445,6 +477,11 @@ async function detectDuplicates(
       const extEmail = normalizeEmail(existing.suppliers?.email)
       const extOrderCode = normalizeOrderCode(existing.orders?.order_code)
       const extProductName = normalizeProductName(existing.order_items?.item_name)
+      const extOrderItemId = existing.order_item_id
+
+      if (incoming.orderItemId && extOrderItemId) {
+        return extEmail === incEmail && extOrderCode === incOrderCode && extOrderItemId === incoming.orderItemId
+      }
 
       return extEmail === incEmail && extOrderCode === incOrderCode && extProductName === incProductName
     })
@@ -452,6 +489,7 @@ async function detectDuplicates(
     if (match) {
       duplicates.push({
         id: match.id,
+        supplierId: match.supplier_id,
         supplierName: match.supplier_name,
         email: match.suppliers?.email || '',
         orderCode: match.orders?.order_code || '',
@@ -508,15 +546,30 @@ export async function bulkImportSuppliersAction(
       // Overwrite the duplicates
       for (const [incomingIndex, dup] of duplicateMap.entries()) {
         const row = rows[incomingIndex]
+
+        // Fetch capabilities for this supplier to copy cost breakdown
+        let matchedCap: any = null
+        if (dup.supplierId) {
+          const { data: caps } = await supabase
+            .from('supplier_capabilities')
+            .select('*')
+            .eq('supplier_id', dup.supplierId)
+          if (caps) {
+            matchedCap = caps.find((c: any) => 
+              c.product_name.toLowerCase().trim() === row.productName.toLowerCase().trim()
+            )
+          }
+        }
+
         const { error: updateErr } = await supabase
           .from('order_suppliers')
           .update({
             quoted_price: row.quotedPrice,
             lead_time_days: row.leadTime,
-            material_cost_percent: row.materialCostPercent ?? null,
-            labor_cost_percent: row.laborCostPercent ?? null,
-            overhead_cost_percent: row.overheadCostPercent ?? null,
-            profit_margin_percent: row.profitMarginPercent ?? null
+            material_cost_percent: row.materialCostPercent ?? matchedCap?.material_cost_percent ?? null,
+            labor_cost_percent: row.laborCostPercent ?? matchedCap?.labor_cost_percent ?? null,
+            overhead_cost_percent: row.overheadCostPercent ?? matchedCap?.overhead_cost_percent ?? null,
+            profit_margin_percent: row.profitMarginPercent ?? matchedCap?.profit_margin_percent ?? null
           })
           .eq('id', dup.id)
         if (updateErr) {
@@ -676,6 +729,18 @@ export async function bulkImportSuppliersAction(
 
       // If we matched the order AND a required item in that order, bind it!
       if (matchedOrder && matchItem) {
+        // Fetch supplier capabilities for the supplier to copy cost breakdown
+        let matchedCap: any = null
+        const { data: caps } = await supabase
+          .from('supplier_capabilities')
+          .select('*')
+          .eq('supplier_id', supplierId)
+        if (caps) {
+          matchedCap = caps.find((c: any) => 
+            c.product_name.toLowerCase().trim() === row.productName.toLowerCase().trim()
+          )
+        }
+
         const { error: bidError } = await supabase
           .from('order_suppliers')
           .insert({
@@ -687,10 +752,10 @@ export async function bulkImportSuppliersAction(
             lead_time_days: row.leadTime,
             is_shortlisted: false,
             created_by: userEmail,
-            material_cost_percent: row.materialCostPercent ?? null,
-            labor_cost_percent: row.laborCostPercent ?? null,
-            overhead_cost_percent: row.overheadCostPercent ?? null,
-            profit_margin_percent: row.profitMarginPercent ?? null
+            material_cost_percent: row.materialCostPercent ?? matchedCap?.material_cost_percent ?? null,
+            labor_cost_percent: row.laborCostPercent ?? matchedCap?.labor_cost_percent ?? null,
+            overhead_cost_percent: row.overheadCostPercent ?? matchedCap?.overhead_cost_percent ?? null,
+            profit_margin_percent: row.profitMarginPercent ?? matchedCap?.profit_margin_percent ?? null
           })
 
         if (!bidError) {
@@ -739,6 +804,18 @@ export async function bulkImportSuppliersAction(
           }
         }
 
+        // Fetch supplier capabilities for the supplier to copy cost breakdown
+        let matchedCap: any = null
+        const { data: caps } = await supabase
+          .from('supplier_capabilities')
+          .select('*')
+          .eq('supplier_id', supplierId)
+        if (caps) {
+          matchedCap = caps.find((c: any) => 
+            c.product_name.toLowerCase().trim() === row.productName.toLowerCase().trim()
+          )
+        }
+
         // 2. Create the supplier bid with order_id = null
         const { error: bidError } = await supabase
           .from('order_suppliers')
@@ -751,10 +828,10 @@ export async function bulkImportSuppliersAction(
             lead_time_days: row.leadTime,
             is_shortlisted: false,
             created_by: userEmail,
-            material_cost_percent: row.materialCostPercent ?? null,
-            labor_cost_percent: row.laborCostPercent ?? null,
-            overhead_cost_percent: row.overheadCostPercent ?? null,
-            profit_margin_percent: row.profitMarginPercent ?? null
+            material_cost_percent: row.materialCostPercent ?? matchedCap?.material_cost_percent ?? null,
+            labor_cost_percent: row.laborCostPercent ?? matchedCap?.labor_cost_percent ?? null,
+            overhead_cost_percent: row.overheadCostPercent ?? matchedCap?.overhead_cost_percent ?? null,
+            profit_margin_percent: row.profitMarginPercent ?? matchedCap?.profit_margin_percent ?? null
           })
 
         if (!bidError) {
@@ -825,6 +902,9 @@ export interface ManualNormalizedCapability {
   moq?: number
   sku?: string
   monthlyCapacity?: string
+  itemType?: string
+  imageUrl?: string | null
+  drawingUrl?: string | null
 }
 
 export interface ManualNormalizedInput {
@@ -876,7 +956,8 @@ export async function addSupplierNormalizedAction(input: ManualNormalizedInput, 
     const incomingRows = input.items.map(item => ({
       email: input.email,
       orderCode,
-      productName: itemNames[item.orderItemId] || ''
+      productName: itemNames[item.orderItemId] || '',
+      orderItemId: item.orderItemId
     }))
 
     const duplicates = await detectDuplicates(supabase, incomingRows)
@@ -905,15 +986,31 @@ export async function addSupplierNormalizedAction(input: ManualNormalizedInput, 
       // Overwrite the duplicates
       for (const [incomingIndex, dup] of duplicateMap.entries()) {
         const item = input.items[incomingIndex]
+
+        // Fetch capabilities for this supplier to copy cost breakdown
+        let matchedCap: any = null
+        if (dup.supplierId) {
+          const { data: caps } = await supabase
+            .from('supplier_capabilities')
+            .select('*')
+            .eq('supplier_id', dup.supplierId)
+          if (caps) {
+            matchedCap = caps.find((c: any) => 
+              (item.selectedCapId && (c.id === item.selectedCapId || c.product_name === item.selectedCapId)) ||
+              (!item.selectedCapId && c.product_name.toLowerCase().trim() === (itemNames[item.orderItemId] || '').toLowerCase().trim())
+            )
+          }
+        }
+
         const { error: updateErr } = await supabase
           .from('order_suppliers')
           .update({
             quoted_price: item.quotedPrice,
             lead_time_days: item.leadTimeDays,
-            material_cost_percent: item.materialCostPercent ?? null,
-            labor_cost_percent: item.laborCostPercent ?? null,
-            overhead_cost_percent: item.overheadCostPercent ?? null,
-            profit_margin_percent: item.profitMarginPercent ?? null
+            material_cost_percent: item.materialCostPercent ?? matchedCap?.material_cost_percent ?? null,
+            labor_cost_percent: item.laborCostPercent ?? matchedCap?.labor_cost_percent ?? null,
+            overhead_cost_percent: item.overheadCostPercent ?? matchedCap?.overhead_cost_percent ?? null,
+            profit_margin_percent: item.profitMarginPercent ?? matchedCap?.profit_margin_percent ?? null
           })
           .eq('id', dup.id)
         if (updateErr) {
@@ -1104,7 +1201,10 @@ export async function addSupplierNormalizedAction(input: ManualNormalizedInput, 
         description: cap.description?.trim() || null,
         moq: cap.moq || null,
         sku: cap.sku?.trim() || null,
-        monthly_capacity: cap.monthlyCapacity?.trim() || null
+        monthly_capacity: cap.monthlyCapacity?.trim() || null,
+        item_type: cap.itemType || 'PRODUCT',
+        image_url: cap.imageUrl || null,
+        drawing_url: cap.drawingUrl || null
       }))
 
       const { error: capsError } = await supabase
@@ -1116,17 +1216,21 @@ export async function addSupplierNormalizedAction(input: ManualNormalizedInput, 
         return { success: false, error: capsError.message }
       }
 
-      // Record to history
-      for (const cap of input.capabilities) {
-        await recordSupplierProductHistory(
-          supabase,
-          supplierId,
-          cap.productName,
-          cap.targetPrice,
-          cap.monthlyCapacity || null,
-          0,
-          'CAPABILITY_CREATE',
-          userEmail
+      // Record to history in parallel
+      if (input.capabilities.length > 0) {
+        await Promise.all(
+          input.capabilities.map(cap =>
+            recordSupplierProductHistory(
+              supabase,
+              supplierId,
+              cap.productName,
+              cap.targetPrice,
+              cap.monthlyCapacity || null,
+              0,
+              'CAPABILITY_CREATE',
+              userEmail
+            )
+          )
         )
       }
     }
@@ -1358,6 +1462,13 @@ export interface UpdateSupplierCapabilitiesInput {
   laborCostPercent?: number
   overheadCostPercent?: number
   profitMarginPercent?: number
+  leadTimeDays?: string | number | null
+  description?: string | null
+  moq?: number | null
+  sku?: string | null
+  monthlyCapacity?: string | null
+  itemType?: string | null
+  imageUrl?: string | null
 }
 
 export interface UpdateSupplierProfileInput {
@@ -1725,7 +1836,14 @@ export async function updateSupplierProfileAction(input: UpdateSupplierProfileIn
         material_cost_percent: cap.materialCostPercent,
         labor_cost_percent: cap.laborCostPercent,
         overhead_cost_percent: cap.overheadCostPercent,
-        profit_margin_percent: cap.profitMarginPercent
+        profit_margin_percent: cap.profitMarginPercent,
+        lead_time_days: cap.leadTimeDays || null,
+        description: cap.description || null,
+        moq: cap.moq || null,
+        sku: cap.sku || null,
+        monthly_capacity: cap.monthlyCapacity || null,
+        item_type: cap.itemType || 'PRODUCT',
+        image_url: cap.imageUrl || null
       }))
 
       const { error: insertError } = await supabase

@@ -1,0 +1,923 @@
+﻿=== STEP 673 ===
+Created At: 2026-07-13T04:44:36Z
+Completed At: 2026-07-13T04:44:36Z
+File Path: `file:///d:/TR/Sourcing%20Hub/Tr-sourcing/src/app/%28dashboard%29/sourcing/sourcing-client.tsx`
+Total Lines: 6696
+Total Bytes: 369728
+Showing lines 2601 to 2750
+The following code has been modified to include a line number before every line, in the format: <line_number>: <original_line>. Please note that any changes targeting the original code should remove the line number, colon, and leading space.
+2601:                         
+2602:                         {/* Address */}
+2603:                         {supplierColumnVisibility.address && (
+2604:                           <td className="px-6 py-3 w-[15%] min-w-[200px]">
+2605:                             <Input
+2606:                               type="text"
+2607:                               placeholder="Address"
+2608:                               value={inlineSupplier.address}
+2609:                               onChange={(e) => setInlineSupplier(prev => ({ ...prev, address: e.target.value }))}
+2610:                               className="h-8 text-xs px-2 focus-visible:ring-[#5c59e9] border-slate-200 dark:border-slate-800"
+2611:                             />
+2612:                           </td>
+2613:                         )}
+2614:                         
+2615:                         {/* Main Products */}
+2616:                         {supplierColumnVisibility.mainProducts && (
+2617:                           <td className="px-6 py-3 w-[16%] min-w-[200px]">
+2618:                             <div className="relative">
+2619:                               <Input
+2620:                                 type="text"
+2621:                                 readOnly
+2622:                                 placeholder="Click to configure..."
+2623:                                 value={inlineSupplier.mainProducts || (inlineCapabilities.filter(c => c.productName.trim() !== '').map(c => c.productName.trim()).join(', '))}
+2624:                                 onClick={() => setIsInlineProductsModalOpen(true)}
+2625:                                 className="h-8 text-xs pl-2 pr-8 focus-visible:ring-[#5c59e9] border-slate-200 dark:border-slate-800 cursor-pointer bg-slate-50/50 hover:bg-slate-50 truncate"
+2626:                               />
+2627:                               <Edit 
+2628:                                 size={12} 
+2629:                                 className="absolute right-2.5 top-2.5 text-slate-400 pointer-events-none" 
+2630:                               />
+2631:                             </div>
+2632:                           </td>
+2633:                         )}
+2634:                         
+2635:                         {/* Uploaded By */}
+2636:                         {supplierColumnVisibility.uploadedBy && (
+2637:                           <td className="px-6 py-3 text-center w-[10%] min-w-[110px] text-slate-400 text-[10px]">
+2638:                             You
+2639:                           </td>
+2640:                         )}
+2641:                         
+2642:                         {/* Actions */}
+2643:                         <td className="px-6 py-3 text-center w-[10%] min-w-[110px]">
+2644:                           <div className="flex items-center justify-center gap-1.5">
+2645:                             <Button
+2646:                               type="button"
+2647:                               disabled={isSavingInline}
+2648:                               onClick={handleSaveInlineSupplier}
+2649:                               className="h-7 px-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-[10px] font-semibold cursor-pointer inline-flex items-center gap-1"
+2650:                             >
+2651:                               {isSavingInline ? (
+2652:                                 <Loader2 size={10} className="animate-spin" />
+2653:                               ) : (
+2654:                                 <Check size={10} />
+2655:                               )}
+2656:                               <span>Save</span>
+2657:                             </Button>
+2658:                             <Button
+2659:                               type="button"
+2660:                               disabled={isSavingInline}
+2661:                               onClick={() => {
+2662:                                 setIsInlineAdding(false)
+2663:                                 setInlineSupplier({
+2664:                                   name: '',
+2665:                                   email: '',
+2666:                                   phone: '',
+2667:                                   contactPerson: '',
+2668:                                   website: '',
+2669:                                   address: '',
+2670:                                   mainProducts: ''
+2671:                                 })
+2672:                                 setInlineCapabilities([
+2673:                                   { id: Math.random().toString(), productName: '', targetPrice: '', leadTimeDays: '', imageUrl: null, drawingUrls: [] }
+2674:                                 ])
+2675:                               }}
+2676:                               className="h-7 px-2 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 rounded-lg text-[10px] font-semibold cursor-pointer inline-flex items-center gap-1"
+2677:                             >
+2678:                               <X size={10} />
+2679:                               <span>Cancel</span>
+2680:                             </Button>
+2681:                           </div>
+2682:                         </td>
+2683:                       </tr>
+2684:                     )}
+2685:                     {sortedUniqueSuppliers.map(supplier => {
+2686:                       const isSelected = selectedSupplierIds.includes(supplier.id)
+2687:                       return (
+2688:                         <tr 
+2689:                           key={supplier.id} 
+2690:                           onDoubleClick={() => handleOpenProfile(supplier.rawRecord)}
+2691:                           className={`cursor-pointer select-none hover:bg-slate-50/50 dark:hover:bg-slate-900/20 ${isSelected ? 'bg-indigo-50/30 dark:bg-indigo-950/10' : ''}`}
+2692:                         >
+2693:                           {isManageMode && (
+2694:                             <td className="px-6 py-4 w-12 text-center">
+2695:                               <input 
+2696:                                 type="checkbox"
+2697:                                 checked={isSelected}
+2698:                                 onChange={(e) => {
+2699:                                   if (e.target.checked) {
+2700:                                     setSelectedSupplierIds(prev => [...prev, supplier.id])
+2701:                                   } else {
+2702:                                     setSelectedSupplierIds(prev => prev.filter(id => id !== supplier.id))
+2703:                                   }
+2704:                                 }}
+2705:                                 className="rounded text-[#5c59e9] focus:ring-[#5c59e9] h-3.5 w-3.5 cursor-pointer"
+2706:                               />
+2707:                             </td>
+2708:                           )}
+2709:                           {/* Supplier Name */}
+2710:                           {supplierColumnVisibility.supplierName && (
+2711:                             <td className="px-6 py-4 font-semibold text-slate-800 dark:text-slate-200 w-[20%] min-w-[220px]">
+2712:                               <a
+2713:                                 href={`/management/supplier/${supplier.id}`}
+2714:                                 target="_blank"
+2715:                                 rel="noopener noreferrer"
+2716:                                 className="inline-flex items-center px-2.5 py-1 rounded bg-[#5c59e9]/10 text-[#5c59e9] hover:bg-[#5c59e9]/20 dark:bg-[#5c59e9]/20 dark:text-indigo-350 dark:hover:bg-[#5c59e9]/30 transition-colors font-semibold"
+2717:                               >
+2718:                                 {supplier.name}
+2719:                               </a>
+2720:                             </td>
+2721:                           )}
+2722: 
+2723:                           {/* Email */}
+2724:                           {supplierColumnVisibility.email && (
+2725:                             <td className="px-6 py-4 text-slate-600 dark:text-slate-450 w-[15%] min-w-[180px]">
+2726:                               {supplier.email || 'â€”'}
+2727:                             </td>
+2728:                           )}
+2729: 
+2730:                           {/* Phone */}
+2731:                           {supplierColumnVisibility.phone && (
+2732:                             <td className="px-6 py-4 text-slate-600 dark:text-slate-450 w-[10%] min-w-[130px]">
+2733:                               {supplier.phone || 'â€”'}
+2734:                             </td>
+2735:                           )}
+2736: 
+2737:                           {/* Contact Person */}
+2738:                           {supplierColumnVisibility.contactPerson && (
+2739:                             <td className="px-6 py-4 text-slate-700 dark:text-slate-355 font-semibold w-[12%] min-w-[150px]">
+2740:                               {supplier.contact_person || 'â€”'}
+2741:                             </td>
+2742:                           )}
+2743: 
+2744:                           {/* Website Link */}
+2745:                           {supplierColumnVisibility.website && (
+2746:                             <td className="px-6 py-4 w-[12%] min-w-[150px]">
+2747:                               {supplier.website ? (
+2748:                                 <a 
+2749:                                   href={supplier.website.startsWith('http') ? supplier.website : `https://${supplier.website}`}
+2750:                                   target="_blank" 
+The above content does NOT show the entire file contents. If you need to view any lines of the file which were not shown to complete your task, call this tool again to view those lines.
+
+=== STEP 675 ===
+Created At: 2026-07-13T04:44:38Z
+Completed At: 2026-07-13T04:44:38Z
+File Path: `file:///d:/TR/Sourcing%20Hub/Tr-sourcing/src/app/%28dashboard%29/sourcing/sourcing-client.tsx`
+Total Lines: 6696
+Total Bytes: 369728
+Showing lines 2751 to 2830
+The following code has been modified to include a line number before every line, in the format: <line_number>: <original_line>. Please note that any changes targeting the original code should remove the line number, colon, and leading space.
+2751:                                   rel="noopener noreferrer"
+2752:                                   className="inline-flex items-center gap-1 px-2.5 py-1 rounded bg-slate-100 dark:bg-slate-800/80 text-[#5c59e9] dark:text-indigo-400 hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors font-semibold"
+2753:                                 >
+2754:                                   <Globe size={12} className="text-slate-400" />
+2755:                                   <span>{supplier.website.replace(/^https?:\/\/(www\.)?/, '')}</span>
+2756:                                 </a>
+2757:                               ) : (
+2758:                                 <span className="text-slate-400">â€”</span>
+2759:                               )}
+2760:                             </td>
+2761:                           )}
+2762: 
+2763:                           {/* Address */}
+2764:                           {supplierColumnVisibility.address && (
+2765:                             <td className="px-6 py-4 text-slate-500 dark:text-slate-400 truncate max-w-xs w-[15%] min-w-[200px]" title={supplier.address || ''}>
+2766:                               {supplier.address || 'â€”'}
+2767:                             </td>
+2768:                           )}
+2769: 
+2770:                           {/* Products & Pricing */}
+2771:                           {supplierColumnVisibility.mainProducts && (
+2772:                             <td className="px-6 py-4 w-[25%] min-w-[250px]">
+2773:                               <div className="flex flex-wrap gap-1.5 max-h-[100px] overflow-y-auto no-scrollbar">
+2774:                                 {supplier.supplier_capabilities && supplier.supplier_capabilities.length > 0 ? (
+2775:                                   supplier.supplier_capabilities.map((cap: any) => (
+2776:                                     <div key={cap.id} className="flex items-center gap-1.5 px-2 py-1 bg-slate-50 dark:bg-slate-800/40 border border-slate-100 dark:border-slate-800/60 rounded-lg text-[10px] font-bold shadow-2xs">
+2777:                                       {cap.image_url ? (
+2778:                                         <img
+2779:                                           src={cap.image_url}
+2780:                                           alt={cap.product_name}
+2781:                                           onClick={(e) => {
+2782:                                             e.stopPropagation()
+2783:                                             setLightboxImage(cap.image_url || null)
+2784:                                           }}
+2785:                                           className="h-6 w-6 rounded-md object-cover cursor-zoom-in hover:scale-110 transition-transform duration-200 border border-slate-200/50"
+2786:                                         />
+2787:                                       ) : (
+2788:                                         <div className="h-6 w-6 rounded-md bg-slate-150 dark:bg-slate-800 flex items-center justify-center text-slate-400">
+2789:                                           <Package size={12} />
+2790:                                         </div>
+2791:                                       )}
+2792:                                       <div className="flex flex-col">
+2793:                                         <span className="text-slate-700 dark:text-slate-350 truncate max-w-[80px]" title={cap.product_name}>{cap.product_name}</span>
+2794:                                         <span className="text-[#5c59e9] dark:text-indigo-400 font-extrabold">${parseFloat(String(cap.target_price || 0)).toFixed(2)}</span>
+2795:                                       </div>
+2796:                                     </div>
+2797:                                   ))
+2798:                                 ) : (
+2799:                                   <span className="text-slate-400 italic font-normal text-[11px]">â€” No products</span>
+2800:                                 )}
+2801:                               </div>
+2802:                             </td>
+2803:                           )}
+2804: 
+2805:                           {/* Reliability Score */}
+2806:                           {supplierColumnVisibility.reliability && (
+2807:                             <td className="px-6 py-4 text-center w-[10%] min-w-[110px]">
+2808:                               {supplier.reliability_score != null ? (
+2809:                                 <div className="flex flex-col items-center gap-1">
+2810:                                   <Badge className={`text-[10px] font-bold rounded-lg px-2 py-0.5 border-0 ${
+2811:                                     supplier.reliability_score >= 90 
+2812:                                       ? 'bg-emerald-500/10 text-emerald-600 dark:bg-emerald-950/20' 
+2813:                                       : supplier.reliability_score >= 75 
+2814:                                       ? 'bg-amber-500/10 text-amber-600 dark:bg-amber-955/20' 
+2815:                                       : 'bg-rose-500/10 text-rose-600 dark:bg-rose-955/20'
+2816:                                   }`}>
+2817:                                     {supplier.reliability_score}%
+2818:                                   </Badge>
+2819:                                   <div className="w-12 h-1 bg-slate-100 dark:bg-slate-800 rounded-full overflow-hidden">
+2820:                                     <div 
+2821:                                       className={`h-full rounded-full ${
+2822:                                         supplier.reliability_score >= 90 ? 'bg-emerald-500' : supplier.reliability_score >= 75 ? 'bg-amber-500' : 'bg-rose-500'
+2823:                                       }`}
+2824:                                       style={{ width: `${supplier.reliability_score}%` }}
+2825:                                     />
+2826:                                   </div>
+2827:                                 </div>
+2828:                               ) : (
+2829:                                 <span className="text-slate-400">â€”</span>
+2830:                               )}
+The above content does NOT show the entire file contents. If you need to view any lines of the file which were not shown to complete your task, call this tool again to view those lines.
+
+=== STEP 677 ===
+Created At: 2026-07-13T04:44:40Z
+Completed At: 2026-07-13T04:44:40Z
+File Path: `file:///d:/TR/Sourcing%20Hub/Tr-sourcing/src/app/%28dashboard%29/sourcing/sourcing-client.tsx`
+Total Lines: 6696
+Total Bytes: 369728
+Showing lines 2831 to 2890
+The following code has been modified to include a line number before every line, in the format: <line_number>: <original_line>. Please note that any changes targeting the original code should remove the line number, colon, and leading space.
+2831:                             </td>
+2832:                           )}
+2833: 
+2834:                           {/* Quality Rating */}
+2835:                           {supplierColumnVisibility.quality && (
+2836:                             <td className="px-6 py-4 text-center w-[10%] min-w-[110px]">
+2837:                               {supplier.quality_rating ? (
+2838:                                 <div className="flex items-center justify-center gap-0.5 text-amber-500 dark:text-amber-400 font-extrabold text-[11px] bg-amber-500/5 px-2 py-1 rounded-md border border-amber-500/10 max-w-fit mx-auto">
+2839:                                   <Star size={11} className="fill-current text-amber-500" />
+2840:                                   <span>{parseFloat(supplier.quality_rating).toFixed(1)}</span>
+2841:                                 </div>
+2842:                               ) : (
+2843:                                 <span className="text-slate-400">â€”</span>
+2844:                               )}
+2845:                             </td>
+2846:                           )}
+2847: 
+2848:                           {/* Avg Lead Time */}
+2849:                           {supplierColumnVisibility.leadTime && (
+2850:                             <td className="px-6 py-4 text-center w-[10%] min-w-[110px] font-bold text-slate-700 dark:text-slate-300">
+2851:                               {supplier.lead_time_average != null ? `${supplier.lead_time_average} days` : 'â€”'}
+2852:                             </td>
+2853:                           )}
+2854: 
+2855:                           {/* Uploaded By */}
+2856:                           {supplierColumnVisibility.uploadedBy && (
+2857:                             <td className="px-6 py-4 text-center w-[10%] min-w-[110px]">
+2858:                               <span 
+2859:                                 className="text-slate-600 dark:text-slate-400 font-semibold text-[11px] bg-slate-50 dark:bg-slate-800/40 px-2.5 py-1 rounded-md border border-slate-100 dark:border-slate-800/60"
+2860:                                 title={supplier.created_by || 'System'}
+2861:                               >
+2862:                                 {supplier.created_by ? supplier.created_by.split('@')[0] : 'System'}
+2863:                               </span>
+2864:                             </td>
+2865:                           )}
+2866: 
+2867:                           {/* Actions */}
+2868:                           <td className="px-6 py-4 text-center w-[10%] min-w-[110px]">
+2869:                             <Button
+2870:                               type="button"
+2871:                               onClick={() => {
+2872:                                 handleOpenProfile(supplier.rawRecord)
+2873:                                 setIsProfileEditMode(true)
+2874:                               }}
+2875:                               className="h-7 px-2.5 bg-[#5c59e9] hover:bg-[#4a47d2] text-white rounded-lg text-[10px] font-semibold cursor-pointer inline-flex items-center gap-1.5"
+2876:                             >
+2877:                               <Edit size={10} />
+2878:                               <span>Update</span>
+2879:                             </Button>
+2880:                           </td>
+2881:                         </tr>
+2882:                       )
+2883:                     })}
+2884:                   </tbody>
+2885:                 </table>
+2886:               </div>
+2887:             )}
+2888:           </CardContent>
+2889:         </Card>
+2890:       </TabsContent>
+The above content does NOT show the entire file contents. If you need to view any lines of the file which were not shown to complete your task, call this tool again to view those lines.
+
+=== STEP 681 ===
+Created At: 2026-07-13T04:47:13Z
+Completed At: 2026-07-13T04:47:13Z
+File Path: `file:///d:/TR/Sourcing%20Hub/Tr-sourcing/src/app/%28dashboard%29/sourcing/sourcing-client.tsx`
+Total Lines: 6696
+Total Bytes: 369728
+Showing lines 1285 to 1320
+The following code has been modified to include a line number before every line, in the format: <line_number>: <original_line>. Please note that any changes targeting the original code should remove the line number, colon, and leading space.
+1285: 
+1286:   // Column Visibility State for Supplier Profiles tab
+1287:   const [supplierColumnVisibility, setSupplierColumnVisibility] = useState<Record<string, boolean>>({
+1288:     supplierName: true,
+1289:     email: false,
+1290:     phone: false,
+1291:     contactPerson: true,
+1292:     website: false,
+1293:     address: false,
+1294:     mainProducts: true,
+1295:     reliability: true,
+1296:     quality: true,
+1297:     leadTime: true,
+1298:     uploadedBy: false
+1299:   })
+1300: 
+1301:   const supplierToggleableColumns = [
+1302:     { key: 'supplierName', label: 'Supplier Name' },
+1303:     { key: 'email', label: 'Email' },
+1304:     { key: 'phone', label: 'Phone' },
+1305:     { key: 'contactPerson', label: 'Contact Person' },
+1306:     { key: 'website', label: 'Website' },
+1307:     { key: 'address', label: 'Address' },
+1308:     { key: 'mainProducts', label: 'Products & Pricing' },
+1309:     { key: 'reliability', label: 'Reliability Score' },
+1310:     { key: 'quality', label: 'Quality Rating' },
+1311:     { key: 'leadTime', label: 'Avg Lead Time' },
+1312:     { key: 'uploadedBy', label: 'Uploaded By' }
+1313:   ]
+1314: 
+1315:   // Column Visibility State following TanStack Table model (All Suppliers)
+1316:   const [columnVisibility, setColumnVisibility] = useState<Record<string, boolean>>({
+1317:     supplierName: true,
+1318:     email: false,
+1319:     phone: false,
+1320:     address: false,
+The above content does NOT show the entire file contents. If you need to view any lines of the file which were not shown to complete your task, call this tool again to view those lines.
+
+=== STEP 685 ===
+Created At: 2026-07-13T04:47:18Z
+Completed At: 2026-07-13T04:47:18Z
+File Path: `file:///d:/TR/Sourcing%20Hub/Tr-sourcing/src/app/%28dashboard%29/sourcing/sourcing-client.tsx`
+Total Lines: 6696
+Total Bytes: 369728
+Showing lines 2465 to 2535
+The following code has been modified to include a line number before every line, in the format: <line_number>: <original_line>. Please note that any changes targeting the original code should remove the line number, colon, and leading space.
+2465:                         </th>
+2466:                       )}
+2467:                       {supplierColumnVisibility.supplierName && (
+2468:                         <th 
+2469:                           className="px-6 py-4 w-[15%] min-w-[180px] cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors select-none"
+2470:                           onClick={() => handleSort('name')}
+2471:                         >
+2472:                           <div className="flex items-center gap-1">
+2473:                             <span>Supplier Name</span>
+2474:                             <ArrowUpDown size={12} className={supplierSort.field === 'name' ? 'text-indigo-600 dark:text-indigo-400' : 'text-slate-400 dark:text-slate-600 opacity-50'} />
+2475:                           </div>
+2476:                         </th>
+2477:                       )}
+2478:                       {supplierColumnVisibility.email && <th className="px-6 py-4 w-[15%] min-w-[180px]">Email</th>}
+2479:                       {supplierColumnVisibility.phone && <th className="px-6 py-4 w-[10%] min-w-[130px]">Phone</th>}
+2480:                       {supplierColumnVisibility.contactPerson && <th className="px-6 py-4 w-[12%] min-w-[150px]">Contact Person</th>}
+2481:                       {supplierColumnVisibility.website && <th className="px-6 py-4 w-[12%] min-w-[150px]">Website</th>}
+2482:                       {supplierColumnVisibility.address && <th className="px-6 py-4 w-[15%] min-w-[200px]">Address</th>}
+2483:                       {supplierColumnVisibility.mainProducts && <th className="px-6 py-4 w-[25%] min-w-[250px]">Products & Pricing</th>}
+2484:                       {supplierColumnVisibility.reliability && (
+2485:                         <th 
+2486:                           className="px-6 py-4 w-[10%] min-w-[110px] text-center cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors select-none"
+2487:                           onClick={() => handleSort('reliability')}
+2488:                         >
+2489:                           <div className="flex items-center justify-center gap-1 w-full">
+2490:                             <span>Reliability</span>
+2491:                             <ArrowUpDown size={12} className={supplierSort.field === 'reliability' ? 'text-indigo-600 dark:text-indigo-400' : 'text-slate-400 dark:text-slate-600 opacity-50'} />
+2492:                           </div>
+2493:                         </th>
+2494:                       )}
+2495:                       {supplierColumnVisibility.quality && (
+2496:                         <th 
+2497:                           className="px-6 py-4 w-[10%] min-w-[110px] text-center cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors select-none"
+2498:                           onClick={() => handleSort('quality')}
+2499:                         >
+2500:                           <div className="flex items-center justify-center gap-1 w-full">
+2501:                             <span>Quality</span>
+2502:                             <ArrowUpDown size={12} className={supplierSort.field === 'quality' ? 'text-indigo-600 dark:text-indigo-400' : 'text-slate-400 dark:text-slate-600 opacity-50'} />
+2503:                           </div>
+2504:                         </th>
+2505:                       )}
+2506:                       {supplierColumnVisibility.leadTime && (
+2507:                         <th 
+2508:                           className="px-6 py-4 w-[10%] min-w-[110px] text-center cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors select-none"
+2509:                           onClick={() => handleSort('leadTime')}
+2510:                         >
+2511:                           <div className="flex items-center justify-center gap-1 w-full">
+2512:                             <span>Avg Lead Time</span>
+2513:                             <ArrowUpDown size={12} className={supplierSort.field === 'leadTime' ? 'text-indigo-600 dark:text-indigo-400' : 'text-slate-400 dark:text-slate-600 opacity-50'} />
+2514:                           </div>
+2515:                         </th>
+2516:                       )}
+2517:                       {supplierColumnVisibility.uploadedBy && (
+2518:                         <th 
+2519:                           className="px-6 py-4 w-[10%] min-w-[110px] text-center cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors select-none"
+2520:                           onClick={() => handleSort('created_by')}
+2521:                         >
+2522:                           <div className="flex items-center justify-center gap-1 w-full">
+2523:                             <span>Upload By</span>
+2524:                             <ArrowUpDown size={12} className={supplierSort.field === 'created_by' ? 'text-indigo-600 dark:text-indigo-400' : 'text-slate-400 dark:text-slate-600 opacity-50'} />
+2525:                           </div>
+2526:                         </th>
+2527:                       )}
+2528:                       <th className="px-6 py-4 w-[10%] min-w-[110px] text-center">Actions</th>
+2529:                     </tr>
+2530:                   </thead>
+2531:                   <tbody className="divide-y divide-slate-100 dark:divide-slate-800 text-xs">
+2532:                     {isInlineAdding && (
+2533:                       <tr className="bg-indigo-50/10 dark:bg-indigo-950/5 border-b border-indigo-100 dark:border-indigo-900/40">
+2534:                         {isManageMode && <td />}
+2535:                         
+The above content does NOT show the entire file contents. If you need to view any lines of the file which were not shown to complete your task, call this tool again to view those lines.
+
+=== STEP 690 ===
+Created At: 2026-07-13T04:47:25Z
+Completed At: 2026-07-13T04:47:25Z
+File Path: `file:///d:/TR/Sourcing%20Hub/Tr-sourcing/src/app/%28dashboard%29/sourcing/sourcing-client.tsx`
+Total Lines: 6696
+Total Bytes: 369728
+Showing lines 2532 to 2686
+The following code has been modified to include a line number before every line, in the format: <line_number>: <original_line>. Please note that any changes targeting the original code should remove the line number, colon, and leading space.
+2532:                     {isInlineAdding && (
+2533:                       <tr className="bg-indigo-50/10 dark:bg-indigo-950/5 border-b border-indigo-100 dark:border-indigo-900/40">
+2534:                         {isManageMode && <td />}
+2535:                         
+2536:                         {/* Supplier Name */}
+2537:                         {supplierColumnVisibility.supplierName && (
+2538:                           <td className="px-6 py-3 w-[20%] min-w-[220px]">
+2539:                             <Input
+2540:                               type="text"
+2541:                               placeholder="Supplier Name *"
+2542:                               value={inlineSupplier.name}
+2543:                               onChange={(e) => setInlineSupplier(prev => ({ ...prev, name: e.target.value }))}
+2544:                               className="h-8 text-xs px-2 focus-visible:ring-[#5c59e9] border-slate-200 dark:border-slate-800"
+2545:                               autoFocus
+2546:                             />
+2547:                           </td>
+2548:                         )}
+2549:                         
+2550:                         {/* Email */}
+2551:                         {supplierColumnVisibility.email && (
+2552:                           <td className="px-6 py-3 w-[15%] min-w-[180px]">
+2553:                             <Input
+2554:                               type="email"
+2555:                               placeholder="Email"
+2556:                               value={inlineSupplier.email}
+2557:                               onChange={(e) => setInlineSupplier(prev => ({ ...prev, email: e.target.value }))}
+2558:                               className="h-8 text-xs px-2 focus-visible:ring-[#5c59e9] border-slate-200 dark:border-slate-800"
+2559:                             />
+2560:                           </td>
+2561:                         )}
+2562:                         
+2563:                         {/* Phone */}
+2564:                         {supplierColumnVisibility.phone && (
+2565:                           <td className="px-6 py-3 w-[10%] min-w-[130px]">
+2566:                             <Input
+2567:                               type="text"
+2568:                               placeholder="Phone"
+2569:                               value={inlineSupplier.phone}
+2570:                               onChange={(e) => setInlineSupplier(prev => ({ ...prev, phone: e.target.value }))}
+2571:                               className="h-8 text-xs px-2 focus-visible:ring-[#5c59e9] border-slate-200 dark:border-slate-800"
+2572:                             />
+2573:                           </td>
+2574:                         )}
+2575:                         
+2576:                         {/* Contact Person */}
+2577:                         {supplierColumnVisibility.contactPerson && (
+2578:                           <td className="px-6 py-3 w-[12%] min-w-[150px]">
+2579:                             <Input
+2580:                               type="text"
+2581:                               placeholder="Contact Person"
+2582:                               value={inlineSupplier.contactPerson}
+2583:                               onChange={(e) => setInlineSupplier(prev => ({ ...prev, contactPerson: e.target.value }))}
+2584:                               className="h-8 text-xs px-2 focus-visible:ring-[#5c59e9] border-slate-200 dark:border-slate-800"
+2585:                             />
+2586:                           </td>
+2587:                         )}
+2588:                         
+2589:                         {/* Website */}
+2590:                         {supplierColumnVisibility.website && (
+2591:                           <td className="px-6 py-3 w-[12%] min-w-[150px]">
+2592:                             <Input
+2593:                               type="text"
+2594:                               placeholder="Website"
+2595:                               value={inlineSupplier.website}
+2596:                               onChange={(e) => setInlineSupplier(prev => ({ ...prev, website: e.target.value }))}
+2597:                               className="h-8 text-xs px-2 focus-visible:ring-[#5c59e9] border-slate-200 dark:border-slate-800"
+2598:                             />
+2599:                           </td>
+2600:                         )}
+2601:                         
+2602:                         {/* Address */}
+2603:                         {supplierColumnVisibility.address && (
+2604:                           <td className="px-6 py-3 w-[15%] min-w-[200px]">
+2605:                             <Input
+2606:                               type="text"
+2607:                               placeholder="Address"
+2608:                               value={inlineSupplier.address}
+2609:                               onChange={(e) => setInlineSupplier(prev => ({ ...prev, address: e.target.value }))}
+2610:                               className="h-8 text-xs px-2 focus-visible:ring-[#5c59e9] border-slate-200 dark:border-slate-800"
+2611:                             />
+2612:                           </td>
+2613:                         )}
+2614:                         
+2615:                         {/* Main Products */}
+2616:                         {supplierColumnVisibility.mainProducts && (
+2617:                           <td className="px-6 py-3 w-[16%] min-w-[200px]">
+2618:                             <div className="relative">
+2619:                               <Input
+2620:                                 type="text"
+2621:                                 readOnly
+2622:                                 placeholder="Click to configure..."
+2623:                                 value={inlineSupplier.mainProducts || (inlineCapabilities.filter(c => c.productName.trim() !== '').map(c => c.productName.trim()).join(', '))}
+2624:                                 onClick={() => setIsInlineProductsModalOpen(true)}
+2625:                                 className="h-8 text-xs pl-2 pr-8 focus-visible:ring-[#5c59e9] border-slate-200 dark:border-slate-800 cursor-pointer bg-slate-50/50 hover:bg-slate-50 truncate"
+2626:                               />
+2627:                               <Edit 
+2628:                                 size={12} 
+2629:                                 className="absolute right-2.5 top-2.5 text-slate-400 pointer-events-none" 
+2630:                               />
+2631:                             </div>
+2632:                           </td>
+2633:                         )}
+2634:                         
+2635:                         {/* Uploaded By */}
+2636:                         {supplierColumnVisibility.uploadedBy && (
+2637:                           <td className="px-6 py-3 text-center w-[10%] min-w-[110px] text-slate-400 text-[10px]">
+2638:                             You
+2639:                           </td>
+2640:                         )}
+2641:                         
+2642:                         {/* Actions */}
+2643:                         <td className="px-6 py-3 text-center w-[10%] min-w-[110px]">
+2644:                           <div className="flex items-center justify-center gap-1.5">
+2645:                             <Button
+2646:                               type="button"
+2647:                               disabled={isSavingInline}
+2648:                               onClick={handleSaveInlineSupplier}
+2649:                               className="h-7 px-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg text-[10px] font-semibold cursor-pointer inline-flex items-center gap-1"
+2650:                             >
+2651:                               {isSavingInline ? (
+2652:                                 <Loader2 size={10} className="animate-spin" />
+2653:                               ) : (
+2654:                                 <Check size={10} />
+2655:                               )}
+2656:                               <span>Save</span>
+2657:                             </Button>
+2658:                             <Button
+2659:                               type="button"
+2660:                               disabled={isSavingInline}
+2661:                               onClick={() => {
+2662:                                 setIsInlineAdding(false)
+2663:                                 setInlineSupplier({
+2664:                                   name: '',
+2665:                                   email: '',
+2666:                                   phone: '',
+2667:                                   contactPerson: '',
+2668:                                   website: '',
+2669:                                   address: '',
+2670:                                   mainProducts: ''
+2671:                                 })
+2672:                                 setInlineCapabilities([
+2673:                                   { id: Math.random().toString(), productName: '', targetPrice: '', leadTimeDays: '', imageUrl: null, drawingUrls: [] }
+2674:                                 ])
+2675:                               }}
+2676:                               className="h-7 px-2 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 rounded-lg text-[10px] font-semibold cursor-pointer inline-flex items-center gap-1"
+2677:                             >
+2678:                               <X size={10} />
+2679:                               <span>Cancel</span>
+2680:                             </Button>
+2681:                           </div>
+2682:                         </td>
+2683:                       </tr>
+2684:                     )}
+2685:                     {sortedUniqueSuppliers.map(supplier => {
+2686:                       const isSelected = selectedSupplierIds.includes(supplier.id)
+The above content does NOT show the entire file contents. If you need to view any lines of the file which were not shown to complete your task, call this tool again to view those lines.
+
+=== STEP 695 ===
+Created At: 2026-07-13T04:47:31Z
+Completed At: 2026-07-13T04:47:31Z
+File Path: `file:///d:/TR/Sourcing%20Hub/Tr-sourcing/src/app/%28dashboard%29/sourcing/sourcing-client.tsx`
+Total Lines: 6701
+Total Bytes: 370031
+Showing lines 2710 to 2883
+The following code has been modified to include a line number before every line, in the format: <line_number>: <original_line>. Please note that any changes targeting the original code should remove the line number, colon, and leading space.
+2710:                                 className="rounded text-[#5c59e9] focus:ring-[#5c59e9] h-3.5 w-3.5 cursor-pointer"
+2711:                               />
+2712:                             </td>
+2713:                           )}
+2714:                           {/* Supplier Name */}
+2715:                           {supplierColumnVisibility.supplierName && (
+2716:                             <td className="px-6 py-4 font-semibold text-slate-800 dark:text-slate-200 w-[20%] min-w-[220px]">
+2717:                               <a
+2718:                                 href={`/management/supplier/${supplier.id}`}
+2719:                                 target="_blank"
+2720:                                 rel="noopener noreferrer"
+2721:                                 className="inline-flex items-center px-2.5 py-1 rounded bg-[#5c59e9]/10 text-[#5c59e9] hover:bg-[#5c59e9]/20 dark:bg-[#5c59e9]/20 dark:text-indigo-350 dark:hover:bg-[#5c59e9]/30 transition-colors font-semibold"
+2722:                               >
+2723:                                 {supplier.name}
+2724:                               </a>
+2725:                             </td>
+2726:                           )}
+2727: 
+2728:                           {/* Email */}
+2729:                           {supplierColumnVisibility.email && (
+2730:                             <td className="px-6 py-4 text-slate-600 dark:text-slate-450 w-[15%] min-w-[180px]">
+2731:                               {supplier.email || 'â€”'}
+2732:                             </td>
+2733:                           )}
+2734: 
+2735:                           {/* Phone */}
+2736:                           {supplierColumnVisibility.phone && (
+2737:                             <td className="px-6 py-4 text-slate-600 dark:text-slate-450 w-[10%] min-w-[130px]">
+2738:                               {supplier.phone || 'â€”'}
+2739:                             </td>
+2740:                           )}
+2741: 
+2742:                           {/* Contact Person */}
+2743:                           {supplierColumnVisibility.contactPerson && (
+2744:                             <td className="px-6 py-4 text-slate-700 dark:text-slate-355 font-semibold w-[12%] min-w-[150px]">
+2745:                               {supplier.contact_person || 'â€”'}
+2746:                             </td>
+2747:                           )}
+2748: 
+2749:                           {/* Website Link */}
+2750:                           {supplierColumnVisibility.website && (
+2751:                             <td className="px-6 py-4 w-[12%] min-w-[150px]">
+2752:                               {supplier.website ? (
+2753:                                 <a 
+2754:                                   href={supplier.website.startsWith('http') ? supplier.website : `https://${supplier.website}`}
+2755:                                   target="_blank" 
+2756:                                   rel="noopener noreferrer"
+2757:                                   className="inline-flex items-center gap-1 px-2.5 py-1 rounded bg-slate-100 dark:bg-slate-800/80 text-[#5c59e9] dark:text-indigo-400 hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors font-semibold"
+2758:                                 >
+2759:                                   <Globe size={12} className="text-slate-400" />
+2760:                                   <span>{supplier.website.replace(/^https?:\/\/(www\.)?/, '')}</span>
+2761:                                 </a>
+2762:                               ) : (
+2763:                                 <span className="text-slate-400">â€”</span>
+2764:                               )}
+2765:                             </td>
+2766:                           )}
+2767: 
+2768:                           {/* Address */}
+2769:                           {supplierColumnVisibility.address && (
+2770:                             <td className="px-6 py-4 text-slate-500 dark:text-slate-400 truncate max-w-xs w-[15%] min-w-[200px]" title={supplier.address || ''}>
+2771:                               {supplier.address || 'â€”'}
+2772:                             </td>
+2773:                           )}
+2774: 
+2775:                           {/* Products & Pricing */}
+2776:                           {supplierColumnVisibility.mainProducts && (
+2777:                             <td className="px-6 py-4 w-[25%] min-w-[250px]">
+2778:                               <div className="flex flex-wrap gap-1.5 max-h-[100px] overflow-y-auto no-scrollbar">
+2779:                                 {supplier.supplier_capabilities && supplier.supplier_capabilities.length > 0 ? (
+2780:                                   supplier.supplier_capabilities.map((cap: any) => (
+2781:                                     <div key={cap.id} className="flex items-center gap-1.5 px-2 py-1 bg-slate-50 dark:bg-slate-800/40 border border-slate-100 dark:border-slate-800/60 rounded-lg text-[10px] font-bold shadow-2xs">
+2782:                                       {cap.image_url ? (
+2783:                                         <img
+2784:                                           src={cap.image_url}
+2785:                                           alt={cap.product_name}
+2786:                                           onClick={(e) => {
+2787:                                             e.stopPropagation()
+2788:                                             setLightboxImage(cap.image_url || null)
+2789:                                           }}
+2790:                                           className="h-6 w-6 rounded-md object-cover cursor-zoom-in hover:scale-110 transition-transform duration-200 border border-slate-200/50"
+2791:                                         />
+2792:                                       ) : (
+2793:                                         <div className="h-6 w-6 rounded-md bg-slate-150 dark:bg-slate-800 flex items-center justify-center text-slate-400">
+2794:                                           <Package size={12} />
+2795:                                         </div>
+2796:                                       )}
+2797:                                       <div className="flex flex-col">
+2798:                                         <span className="text-slate-700 dark:text-slate-350 truncate max-w-[80px]" title={cap.product_name}>{cap.product_name}</span>
+2799:                                         <span className="text-[#5c59e9] dark:text-indigo-400 font-extrabold">${parseFloat(String(cap.target_price || 0)).toFixed(2)}</span>
+2800:                                       </div>
+2801:                                     </div>
+2802:                                   ))
+2803:                                 ) : (
+2804:                                   <span className="text-slate-400 italic font-normal text-[11px]">â€” No products</span>
+2805:                                 )}
+2806:                               </div>
+2807:                             </td>
+2808:                           )}
+2809: 
+2810:                           {/* Reliability Score */}
+2811:                           {supplierColumnVisibility.reliability && (
+2812:                             <td className="px-6 py-4 text-center w-[10%] min-w-[110px]">
+2813:                               {supplier.reliability_score != null ? (
+2814:                                 <div className="flex flex-col items-center gap-1">
+2815:                                   <Badge className={`text-[10px] font-bold rounded-lg px-2 py-0.5 border-0 ${
+2816:                                     supplier.reliability_score >= 90 
+2817:                                       ? 'bg-emerald-500/10 text-emerald-600 dark:bg-emerald-950/20' 
+2818:                                       : supplier.reliability_score >= 75 
+2819:                                       ? 'bg-amber-500/10 text-amber-600 dark:bg-amber-955/20' 
+2820:                                       : 'bg-rose-500/10 text-rose-600 dark:bg-rose-955/20'
+2821:                                   }`}>
+2822:                                     {supplier.reliability_score}%
+2823:                                   </Badge>
+2824:                                   <div className="w-12 h-1 bg-slate-100 dark:bg-slate-800 rounded-full overflow-hidden">
+2825:                                     <div 
+2826:                                       className={`h-full rounded-full ${
+2827:                                         supplier.reliability_score >= 90 ? 'bg-emerald-500' : supplier.reliability_score >= 75 ? 'bg-amber-500' : 'bg-rose-500'
+2828:                                       }`}
+2829:                                       style={{ width: `${supplier.reliability_score}%` }}
+2830:                                     />
+2831:                                   </div>
+2832:                                 </div>
+2833:                               ) : (
+2834:                                 <span className="text-slate-400">â€”</span>
+2835:                               )}
+2836:                             </td>
+2837:                           )}
+2838: 
+2839:                           {/* Quality Rating */}
+2840:                           {supplierColumnVisibility.quality && (
+2841:                             <td className="px-6 py-4 text-center w-[10%] min-w-[110px]">
+2842:                               {supplier.quality_rating ? (
+2843:                                 <div className="flex items-center justify-center gap-0.5 text-amber-500 dark:text-amber-400 font-extrabold text-[11px] bg-amber-500/5 px-2 py-1 rounded-md border border-amber-500/10 max-w-fit mx-auto">
+2844:                                   <Star size={11} className="fill-current text-amber-500" />
+2845:                                   <span>{parseFloat(supplier.quality_rating).toFixed(1)}</span>
+2846:                                 </div>
+2847:                               ) : (
+2848:                                 <span className="text-slate-400">â€”</span>
+2849:                               )}
+2850:                             </td>
+2851:                           )}
+2852: 
+2853:                           {/* Avg Lead Time */}
+2854:                           {supplierColumnVisibility.leadTime && (
+2855:                             <td className="px-6 py-4 text-center w-[10%] min-w-[110px] font-bold text-slate-700 dark:text-slate-300">
+2856:                               {supplier.lead_time_average != null ? `${supplier.lead_time_average} days` : 'â€”'}
+2857:                             </td>
+2858:                           )}
+2859: 
+2860:                           {/* Uploaded By */}
+2861:                           {supplierColumnVisibility.uploadedBy && (
+2862:                             <td className="px-6 py-4 text-center w-[10%] min-w-[110px]">
+2863:                               <span 
+2864:                                 className="text-slate-600 dark:text-slate-400 font-semibold text-[11px] bg-slate-50 dark:bg-slate-800/40 px-2.5 py-1 rounded-md border border-slate-100 dark:border-slate-800/60"
+2865:                                 title={supplier.created_by || 'System'}
+2866:                               >
+2867:                                 {supplier.created_by ? supplier.created_by.split('@')[0] : 'System'}
+2868:                               </span>
+2869:                             </td>
+2870:                           )}
+2871: 
+2872:                           {/* Actions */}
+2873:                           <td className="px-6 py-4 text-center w-[10%] min-w-[110px]">
+2874:                             <Button
+2875:                               type="button"
+2876:                               onClick={() => {
+2877:                                 handleOpenProfile(supplier.rawRecord)
+2878:                                 setIsProfileEditMode(true)
+2879:                               }}
+2880:                               className="h-7 px-2.5 bg-[#5c59e9] hover:bg-[#4a47d2] text-white rounded-lg text-[10px] font-semibold cursor-pointer inline-flex items-center gap-1.5"
+2881:                             >
+2882:                               <Edit size={10} />
+2883:                               <span>Update</span>
+The above content does NOT show the entire file contents. If you need to view any lines of the file which were not shown to complete your task, call this tool again to view those lines.
+
+=== STEP 699 ===
+Created At: 2026-07-13T04:47:39Z
+Completed At: 2026-07-13T04:47:39Z
+File Path: `file:///d:/TR/Sourcing%20Hub/Tr-sourcing/src/app/%28dashboard%29/sourcing/sourcing-client.tsx`
+Total Lines: 6698
+Total Bytes: 370049
+Showing lines 2680 to 2730
+The following code has been modified to include a line number before every line, in the format: <line_number>: <original_line>. Please note that any changes targeting the original code should remove the line number, colon, and leading space.
+2680:                               }}
+2681:                               className="h-7 px-2 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 rounded-lg text-[10px] font-semibold cursor-pointer inline-flex items-center gap-1"
+2682:                             >
+2683:                               <X size={10} />
+2684:                               <span>Cancel</span>
+2685:                             </Button>
+2686:                           </div>
+2687:                         </td>
+2688:                       </tr>
+2689:                     )}
+2690:                     {sortedUniqueSuppliers.map(supplier => {
+2691:                       const isSelected = selectedSupplierIds.includes(supplier.id)
+2692:                       return (
+2693:                         <tr 
+2694:                           key={supplier.id} 
+2695:                           onDoubleClick={() => handleOpenProfile(supplier.rawRecord)}
+2696:                           className={`cursor-pointer select-none hover:bg-slate-50/50 dark:hover:bg-slate-900/20 ${isSelected ? 'bg-indigo-50/30 dark:bg-indigo-950/10' : ''}`}
+2697:                         >
+2698:                           {isManageMode && (
+2699:                             <td className="px-6 py-4 w-12 text-center">
+2700:                               <input 
+2701:                                 type="checkbox"
+2702:                                 checked={isSelected}
+2703:                                       {/* Supplier Name */}
+2704:                           {supplierColumnVisibility.supplierName && (
+2705:                             <td className="px-6 py-4 font-semibold text-slate-800 dark:text-slate-200 w-[20%] min-w-[220px]">
+2706:                               <a
+2707:                                 href={`/management/supplier/${supplier.id}`}
+2708:                                 target="_blank"
+2709:                                 rel="noopener noreferrer"
+2710:                                 className="inline-flex items-center px-2.5 py-1 rounded bg-[#5c59e9]/10 text-[#5c59e9] hover:bg-[#5c59e9]/20 dark:bg-[#5c59e9]/20 dark:text-indigo-350 dark:hover:bg-[#5c59e9]/30 transition-colors font-semibold"
+2711:                               >
+2712:                                 {supplier.name}
+2713:                               </a>
+2714:                             </td>
+2715:                           )}
+2716: 
+2717:                           {/* Products & Pricing */}
+2718:                           {supplierColumnVisibility.mainProducts && (
+2719:                             <td className="px-6 py-4 w-[25%] min-w-[250px]">
+2720:                               <div className="flex flex-wrap gap-1.5 max-h-[100px] overflow-y-auto no-scrollbar">
+2721:                                 {supplier.supplier_capabilities && supplier.supplier_capabilities.length > 0 ? (
+2722:                                   supplier.supplier_capabilities.map((cap: any) => (
+2723:                                     <div key={cap.id} className="flex items-center gap-1.5 px-2 py-1 bg-slate-50 dark:bg-slate-800/40 border border-slate-100 dark:border-slate-800/60 rounded-lg text-[10px] font-bold shadow-2xs">
+2724:                                       {cap.image_url ? (
+2725:                                         <img
+2726:                                           src={cap.image_url}
+2727:                                           alt={cap.product_name}
+2728:                                           onClick={(e) => {
+2729:                                             e.stopPropagation()
+2730:                                             setLightboxImage(cap.image_url || null)
+The above content does NOT show the entire file contents. If you need to view any lines of the file which were not shown to complete your task, call this tool again to view those lines.
+
+=== STEP 701 ===
+Created At: 2026-07-13T04:47:41Z
+Completed At: 2026-07-13T04:47:41Z
+File Path: `file:///d:/TR/Sourcing%20Hub/Tr-sourcing/src/app/%28dashboard%29/sourcing/sourcing-client.tsx`
+Total Lines: 6698
+Total Bytes: 370049
+Showing lines 2840 to 2895
+The following code has been modified to include a line number before every line, in the format: <line_number>: <original_line>. Please note that any changes targeting the original code should remove the line number, colon, and leading space.
+2840:                           )}
+2841: 
+2842:                           {/* Address */}
+2843:                           {supplierColumnVisibility.address && (
+2844:                             <td className="px-6 py-4 text-slate-500 dark:text-slate-400 truncate max-w-xs w-[15%] min-w-[200px]" title={supplier.address || ''}>
+2845:                               {supplier.address || 'â€”'}
+2846:                             </td>
+2847:                           )}
+2848: 
+2849:                           {/* Uploaded By */}
+2850:                           {supplierColumnVisibility.uploadedBy && (
+2851:                             <td className="px-6 py-4 text-center w-[10%] min-w-[110px]">
+2852:                               <span 
+2853:                                 className="text-slate-600 dark:text-slate-400 font-semibold text-[11px] bg-slate-50 dark:bg-slate-800/40 px-2.5 py-1 rounded-md border border-slate-100 dark:border-slate-800/60"
+2854:                                 title={supplier.created_by || 'System'}
+2855:                               >
+2856:                                 {supplier.created_by ? supplier.created_by.split('@')[0] : 'System'}
+2857:                               </span>
+2858:                             </td>
+2859:                           )}                           <td className="px-6 py-4 text-center w-[10%] min-w-[110px]">
+2860:                               <span 
+2861:                                 className="text-slate-600 dark:text-slate-400 font-semibold text-[11px] bg-slate-50 dark:bg-slate-800/40 px-2.5 py-1 rounded-md border border-slate-100 dark:border-slate-800/60"
+2862:                                 title={supplier.created_by || 'System'}
+2863:                               >
+2864:                                 {supplier.created_by ? supplier.created_by.split('@')[0] : 'System'}
+2865:                               </span>
+2866:                             </td>
+2867:                           )}
+2868: 
+2869:                           {/* Actions */}
+2870:                           <td className="px-6 py-4 text-center w-[10%] min-w-[110px]">
+2871:                             <Button
+2872:                               type="button"
+2873:                               onClick={() => {
+2874:                                 handleOpenProfile(supplier.rawRecord)
+2875:                                 setIsProfileEditMode(true)
+2876:                               }}
+2877:                               className="h-7 px-2.5 bg-[#5c59e9] hover:bg-[#4a47d2] text-white rounded-lg text-[10px] font-semibold cursor-pointer inline-flex items-center gap-1.5"
+2878:                             >
+2879:                               <Edit size={10} />
+2880:                               <span>Update</span>
+2881:                             </Button>
+2882:                           </td>
+2883:                         </tr>
+2884:                       )
+2885:                     })}
+2886:                   </tbody>
+2887:                 </table>
+2888:               </div>
+2889:             )}
+2890:           </CardContent>
+2891:         </Card>
+2892:       </TabsContent>
+2893: 
+2894:       <TabsContent value="workplace" className="space-y-6 mt-0 border-none p-0 focus-visible:ring-0 focus-visible:ring-offset-0">
+2895:       {/* Main Content: Order List + Matrix / All Suppliers */}
+The above content does NOT show the entire file contents. If you need to view any lines of the file which were not shown to complete your task, call this tool again to view those lines.
+

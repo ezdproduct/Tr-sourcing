@@ -50,11 +50,30 @@ export interface DatabaseSupplier {
     tax_id?: string | null
     business_type?: string | null
     certifications?: string[] | null
-    supplier_capabilities?: any[]
+    supplier_capabilities?: SupplierCapability[]
     main_products?: string[]
     created_by?: string | null
     [key: string]: any
   } | null
+}
+
+export interface SupplierCapability {
+  id: string
+  supplier_id: string
+  product_name: string
+  target_price: number
+  lead_time_days?: string | number | null
+  description?: string | null
+  moq?: number | null
+  sku?: string | null
+  monthly_capacity?: string | null
+  material_cost_percent?: number | null
+  labor_cost_percent?: number | null
+  overhead_cost_percent?: number | null
+  profit_margin_percent?: number | null
+  item_type?: string | null
+  image_url?: string | null
+  created_at?: string
 }
 
 // Derived unique supplier profile (flattened from DatabaseSupplier.suppliers)
@@ -72,7 +91,14 @@ export interface UniqueSupplier {
   bidsCount: number
   auditsCount: number
   created_by?: string | null
-  supplier_capabilities: any[]
+  reliability_score?: number | null
+  quality_rating?: string | null
+  lead_time_average?: number | null
+  on_time_delivery_rate?: number | null
+  defect_rate?: number | null
+  total_spend?: number | null
+  total_orders?: number | null
+  supplier_capabilities: SupplierCapability[]
   rawRecord: DatabaseSupplier
 }
 

@@ -1,0 +1,139 @@
+﻿=== STEP 672 ===
+=== STEP 674 ===
+=== STEP 676 ===
+=== STEP 680 ===
+=== STEP 684 ===
+=== STEP 688 ===
+Created At: 2026-07-13T04:47:22Z
+Completed At: 2026-07-13T04:47:22Z
+The following changes were made by the replace_file_content tool to: d:\TR\Sourcing Hub\Tr-sourcing\src\app\(dashboard)\sourcing\sourcing-client.tsx. If relevant, proactively run terminal commands to execute this code for the USER. Don't ask for permission.
+[diff_block_start]
+@@ -2475,11 +2475,6 @@
+                           </div>
+                         </th>
+                       )}
+-                      {supplierColumnVisibility.email && <th className="px-6 py-4 w-[15%] min-w-[180px]">Email</th>}
+-                      {supplierColumnVisibility.phone && <th className="px-6 py-4 w-[10%] min-w-[130px]">Phone</th>}
+-                      {supplierColumnVisibility.contactPerson && <th className="px-6 py-4 w-[12%] min-w-[150px]">Contact Person</th>}
+-                      {supplierColumnVisibility.website && <th className="px-6 py-4 w-[12%] min-w-[150px]">Website</th>}
+-                      {supplierColumnVisibility.address && <th className="px-6 py-4 w-[15%] min-w-[200px]">Address</th>}
+                       {supplierColumnVisibility.mainProducts && <th className="px-6 py-4 w-[25%] min-w-[250px]">Products & Pricing</th>}
+                       {supplierColumnVisibility.reliability && (
+                         <th 
+@@ -2513,6 +2513,11 @@
+                           </div>
+                         </th>
+                       )}
++                      {supplierColumnVisibility.contactPerson && <th className="px-6 py-4 w-[12%] min-w-[150px]">Contact Person</th>}
++                      {supplierColumnVisibility.email && <th className="px-6 py-4 w-[15%] min-w-[180px]">Email</th>}
++                      {supplierColumnVisibility.phone && <th className="px-6 py-4 w-[10%] min-w-[130px]">Phone</th>}
++                      {supplierColumnVisibility.website && <th className="px-6 py-4 w-[12%] min-w-[150px]">Website</th>}
++                      {supplierColumnVisibility.address && <th className="px-6 py-4 w-[15%] min-w-[200px]">Address</th>}
+                       {supplierColumnVisibility.uploadedBy && (
+                         <th 
+                           className="px-6 py-4 w-[10%] min-w-[110px] text-center cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors select-none"
+[diff_block_end]
+
+Please note that the above snippet only shows the MODIFIED lines from the last change. It shows up to 3 lines of unchanged lines before and after the modified lines. The actual file contents may have many more lines not shown.
+=== STEP 693 ===
+Created At: 2026-07-13T04:47:29Z
+Completed At: 2026-07-13T04:47:29Z
+The following changes were made by the replace_file_content tool to: d:\TR\Sourcing Hub\Tr-sourcing\src\app\(dashboard)\sourcing\sourcing-client.tsx. If relevant, proactively run terminal commands to execute this code for the USER. Don't ask for permission.
+[diff_block_start]
+@@ -2546,7 +2546,45 @@
+                             />
+                           </td>
+                         )}
+-                        
++
++                        {/* Main Products */}
++                        {supplierColumnVisibility.mainProducts && (
++                          <td className="px-6 py-3 w-[16%] min-w-[200px]">
++                            <div className="relative">
++                              <Input
++                                type="text"
++                                readOnly
++                                placeholder="Click to configure..."
++                                value={inlineSupplier.mainProducts || (inlineCapabilities.filter(c => c.productName.trim() !== '').map(c => c.productName.trim()).join(', '))}
++                                onClick={() => setIsInlineProductsModalOpen(true)}
++                                className="h-8 text-xs pl-2 pr-8 focus-visible:ring-[#5c59e9] border-slate-200 dark:border-slate-800 cursor-pointer bg-slate-50/50 hover:bg-slate-50 truncate"
++                              />
++                              <Edit 
++                                size={12} 
++                                className="absolute right-2.5 top-2.5 text-slate-400 pointer-events-none" 
++                              />
++                            </div>
++                          </td>
++                        )}
++
++                        {/* Performance columns (render empty cells to keep alignment) */}
++                        {supplierColumnVisibility.reliability && <td className="px-6 py-3" />}
++                        {supplierColumnVisibility.quality && <td className="px-6 py-3" />}
++                        {supplierColumnVisibility.leadTime && <td className="px-6 py-3" />}
++
++                        {/* Contact Person */}
++                        {supplierColumnVisibility.contactPerson && (
++                          <td className="px-6 py-3 w-[12%] min-w-[150px]">
++                            <Input
++                              type="text"
++                              placeholder="Contact Person"
++                              value={inlineSupplier.contactPerson}
++                              onChange={(e) => setInlineSupplier(prev => ({ ...prev, contactPerson: e.target.value }))}
++                              className="h-8 text-xs px-2 focus-visible:ring-[#5c59e9] border-slate-200 dark:border-slate-800"
++                            />
++                          </td>
++                        )}
++
+                         {/* Email */}
+                         {supplierColumnVisibility.email && (
+                           <td className="px-6 py-3 w-[15%] min-w-[180px]">
+@@ -2572,19 +2572,6 @@
+                           </td>
+                         )}
+                         
+-                        {/* Contact Person */}
+-                        {supplierColumnVisibility.contactPerson && (
+-                          <td className="px-6 py-3 w-[12%] min-w-[150px]">
+-                            <Input
+-                              type="text"
+-                              placeholder="Contact Person"
+-                              value={inlineSupplier.contactPerson}
+-                              onChange={(e) => setInlineSupplier(prev => ({ ...prev, contactPerson: e.target.value }))}
+-                              className="h-8 text-xs px-2 focus-visible:ring-[#5c59e9] border-slate-200 dark:border-slate-800"
+-                            />
+-                          </td>
+-                        )}
+-                        
+                         {/* Website */}
+                         {supplierColumnVisibility.website && (
+                           <td className="px-6 py-3 w-[12%] min-w-[150px]">
+@@ -2610,26 +2610,6 @@
+                           </td>
+                         )}
+                         
+-                        {/* Main Products */}
+-                        {supplierColumnVisibility.mainProducts && (
+-                          <td className="px-6 py-3 w-[16%] min-w-[200px]">
+-                            <div className="relative">
+-                              <Input
+-                                type="text"
+-                                readOnly
+-                                placeholder="Click to configure..."
+-                                value={inlineSupplier.mainProducts || (inlineCapabilities.filter(c => c.productName.trim() !== '').map(c => c.productName.trim()).join(', '))}
+-                                onClick={() => setIsInlineProductsModalOpen(true)}
+-                                className="h-8 text-xs pl-2 pr-8 focus-visible:ring-[#5c59e9] border-slate-200 dark:border-slate-800 cursor-pointer bg-slate-50/50 hover:bg-slate-50 truncate"
+-                              />
+-                              <Edit 
+-                                size={12} 
+-                                className="absolute right-2.5 top-2.5 text-slate-400 pointer-events-none" 
+-                              />
+-                            </div>
+-                          </td>
+-                        )}
+-                        
+                         {/* Uploaded By */}
+                         {supplierColumnVisibility.uploadedBy && (
+                           <td className="px-6 py-3 text-center w-[10%] min-w-[110px] text-slate-400 text-[10px]">
+[diff_block_end]
+
+Please note that the above snippet only shows the MODIFIED lines from the last change. It shows up to 3 lines of unchanged lines before and after the modified lines. The actual file contents may have many more lines not shown.
