@@ -83,11 +83,25 @@ async function ManagementLoader() {
     }))
   ].sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
 
+  const { data: userMappings } = await supabase
+    .from('sheets_user_mapping')
+    .select('*')
+    .order('created_at', { ascending: false })
+
+  const { data: rawUserIdsData } = await supabase
+    .from('sheets_raw_suppliers')
+    .select('raw_user_id')
+    .not('raw_user_id', 'is', null)
+
+  const uniqueRawUserIds = Array.from(new Set((rawUserIdsData || []).map((r) => r.raw_user_id)))
+
   return (
-    <ManagementClient 
-      initialProfiles={profiles || []} 
-      initialSuppliers={suppliers || []} 
-      initialLogs={combinedLogs} 
+    <ManagementClient
+      initialProfiles={profiles || []}
+      initialSuppliers={suppliers || []}
+      initialLogs={combinedLogs}
+      initialUserMappings={userMappings || []}
+      discoveredUserIds={uniqueRawUserIds}
     />
   )
 }

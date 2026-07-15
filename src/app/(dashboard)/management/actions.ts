@@ -402,3 +402,43 @@ export async function getSupplierProductHistoryAction(supplierId: string, produc
   }
 }
 
+export async function saveUserMappingAction(sheetsUserId: string, sourcingEmail: string, notes?: string) {
+  try {
+    const supabase = await createClient()
+    const { error } = await supabase
+      .from('sheets_user_mapping')
+      .upsert({
+        sheets_user_id: sheetsUserId.trim(),
+        sourcing_email: sourcingEmail.trim(),
+        notes: notes ? notes.trim() : null
+      }, { onConflict: 'sheets_user_id' })
+
+    if (error) throw error
+
+    revalidatePath('/management')
+    return { success: true }
+  } catch (error: any) {
+    console.error('Error in saveUserMappingAction:', error.message)
+    return { success: false, error: error.message || 'Failed to save account mapping' }
+  }
+}
+
+export async function deleteUserMappingAction(sheetsUserId: string) {
+  try {
+    const supabase = await createClient()
+    const { error } = await supabase
+      .from('sheets_user_mapping')
+      .delete()
+      .eq('sheets_user_id', sheetsUserId)
+
+    if (error) throw error
+
+    revalidatePath('/management')
+    return { success: true }
+  } catch (error: any) {
+    console.error('Error in deleteUserMappingAction:', error.message)
+    return { success: false, error: error.message || 'Failed to delete account mapping' }
+  }
+}
+
+
