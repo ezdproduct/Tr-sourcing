@@ -127,6 +127,7 @@ interface ManagementClientProps {
   initialLogs?: any[]
   initialUserMappings?: SheetsUserMapping[]
   discoveredUserIds?: string[]
+  sheetsProfiles?: any[]
 }
 
 const roleOptions = [
@@ -152,6 +153,7 @@ export function ManagementClient({
   initialLogs = [],
   initialUserMappings = [],
   discoveredUserIds = [],
+  sheetsProfiles = [],
 }: ManagementClientProps) {
   const [profiles, setProfiles] = useState<DatabaseProfile[]>(initialProfiles)
   const [suppliers, setSuppliers] = useState<any[]>(initialSuppliers)
@@ -222,6 +224,17 @@ export function ManagementClient({
           ? 'sheets-mapping'
           : 'system',
     )
+  }
+
+  // Helper to get Sheets User display name
+  const getSheetsUserDisplayName = (sheetsUserId: string) => {
+    const profile = sheetsProfiles.find((p) => p.id === sheetsUserId)
+    if (profile) {
+      const name = profile.full_name || profile.username || 'Unnamed'
+      const username = profile.username ? `@${profile.username}` : ''
+      return username ? `${name} (${username})` : name
+    }
+    return sheetsUserId
   }
 
   useEffect(() => {
@@ -1385,9 +1398,9 @@ export function ManagementClient({
                           <Badge
                             key={id}
                             variant="outline"
-                            className="border-amber-200 bg-white font-mono text-[10px] text-amber-700 dark:border-amber-900 dark:bg-slate-900 dark:text-amber-400"
+                            className="border-amber-200 bg-white text-[10px] font-semibold text-amber-700 dark:border-amber-900 dark:bg-slate-900 dark:text-amber-400"
                           >
-                            {id}
+                            {getSheetsUserDisplayName(id)}
                           </Badge>
                         ))}
                       </div>
@@ -1523,15 +1536,22 @@ export function ManagementClient({
                               key={id}
                               className="bg-amber-55/10 hover:bg-amber-55/20 dark:bg-amber-955/5 dark:hover:bg-amber-955/10"
                             >
-                              <td className="flex items-center gap-2 px-6 py-4 font-mono text-[11px] text-amber-700 dark:text-amber-400">
-                                <span className="h-1.5 w-1.5 rounded-full bg-amber-500" />
-                                {id}
-                                <Badge
-                                  variant="outline"
-                                  className="border-amber-200 bg-amber-50/50 text-[9px] text-amber-700"
-                                >
-                                  Unlinked
-                                </Badge>
+                              <td className="px-6 py-4">
+                                <div className="flex flex-col gap-0.5">
+                                  <span className="flex items-center gap-1.5 text-xs font-semibold text-slate-800 dark:text-slate-200">
+                                    <span className="h-1.5 w-1.5 flex-shrink-0 rounded-full bg-amber-500" />
+                                    {getSheetsUserDisplayName(id)}
+                                    <Badge
+                                      variant="outline"
+                                      className="scale-90 border-amber-200 bg-amber-50/50 px-1 py-0 text-[8px] text-amber-700"
+                                    >
+                                      Unlinked
+                                    </Badge>
+                                  </span>
+                                  <span className="pl-3 font-mono text-[9px] text-slate-400">
+                                    UUID: {id}
+                                  </span>
+                                </div>
                               </td>
                               <td className="px-6 py-4">
                                 <select
@@ -1608,8 +1628,15 @@ export function ManagementClient({
                             key={id}
                             className="transition-colors hover:bg-slate-50/50 dark:hover:bg-slate-900/10"
                           >
-                            <td className="px-6 py-4 font-mono text-[11px] text-slate-500 dark:text-slate-400">
-                              {id}
+                            <td className="px-6 py-4">
+                              <div className="flex flex-col gap-0.5">
+                                <span className="text-xs font-semibold text-slate-800 dark:text-slate-200">
+                                  {getSheetsUserDisplayName(id)}
+                                </span>
+                                <span className="font-mono text-[9px] text-slate-400">
+                                  UUID: {id}
+                                </span>
+                              </div>
                             </td>
                             <td className="px-6 py-4">
                               <select
